@@ -1,13 +1,14 @@
 # worker
 
-The Linux build worker turns a track spec into a Wreckfest mod. It will run as a Container Apps Job, started by a Storage Queue message. This folder holds the **toolchain image and smoke tests** (todo `toolchain-gate`) and the **Blender builder** (todo `blender-builder`, see [Blender builder](#blender-builder)); the queue-driven build script comes later.
+The Linux build worker turns a track spec into a Wreckfest mod. Locally it runs as the Compose `worker` service, which consumes the Storage Queue `builds` (later a Container Apps Job). This folder holds the **toolchain image and smoke tests** (todo `toolchain-gate`), the **Blender builder** (todo `blender-builder`, see [Blender builder](#blender-builder)) and the **pipeline and queue consumer** (todos `export-build` and `packaging`, see [Pipeline](#pipeline)).
 
 The image contains:
 
 - Blender **4.2 LTS**, which runs headless with `blender -b`;
 - the **Toolbox Mz** add-on, pinned to one commit;
 - **Wine64**, which runs the game's own `bgeometry.exe` (`.bgo3` → `.scne`) and `bimage.exe` (`.tga`/`.png` → `.bmap`);
-- the geometry core **`trackgen_geom`** (from `../geom`), installed into Blender's bundled Python 3.11 with `jsonschema` (Blender already ships numpy 1.24.3).
+- the geometry core **`trackgen_geom`** (from `../geom`), installed into Blender's bundled Python 3.11 with `jsonschema` (Blender already ships numpy 1.24.3);
+- the pipeline's packages in the same Python: **Pillow**, **cairosvg** (with `libcairo2` and `fonts-dejavu-core`), **azure-storage-queue** and **azure-storage-blob**. The image has no system Python; `wf-python` runs Blender's.
 
 Everything runs on the CPU. Blender never renders, and nothing uses `--gpus`.
 
@@ -36,9 +37,11 @@ Both licences allow redistribution, so the add-on is **installed into the image 
 | Path | In image | What |
 |---|---|---|
 | `Dockerfile` | | Image definition. The build context is the repo root. |
-| `scripts/entrypoint.sh` | `/opt/worker/scripts` | Entrypoint. `info` (default) prints versions and checks the mount. `smoke [a b c d]` runs the smoke tests. `build …` runs the Blender builder; `builder-tests […]` runs its tests. Anything else is run as a command. |
+| `scripts/entrypoint.sh` | `/opt/worker/scripts` | Entrypoint. `worker` (default) runs the queue consumer. `build-mod …` runs the pipeline without the queue. `info` prints versions and checks the mount. `smoke [a b c d]` runs the smoke tests. `build …` runs the Blender builder; `builder-tests […]` runs its tests. Anything else is run as a command. |
 | `scripts/wf-tool` | on `PATH` | `wf-tool bgeometry\|bimage <args>` runs a game tool under Wine. |
 | `scripts/wf-project` | on `PATH` | `wf-project ROOT [MOD_ROOT…]` overlays the game's `data/` onto a writable project root. |
+| `scripts/wf-python` | on `PATH` | Runs Blender's bundled Python 3.11 (the pipeline's interpreter). |
+| `pipeline/` | `/opt/worker/pipeline` | Pipeline (`pipeline.py`, `package.py`, `images.py`, `weather.py`, `common.py`) and queue consumer (`consumer.py`). See [Pipeline](#pipeline). |
 | `blender/wf_toolbox_headless.py` | `/opt/worker/blender` | Enables Toolbox Mz for headless use and wraps its BGO exporter. |
 | `smoke/` | `/opt/worker/smoke` | Smoke tests: `run-smoke.sh` runs inside the container, `run-smoke.ps1` runs on the Windows host. |
 | `builder/build_scene.py` | `/opt/worker/builder` | Blender builder entry point: spec (+ TrackModel) → base and layout `.blend` files + `manifest.json`. |
@@ -58,7 +61,7 @@ docker build -f worker/Dockerfile -t trackgen-worker:dev .
 # or: docker compose --profile worker build worker
 
 # Versions and mount check
-docker compose --profile worker run --rm --no-deps worker
+docker compose --profile worker run --rm --no-deps worker info
 
 # Smoke tests via compose (uses the scripts baked into the image)
 docker compose --profile worker run --rm --no-deps worker smoke
@@ -69,7 +72,7 @@ docker compose --profile worker run --rm --no-deps worker smoke
 ```
 
 - **Game path:** the game root comes from `WRECKFEST_DIR` (default `D:/SteamLibrary/steamapps/common/Wreckfest`). You can set it in `.env`.
-- **CPU and memory:** compose limits the worker to 4 CPUs and 4 GB. `run-smoke.ps1` uses `--cpus 4 --memory 4g` by default; change them with `-Cpus` and `-Memory`.
+- **CPU and memory:** compose limits the worker to 4 CPUs and 6 GB. `run-smoke.ps1` uses `--cpus 4 --memory 4g` by default; change them with `-Cpus` and `-Memory`.
 - **Dependencies:** `--no-deps` stops compose from also starting Azurite.
 
 ## Blender builder
@@ -95,7 +98,7 @@ Without `--model` the spec goes through `build_track_model` and `DIR/model.json`
 | `manifest.json` | Files, layouts (line position, sectors, checkpoints with lap positions, relocated checkpoints), junction stitches, bridges, placement transform, per-scene objects/materials, warnings |
 | `model.json` | The TrackModel (when built from the spec) |
 
-The export step (next todo) exports each `.blend` with Toolbox (`wf_toolbox_headless.export_bgo`) to `data/track/<slug>/<scene>.bgo3` and runs bgeometry, **base first** (the layouts reference it). `builder/tests/run_builder_tests.sh` already does this.
+The pipeline ([Pipeline](#pipeline)) exports each `.blend` with Toolbox (`wf_toolbox_headless.export_bgo`) to `data/track/<slug>/<scene>.bgo3` and runs bgeometry, **base first** (the layouts reference it). `builder/tests/run_builder_tests.sh` does the same for the tests.
 
 ### Scene structure
 
@@ -174,7 +177,7 @@ Also `kerb#curb`, `shoulder#gravel` (`runoff#gravel` without walls), `wall_concr
    - The builder therefore moves the whole track (base and layouts) along y, and rotates it by a multiple of 90° only if it would otherwise leave ±2000 m, so that both ends of every AI strip are at y ≤ −2.
    - `manifest.json` records the transform: `scene = rotate(model) + shift`.
 2. **Sectors must be convex and face up** (`createaidata.cpp(258): "c.y > 0.f"`). This happened at alternative-route junctions with wide (10 m) route margins; the sector validation above prevents it.
-3. **`otherway = true` is applied, but bgeometry logs it as an error.** It writes `custom data has illegal key otherway` to `Error.log`, for every spelling (`OtherWay`, `Otherway`), and still builds. The `.scne` differs from one built without the key, and `otherway = false` gives the same file as no key. The tests treat that line (and the same for `crossstart`) as known noise. The export-build todo should do the same.
+3. **`otherway = true` is applied, but bgeometry logs it as an error.** It writes `custom data has illegal key otherway` to `Error.log`, for every spelling (`OtherWay`, `Otherway`), and still builds. The `.scne` differs from one built without the key, and `otherway = false` gives the same file as no key. The tests and the pipeline treat that line (and the same for `crossstart`) as a known notice.
 4. **bgeometry can't read files on a Docker Desktop bind mount** (`Fatal disk error … FileCodecFile::ReadCacheBlock`). The tests build in the container's home and copy the results out.
 5. **`wf-project` is not idempotent in speed.** A second run on the same root turns linked directories into real ones, link by link, which is slow. Call it once per project root.
 
@@ -241,6 +244,115 @@ Results (2026-10-18, `--cpus 8`, under a minute for everything):
 - Surfaces and looks: `road_sand#gravel`, the tyre wall approximation, terrain textures, kerb texture tiling, and the single-texture materials (no `#blend`, no normal or spec maps).
 - The whole-track move along y (needed by bgeometry) and the ±2000 m margin it uses.
 - `#static_cube_map` placement (centre of the terrain, 15 m up).
+
+## Pipeline
+
+`pipeline/pipeline.py` turns a spec into an installable mod zip; `pipeline/consumer.py` runs it for queued builds. Both run in **Blender's bundled Python 3.11** (`wf-python`), which already has `trackgen_geom`; the image has no system Python, and one interpreter keeps the dependencies in one place.
+
+### Steps
+
+1. **Geometry:** `trackgen_geom.build_track_model(spec)`. A schema-invalid spec, a rejected sketch or any rule error fails the build with the reasons (e.g. `invalid spec: schema /options/lapLengthKm: 99 is greater than the maximum of 5.0`). The model goes to `model.json` and is passed to the builder.
+2. **Scenes:** `blender -b build_scene.py --spec --model` → base and layout `.blend` + `manifest.json`. Builder exit codes 2/3 become "sketch rejected" / "doesn't fit within ±2000 m".
+3. **Export:** `blender -b builder/tests/export_scene.py` (Toolbox Mz) per scene → `project/data/track/<slug>/<scene>.bgo3`, base first.
+4. **Build:** `wf-project project`, then `wf-tool bgeometry -v` per scene. stdout/stderr and any `Error.log` go into the build log. Known notices (bgeometry's `illegal key otherway|crossstart`, Wine's `XDG_RUNTIME_DIR`, Blender's `BKE_icon`) are counted under **info**. Anything else matching error/failed/warning/fatal/assert, a non-zero exit or an empty `.scne` fails the build.
+5. **Package:** the mod tree (below), bag files with Toolbox's `wf_mod_gen/bagwrite.py`, menu images, `preview.jpg`, any `.tcat` uploads, `build-report.json`, then `<slug>.zip`.
+
+Everything runs in a work dir on the container's own filesystem (bgeometry can't read Docker Desktop bind mounts); only the results are copied out. A build takes about 30 s (oval) to 50 s (figure 8 with a reverse layout) with `--cpus 8`; about half is `bimage` (≈2.6 s per image, mostly Wine start-up).
+
+**Outputs:** `<slug>.zip`, `build.log` (sections per step, then *info*, *warnings*, *errors*) and `build-report.json` (also inside the zip): versions (pipeline, trackgen_geom, builder, Blender, Wine, Toolbox commit), layouts and events, weathers, the placement transform, `.tcat`s included, warnings, the unverified-in-game list, every file with its size, and (in the copy beside the zip) the zip's size and SHA-256.
+
+### CLI mode (no queue)
+
+```powershell
+docker run --rm --cpus 8 --memory 6g `
+    -v "D:\SteamLibrary\steamapps\common\Wreckfest:/wreckfest:ro" `
+    -v "E:\Source\wreckfest\geom\tests\samples:/in:ro" -v "E:\Source\wreckfest\.local\pipeline-out\cli\oval:/out" `
+    trackgen-worker:dev build-mod --spec /in/oval.json --out /out [--tcat main=/in/main.tcat] [--keep-work]
+```
+
+Exit code 0 on success, 1 on failure (the log and report are written either way).
+
+### Queue consumer
+
+`entrypoint worker` (the image's default command; the Compose `worker` service):
+
+| Env var | Default | |
+|---|---|---|
+| `STORAGE_CONNECTION_STRING` | required | Any Azure Storage connection string. The API's Azurite form `UseDevelopmentStorage=true;DevelopmentStorageProxyUri=http://azurite` is expanded to Azurite's documented dev account (blob `:10000`, queue `:10001`). |
+| `API_BASE_URL` | required | `http://api:8080` in Compose (the API's container port). |
+| `WORKER_SECRET` | required | Bearer secret for `PATCH /api/internal/builds/{id}`; must equal the API's `Worker:Secret`. Compose sets both from `TRACKGEN_WORKER_SECRET` in `.env`. |
+| `QUEUE_NAME`, `VISIBILITY_TIMEOUT_S`, `HEARTBEAT_S`, `POLL_S`, `MAX_ATTEMPTS` | `builds`, 1800, 300, 5, 3 | |
+
+Loop, one build at a time:
+
+1. Receive one message with a 30 min visibility timeout; poll every 5 s when idle. Malformed messages are deleted.
+2. `PATCH running`. A **404 or 409** (unknown or already finished/timed-out build) deletes the message and moves on. If the API is unreachable, the message becomes visible again after 30 s.
+3. Download `specs/{specBlobName}` and every `tcats/{trackId}/*.tcat`; run the pipeline in `~/work/build-*` (removed afterwards).
+4. Every 5 min while it runs: `PATCH running` (heartbeat, the API times builds out after 2 h) and extend the message's visibility by 30 min.
+5. Upload `artifacts/{buildId}/build.log` and `build-report.json`, and on success `artifacts/{buildId}/{slug}.zip`. Then `PATCH succeeded` with `logBlobName` + `artifactBlobName`, or `PATCH failed` with `logBlobName` and a short `errorMessage`.
+6. Delete the message after the final PATCH (also on 404/409). If the final PATCH can't be delivered, the message is kept so the build is retried.
+7. After `MAX_ATTEMPTS` deliveries a message is reported `failed` ("worker gave up") and deleted.
+
+**SIGTERM/SIGINT:** when idle the consumer exits at once. During a build it kills the running tool, makes the message visible again immediately (the next worker retries it; re-sending `running` is allowed) and exits within a few seconds. Compose gives it `stop_grace_period: 30s`.
+
+**Compose:** the service stays under the `worker` **profile**, because it needs the Wreckfest install and Chris's machine; `docker compose up` alone still starts api + geom + azurite. Start everything with `docker compose --profile worker up -d`. Limits: `cpus: 4`, `mem_limit: 6g`; the game is mounted read-only at `/wreckfest`.
+
+### Mod layout (zip extracts as `<slug>/…`)
+
+Mirrors `mods/example` (track folder `exampletrack`, event group `example`; we use the slug for both and one event per layout, id = layout scene name):
+
+| Ours (`gravel_oval`) | Example mod |
+|---|---|
+| `modinfo.modi` (`bagwrite.modi_file`, tag 8 = track, visibility private) | `modinfo.modi` |
+| `preview.jpg` (1280×720) | `preview.jpg` |
+| `build-report.json` | – |
+| `data/property/event/<slug>/<slug>.envi` | `data/property/event/example/example.envi` |
+| `data/property/event/<slug>/<slug>_race.evse`, `<slug>_race_reverse.evse` | `…/example/example_race_inner_oval.evse` etc. |
+| `data/property/weather/<slug>/<slug>.weli` (stock `.weat` paths) | `data/property/weather/example/example.weli` (+ its own `example_afternoon1.weat`) |
+| `data/track/<slug>/<slug>_base.scne` | `data/track/exampletrack/exampletrack_base.scne` |
+| `data/track/<slug>/<slug>_race.scne` (+ `<slug>_race.tcat` when uploaded) | `data/track/exampletrack/example_race_track.scne` + `.tcat` |
+| `data/track/<slug>/menu/event_<layout>_{loading_1920x1200,results_812x162,small_250x116}_raw.bmap` | `data/track/exampletrack/menu/event_example_race_track_…_raw.bmap` |
+| `data/menu/textures/env_<slug>_{large_832x386,small_250x116}_raw.bmap` | `data/menu/textures/env_example_…_raw.bmap` |
+| `data/menu/textures/event_<layout>_small_250x116_raw.bmap` | `data/menu/textures/event_example_race_inner_oval_small_250x116_raw.bmap` |
+
+Not shipped: `.bgo3`/`.blend` sources (the example ships `.bgo3`/`.max`), `.tga` sources, textures and props (we reference stock ones). Each `.evse` is state Final (2), gamemode Racing (1), scene `data/track/<slug>/<layout>.scne`, weather list `data/property/weather/<slug>/<slug>.weli`; titles are the track name (+ " Reverse").
+
+**`.tcat` uploads** (`tcats/{trackId}/{layout}.tcat`) go beside their layout `.scne`: `main`/`race`/`forward` → `<slug>_race.tcat`, `main_reverse`/`reverse`/`race_reverse` → `<slug>_race_reverse.tcat`; the layout scene name itself also works. Unknown names are skipped with a warning.
+
+**Menu images:** the geom preview SVG (labels stripped) is rendered with cairosvg and laid out with Pillow on a dark card with the track name and lap length / environment / surface. Like the example's sources, each image is drawn at its named size in the top-left of a power-of-two canvas (250×116 in 256×128, 812×162 in 1024×256, 832×386 in 1024×512, 1920×1200 in 2048×2048), saved as an uncompressed `.tga` (bottom-left origin, as the example) under a staging `data/…` path and converted with `bimage -auto` (which records the `data/…` path, as in the example's `.bmap`s).
+
+### Weather mapping
+
+The schema's weathers are time-of-day slots. `pipeline/weather.py` maps them per environment preset to stock `.weat` files (listed from the mounted `data/property/weather/`), checking that each exists; a slot falls back to the nearest time of day (morning → sunrise, evening → sunset) or to another family. Paths below are under `data/property/weather/`:
+
+| Slot | gravel_pit | farmland | forest | industrial | sandpit |
+|---|---|---|---|---|---|
+| sunrise | fields/gravel1_sunrise1 | fields/fields13_sunrise1 | forest/forest11_sunrise1 | urban/urban06_sunrise1 | sandpit/sandpit3_sunrise1 |
+| morning | fields/fields13_morning1 | fields/fields13_morning1 | forest/forest11_morning1 | urban/urban06_morning1 | sandpit/sandpit3_sunrise1 |
+| midday | fields/gravel1_midday1 | fields/fields13_midday1 | forest/forest11_midday1 | urban/urban06_midday1 | sandpit/sandpit3_midday1 |
+| noon | fields/fields14_noon1 | fields/fields13_noon1 | forest/forest11_noon1 | urban/urban06_noon1 | sandpit/sandpit3_midday1 |
+| afternoon | fields/gravel1_afternoon1 | fields/fields13_afternoon1 | forest/forest11_afternoon1 | urban/urban06_afternoon1 | sandpit/sandpit3_afternoon1 |
+| evening | fields/fields13_sunset2 | fields/fields13_sunset2 | forest/forest11_evening1 | urban/urban09_sunset2 | sandpit/sandpit3_sunset1 |
+| sunset | fields/gravel1_sunset1 | fields/fields14_sunset1 | forest/forest11_sunset1 | urban/urban07_sunset1 | sandpit/sandpit3_sunset1 |
+
+Duplicates are removed, so a sandpit spec with `morning` and `sunrise` lists one file. Inexact matches are build warnings. Print the table against an install with `wf-python /opt/worker/pipeline/weather.py /wreckfest`.
+
+### Unverified in game
+
+Also listed in every `build-report.json`, plus the builder's own list ([Unverified in game](#unverified-in-game)):
+
+- Bag files (`.envi`, `.evse`, `.weli`, `modinfo.modi`) have format dword `01 00 00 00` (bagwrite, uncompressed); stock files use `04 00 00 00` (lz4).
+- **`defaultLaps` is not written:** bagwrite's `.evse` (v17) has no laps field, so the game's default lap count applies. It is recorded in the report only.
+- Event state Final and gamemode Racing; one event per layout with the layout scene name as event id.
+- Weathers referencing other tracks' stock `.weat` files.
+- Menu image names, power-of-two canvases and `bimage -auto` formats.
+- Without a recorded `.tcat` the game makes its own grid and trackside cameras (record one in game: `*`, then `K`, `J`, `T`).
+
+### End-to-end results (2026-10-18)
+
+- CLI, `--cpus 8`: `oval` → `gravel_oval.zip` 1.15 MB (14 files) in 30 s; `figure8_bridge` → `figure_eight.zip` 2.56 MB (20 files, two events) in 50 s. The only info notices were Wine's XDG line and one `illegal key otherway` (reverse layout).
+- Queued (`docker compose up -d azurite geom api` + worker): admin bootstrap invite → signup → login → `POST /api/tracks` (oval.json) → `POST /api/tracks/{id}/builds` → `queued` → `running` → `succeeded` in 36 s → artifact and log downloaded through the API. A SIGTERM during a figure-8 build (with `HEARTBEAT_S=10`: heartbeats at 10 s and 20 s) cancelled it and requeued the message; the restarted worker built it on attempt 2.
+- An invalid spec fails with the schema/rule reason in `errorMessage` and the log.
 
 ## Smoke test results (2026-10-18)
 
