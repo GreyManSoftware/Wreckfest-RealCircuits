@@ -22,10 +22,11 @@ TrackSpec
 │  ├─ startFinish? { position, headingDeg }  (default: first point, heading to the second)
 │  ├─ altRoutes[≤20]  { id (≠ "main"), points[2–10000], start?, end? }; attachment = { point? , param? } (at least one)
 │  ├─ crossings[≤50]  { id, position, type: bridge|flat, over?: { route, param? } }
-│  └─ jumps[≤50]      { id, position, size: small|medium|large, route? = "main", bidirectional? = false }
+│  ├─ jumps[≤50]      { id, position, size: small|medium|large, route? = "main", bidirectional? = false }
+│  └─ elevationMarkers[≤40]  { id, position, route? = "main", heightM (−30…+40) }
 └─ options   all required (the schema has the UI defaults)
    lapLengthKm 0.8–5 (1.5) · widthM 8–20 (12) · surface tarmac|gravel|mixed|sand (mixed) · kerbs (true)
-   walls concrete|tyres|none (tyres) · elevation flat|gentle|hilly (gentle)
+   walls concrete|tyres|none (tyres) · elevation flat|gentle|hilly|custom (gentle)
    environment gravel_pit|farmland|forest|industrial|sandpit (gravel_pit) · gridSize 8–24 (16)
    weathers ≥1 unique of sunrise|morning|midday|noon|afternoon|evening|sunset (["midday"])
    reverseLayout (false) · defaultLaps 1–20 (5)
@@ -50,6 +51,13 @@ work.
 `mainLoop`, `startFinish` and the alternative-route attachments are optional in the schema so that a sketch can be
 saved while it is being drawn. The rules report what is missing.
 
+**Height markers** (`elevationMarkers`) let the user shape the elevation. Each marker is projected onto its route.
+With `elevation: "custom"` the ground is flat and `heightM` is the absolute road height there: the road follows a
+monotone cubic (PCHIP) through the markers, which never overshoots them and wraps round the closed main loop. With
+a preset (`flat`, `gentle`, `hilly`) `heightM` is an **additive bump** on the preset terrain that eases back to it
+over max(80 m, |heightM| / 8%) either side. Heights are never changed to satisfy a rule; the rules report the
+problem instead (see `geom/README.md` for the details).
+
 ### Geometry facts
 
 `GeometryFacts` (also in `$defs`) holds measurements that only the geometry core (`trackgen_geom`) can compute. All
@@ -65,6 +73,11 @@ all of them.
 | `unannotatedCrossings[]` | `{id, x, y}` for each place the track crosses itself with no annotation; `x`, `y` are canvas coordinates. |
 | `unmatchedCrossingAnnotations[]` | Ids of annotations that mark no real crossing. Those get no `crossings[id]` entry, and the per-crossing rules skip them. |
 | `altRoutes[id]` | `startGapM`, `endGapM`: distance from the raw stroke ends to the main loop. |
+| `crossings[id].rampGradePct` | Bridges: peak ramp grade (%) after climbing to clear the under branch's local height. |
+| `crossings[id].heightStepM` | Flat crossings: height difference of the two branches' marker profiles before they are levelled to meet. |
+| `elevationMarkers[id]` | Markers on a built route: `sM` (distance along the route), `gradePct` (the steeper sustained grade to its neighbouring markers, or to the anchors where a preset bump meets the terrain), `feature` (`grid` or `bridge` when it sits on the grid area or a bridge ramp; absent otherwise). |
+| `gridMaxGradePct` | Steepest grade of the marker profile over the grid area (custom: the road; presets: the markers' bumps, as the preset terrain isn't the user's doing). |
+| `heightRangeM` | Highest minus lowest road height over all routes (informational; the ±2000 m bounds are horizontal only). |
 
 ## Rules
 
@@ -161,10 +174,12 @@ Result shape (field case differs per language): `schemaValid`, `valid`, `schemaE
 | `alt-route-ids-unique` | engine | no two alternative routes share an id (`count` quantifier) |
 | `crossing-ids-unique` | engine | no two crossings share an id |
 | `jump-ids-unique` | engine | no two jumps share an id |
+| `elevation-marker-ids-unique` | engine | no two height markers share an id |
 | `alt-route-attachments-required` | engine | each alternative route needs a `start` and an `end` |
 | `alt-route-joins-main-loop` | geometry | route ends within `attachmentToleranceM` (2 m) of the main loop |
 | `jump-route-exists` | engine | a jump's `route` is `main` or an existing alternative route |
 | `crossing-over-route-exists` | engine | a crossing's `over.route` is `main` or an existing alternative route |
+| `elevation-marker-route-exists` | engine | a height marker's `route` is `main` or an existing alternative route |
 | `bridge-over-branch-required` | engine | a bridge says which branch goes `over` |
 | `grid-width-two-abreast` | engine | `widthM ≥ 2 × gridSlotWidthM` (9 m) |
 | `grid-first-sector-length` | geometry | `firstSectorLengthM ≥ ceil(gridSize / 2) × gridRowSpacingM` (8 m): the clear road ahead of the line holds the grid |
@@ -174,11 +189,20 @@ Result shape (field case differs per language): `schemaValid`, `valid`, `schemaE
 | `crossing-annotation-matches` | geometry | **warning** for each annotation in `unmatchedCrossingAnnotations`: it is ignored by the build, which is harmless, so the track stays valid |
 | `flat-crossing-jump-clearance` | geometry | flat crossing ≥ `flatCrossingJumpClearanceM` (30 m) from a jump on either branch; passes when `nearestJumpM` is absent (deferred only when the crossing has no facts entry); skips unmatched annotations |
 | `bridge-ramp-length` | geometry | bridge has ≥ `bridgeRampMinLengthM` (50 m) for its ramps; skips unmatched annotations |
+| `elevation-marker-grade` | geometry | a marker's `gradePct` ≤ `elevationMaxGradePct` (12%); markers on unknown routes are skipped (their route rule fires) |
+| `elevation-marker-on-feature` | geometry | **warning** when a marker's facts have a `feature` (grid area or bridge ramp) |
+| `elevation-grid-level` | geometry | with markers: `gridMaxGradePct` ≤ `elevationGridMaxGradePct` (3%) |
+| `elevation-bridge-ramp-grade` | geometry | with markers: a bridge's `rampGradePct` ≤ `bridgeRampMaxGradePct` (18%) |
+| `elevation-flat-crossing-level` | geometry | with markers: a flat crossing's `heightStepM` ≤ `flatCrossingMaxStepM` (0.5 m) |
 | `layout-within-bounds` | geometry | `maxAbsCoordinateM ≤ 2000` |
 | `min-corner-radius` | geometry | `minCornerRadiusM ≥ widthM / 2 + minInnerEdgeRadiusM` (6 m) |
 | `sandpit-no-tarmac` | engine | disables `surface=tarmac` in the sandpit (`mixed` is still offered) |
 | `sand-surface-environments` | engine | disables `surface=sand` in farmland, forest and industrial (provisional) |
 | `sand-no-kerbs` | engine | hides `kerbs=true` on sand |
+
+The elevation rules only apply when there are height markers (without them the bridge climb is always the standard
+deck height and flat crossings always meet), and they use `requiresEach` rather than `requires`, so specs without
+markers never see them deferred.
 
 Flat elevation with jumps is deliberately **not** restricted, because jumps are local ramps. The
 `flat-elevation-with-jumps` vector pins this down.

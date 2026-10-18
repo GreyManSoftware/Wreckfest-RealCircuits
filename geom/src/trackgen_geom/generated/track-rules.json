@@ -8,7 +8,11 @@
     "minInnerEdgeRadiusM": 6,
     "flatCrossingJumpClearanceM": 30,
     "bridgeRampMinLengthM": 50,
-    "attachmentToleranceM": 2
+    "attachmentToleranceM": 2,
+    "elevationMaxGradePct": 12,
+    "elevationGridMaxGradePct": 3,
+    "bridgeRampMaxGradePct": 18,
+    "flatCrossingMaxStepM": 0.5
   },
   "rules": [
     {
@@ -105,6 +109,29 @@
       }
     },
     {
+      "id": "elevation-marker-ids-unique",
+      "title": "Height marker ids are unique",
+      "evaluatedBy": "engine",
+      "forEach": { "path": "sketch.elevationMarkers", "as": "marker" },
+      "effect": {
+        "type": "require",
+        "assert": {
+          "==": [
+            {
+              "count": {
+                "over": { "var": "sketch.elevationMarkers" },
+                "as": "other",
+                "where": { "==": [{ "var": "$other.id" }, { "var": "$marker.id" }] }
+              }
+            },
+            1
+          ]
+        },
+        "severity": "error",
+        "message": "Height marker id {$marker.id} is used more than once."
+      }
+    },
+    {
       "id": "alt-route-attachments-required",
       "title": "Alternative routes must attach to the main loop",
       "description": "Each alternative route needs a start and an end attachment on the main loop.",
@@ -157,6 +184,27 @@
         },
         "severity": "error",
         "message": "Jump {$jump.id} is on route {$jump.route}, which doesn't exist."
+      }
+    },
+    {
+      "id": "elevation-marker-route-exists",
+      "title": "Height markers are on a known route",
+      "evaluatedBy": "engine",
+      "forEach": { "path": "sketch.elevationMarkers", "as": "marker" },
+      "when": {
+        "and": [{ "exists": { "var": "$marker.route" } }, { "!=": [{ "var": "$marker.route" }, "main"] }]
+      },
+      "effect": {
+        "type": "require",
+        "assert": {
+          "any": {
+            "over": { "var": "sketch.altRoutes" },
+            "as": "r",
+            "where": { "==": [{ "var": "$r.id" }, { "var": "$marker.route" }] }
+          }
+        },
+        "severity": "error",
+        "message": "Height marker {$marker.id} is on route {$marker.route}, which doesn't exist."
       }
     },
     {
@@ -344,6 +392,121 @@
         },
         "severity": "error",
         "message": "Bridge {$crossing.id} has only {$f.availableRampLengthM} m for its ramps; it needs {constants.bridgeRampMinLengthM} m."
+      }
+    },
+    {
+      "id": "elevation-marker-grade",
+      "title": "Height markers aren't too steep",
+      "description": "The sustained grade between a height marker and its neighbouring markers (or the anchors where its bump meets the terrain) must be at most elevationMaxGradePct. Heights are never changed to fit.",
+      "evaluatedBy": "geometry",
+      "forEach": { "path": "sketch.elevationMarkers", "as": "marker" },
+      "let": { "f": { "get": [{ "var": "facts.elevationMarkers" }, { "var": "$marker.id" }] } },
+      "when": {
+        "or": [
+          { "not": { "exists": { "var": "$marker.route" } } },
+          { "==": [{ "var": "$marker.route" }, "main"] },
+          {
+            "any": {
+              "over": { "var": "sketch.altRoutes" },
+              "as": "r",
+              "where": { "==": [{ "var": "$r.id" }, { "var": "$marker.route" }] }
+            }
+          }
+        ]
+      },
+      "requiresEach": ["$f.gradePct"],
+      "effect": {
+        "type": "require",
+        "assert": { "<=": [{ "var": "$f.gradePct" }, { "var": "constants.elevationMaxGradePct" }] },
+        "severity": "error",
+        "message": "Height marker {$marker.id} needs a {$f.gradePct}% grade to reach {$marker.heightM} m (max {constants.elevationMaxGradePct}%); move it further from its neighbours or change the heights."
+      }
+    },
+    {
+      "id": "elevation-marker-on-feature",
+      "title": "Height markers are clear of the grid and bridge ramps",
+      "description": "A height marker on the grid area or a bridge ramp: the grid must stay level, and bridge ramps are added on top of the height profile.",
+      "evaluatedBy": "geometry",
+      "forEach": { "path": "sketch.elevationMarkers", "as": "marker" },
+      "let": { "f": { "get": [{ "var": "facts.elevationMarkers" }, { "var": "$marker.id" }] } },
+      "when": {
+        "or": [
+          { "not": { "exists": { "var": "$marker.route" } } },
+          { "==": [{ "var": "$marker.route" }, "main"] },
+          {
+            "any": {
+              "over": { "var": "sketch.altRoutes" },
+              "as": "r",
+              "where": { "==": [{ "var": "$r.id" }, { "var": "$marker.route" }] }
+            }
+          }
+        ]
+      },
+      "requiresEach": ["$f.gradePct"],
+      "effect": {
+        "type": "require",
+        "assert": { "not": { "exists": { "var": "$f.feature" } } },
+        "severity": "warning",
+        "message": "Height marker {$marker.id} is on a {$f.feature} area; keep markers off the grid (it must stay level) and off bridge ramps (they are added on top)."
+      }
+    },
+    {
+      "id": "elevation-grid-level",
+      "title": "The grid stays level",
+      "description": "With height markers, the height profile across the grid area may be at most elevationGridMaxGradePct steep.",
+      "evaluatedBy": "geometry",
+      "when": { ">": [{ "len": { "var": "sketch.elevationMarkers" } }, 0] },
+      "requiresEach": ["facts.gridMaxGradePct"],
+      "effect": {
+        "type": "require",
+        "assert": { "<=": [{ "var": "facts.gridMaxGradePct" }, { "var": "constants.elevationGridMaxGradePct" }] },
+        "severity": "error",
+        "path": "/sketch/elevationMarkers",
+        "message": "The height markers tilt the grid to a {facts.gridMaxGradePct}% grade (max {constants.elevationGridMaxGradePct}%); give the start line and the end of the grid the same height."
+      }
+    },
+    {
+      "id": "elevation-bridge-ramp-grade",
+      "title": "Bridges can climb over the height profile",
+      "description": "With height markers, a bridge's over branch climbs to clear the under branch's local height; its ramps may be at most bridgeRampMaxGradePct steep.",
+      "evaluatedBy": "geometry",
+      "forEach": { "path": "sketch.crossings", "as": "crossing" },
+      "let": { "f": { "get": [{ "var": "facts.crossings" }, { "var": "$crossing.id" }] } },
+      "when": {
+        "and": [
+          { ">": [{ "len": { "var": "sketch.elevationMarkers" } }, 0] },
+          { "==": [{ "var": "$crossing.type" }, "bridge"] },
+          { "not": { "in": [{ "var": "$crossing.id" }, { "var": "facts.unmatchedCrossingAnnotations" }] } }
+        ]
+      },
+      "requiresEach": ["$f.rampGradePct"],
+      "effect": {
+        "type": "require",
+        "assert": { "<=": [{ "var": "$f.rampGradePct" }, { "var": "constants.bridgeRampMaxGradePct" }] },
+        "severity": "error",
+        "message": "Bridge {$crossing.id} needs {$f.rampGradePct}% ramps to clear the road below (max {constants.bridgeRampMaxGradePct}%); raise the over branch or lower the under branch with height markers."
+      }
+    },
+    {
+      "id": "elevation-flat-crossing-level",
+      "title": "Flat crossings meet at one height",
+      "description": "With height markers, both branches of a flat crossing must have (nearly) the same height there.",
+      "evaluatedBy": "geometry",
+      "forEach": { "path": "sketch.crossings", "as": "crossing" },
+      "let": { "f": { "get": [{ "var": "facts.crossings" }, { "var": "$crossing.id" }] } },
+      "when": {
+        "and": [
+          { ">": [{ "len": { "var": "sketch.elevationMarkers" } }, 0] },
+          { "==": [{ "var": "$crossing.type" }, "flat"] },
+          { "not": { "in": [{ "var": "$crossing.id" }, { "var": "facts.unmatchedCrossingAnnotations" }] } }
+        ]
+      },
+      "requiresEach": ["$f.heightStepM"],
+      "effect": {
+        "type": "require",
+        "assert": { "<=": [{ "var": "$f.heightStepM" }, { "var": "constants.flatCrossingMaxStepM" }] },
+        "severity": "error",
+        "message": "The two roads at flat crossing {$crossing.id} are {$f.heightStepM} m apart in height (max {constants.flatCrossingMaxStepM} m); give them the same height or make it a bridge."
       }
     },
     {

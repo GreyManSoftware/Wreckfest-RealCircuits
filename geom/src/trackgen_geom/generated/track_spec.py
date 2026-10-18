@@ -42,11 +42,12 @@ class Walls(StrEnum):
 
 
 class Elevation(StrEnum):
-    """Elevation"""
+    """flat, gentle and hilly are seeded terrain presets (height markers add bumps on top); custom is flat ground shaped only by the height markers."""
 
     FLAT = "flat"
     GENTLE = "gentle"
     HILLY = "hilly"
+    CUSTOM = "custom"
 
 
 class Environment(StrEnum):
@@ -69,6 +70,13 @@ class Weather(StrEnum):
     AFTERNOON = "afternoon"
     EVENING = "evening"
     SUNSET = "sunset"
+
+
+class MarkerFeature(StrEnum):
+    """A feature a height marker sits on: the start grid area or a bridge ramp."""
+
+    GRID = "grid"
+    BRIDGE = "bridge"
 
 
 @dataclass(kw_only=True)
@@ -336,6 +344,34 @@ class Jump:
 
 
 @dataclass(kw_only=True)
+class ElevationMarker:
+    """A height marker on a route. With elevation "custom" it sets the absolute road height there (the profile is interpolated between markers); with a preset it adds a smooth bump of this height on top of the preset terrain."""
+
+    id: str
+    position: Point
+    route: str | None = None
+    height_m: float
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> ElevationMarker:
+        return cls(
+            id=str(data["id"]),
+            position=Point.from_dict(data["position"]),
+            route=None if data.get("route") is None else str(data["route"]),
+            height_m=float(data["heightM"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["id"] = self.id
+        out["position"] = self.position.to_dict()
+        if self.route is not None:
+            out["route"] = self.route
+        out["heightM"] = self.height_m
+        return out
+
+
+@dataclass(kw_only=True)
 class Sketch:
     """The drawn layout, in canvas coordinates. The geometry service turns it into a spline scaled to the lap length."""
 
@@ -345,6 +381,7 @@ class Sketch:
     alt_routes: list[AltRoute] | None = None
     crossings: list[Crossing] | None = None
     jumps: list[Jump] | None = None
+    elevation_markers: list[ElevationMarker] | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Sketch:
@@ -355,6 +392,7 @@ class Sketch:
             alt_routes=None if data.get("altRoutes") is None else [AltRoute.from_dict(v0) for v0 in data["altRoutes"]],
             crossings=None if data.get("crossings") is None else [Crossing.from_dict(v0) for v0 in data["crossings"]],
             jumps=None if data.get("jumps") is None else [Jump.from_dict(v0) for v0 in data["jumps"]],
+            elevation_markers=None if data.get("elevationMarkers") is None else [ElevationMarker.from_dict(v0) for v0 in data["elevationMarkers"]],
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -370,6 +408,8 @@ class Sketch:
             out["crossings"] = [v0.to_dict() for v0 in self.crossings]
         if self.jumps is not None:
             out["jumps"] = [v0.to_dict() for v0 in self.jumps]
+        if self.elevation_markers is not None:
+            out["elevationMarkers"] = [v0.to_dict() for v0 in self.elevation_markers]
         return out
 
 
@@ -444,12 +484,16 @@ class CrossingFacts:
 
     nearest_jump_m: float | None = None
     available_ramp_length_m: float | None = None
+    ramp_grade_pct: float | None = None
+    height_step_m: float | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> CrossingFacts:
         return cls(
             nearest_jump_m=None if data.get("nearestJumpM") is None else float(data["nearestJumpM"]),
             available_ramp_length_m=None if data.get("availableRampLengthM") is None else float(data["availableRampLengthM"]),
+            ramp_grade_pct=None if data.get("rampGradePct") is None else float(data["rampGradePct"]),
+            height_step_m=None if data.get("heightStepM") is None else float(data["heightStepM"]),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -458,6 +502,37 @@ class CrossingFacts:
             out["nearestJumpM"] = self.nearest_jump_m
         if self.available_ramp_length_m is not None:
             out["availableRampLengthM"] = self.available_ramp_length_m
+        if self.ramp_grade_pct is not None:
+            out["rampGradePct"] = self.ramp_grade_pct
+        if self.height_step_m is not None:
+            out["heightStepM"] = self.height_step_m
+        return out
+
+
+@dataclass(kw_only=True)
+class ElevationMarkerFacts:
+    """Height marker facts"""
+
+    s_m: float | None = None
+    grade_pct: float | None = None
+    feature: MarkerFeature | None = None
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> ElevationMarkerFacts:
+        return cls(
+            s_m=None if data.get("sM") is None else float(data["sM"]),
+            grade_pct=None if data.get("gradePct") is None else float(data["gradePct"]),
+            feature=None if data.get("feature") is None else MarkerFeature(data["feature"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.s_m is not None:
+            out["sM"] = self.s_m
+        if self.grade_pct is not None:
+            out["gradePct"] = self.grade_pct
+        if self.feature is not None:
+            out["feature"] = self.feature.value
         return out
 
 
@@ -519,6 +594,9 @@ class GeometryFacts:
     unannotated_crossings: list[UnannotatedCrossing] | None = None
     unmatched_crossing_annotations: list[str] | None = None
     alt_routes: dict[str, AltRouteFacts] | None = None
+    elevation_markers: dict[str, ElevationMarkerFacts] | None = None
+    grid_max_grade_pct: float | None = None
+    height_range_m: float | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> GeometryFacts:
@@ -530,6 +608,9 @@ class GeometryFacts:
             unannotated_crossings=None if data.get("unannotatedCrossings") is None else [UnannotatedCrossing.from_dict(v0) for v0 in data["unannotatedCrossings"]],
             unmatched_crossing_annotations=None if data.get("unmatchedCrossingAnnotations") is None else [str(v0) for v0 in data["unmatchedCrossingAnnotations"]],
             alt_routes=None if data.get("altRoutes") is None else {k0: AltRouteFacts.from_dict(v0) for k0, v0 in data["altRoutes"].items()},
+            elevation_markers=None if data.get("elevationMarkers") is None else {k0: ElevationMarkerFacts.from_dict(v0) for k0, v0 in data["elevationMarkers"].items()},
+            grid_max_grade_pct=None if data.get("gridMaxGradePct") is None else float(data["gridMaxGradePct"]),
+            height_range_m=None if data.get("heightRangeM") is None else float(data["heightRangeM"]),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -548,6 +629,12 @@ class GeometryFacts:
             out["unmatchedCrossingAnnotations"] = [v0 for v0 in self.unmatched_crossing_annotations]
         if self.alt_routes is not None:
             out["altRoutes"] = {k0: v0.to_dict() for k0, v0 in self.alt_routes.items()}
+        if self.elevation_markers is not None:
+            out["elevationMarkers"] = {k0: v0.to_dict() for k0, v0 in self.elevation_markers.items()}
+        if self.grid_max_grade_pct is not None:
+            out["gridMaxGradePct"] = self.grid_max_grade_pct
+        if self.height_range_m is not None:
+            out["heightRangeM"] = self.height_range_m
         return out
 
 
@@ -561,11 +648,14 @@ __all__ = [
     "CrossingFacts",
     "CrossingType",
     "Elevation",
+    "ElevationMarker",
+    "ElevationMarkerFacts",
     "Environment",
     "GeometryFacts",
     "Jump",
     "JumpSize",
     "MainLoop",
+    "MarkerFeature",
     "Meta",
     "Options",
     "Point",

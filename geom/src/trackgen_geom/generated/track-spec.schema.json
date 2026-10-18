@@ -196,6 +196,29 @@
         }
       }
     },
+    "ElevationMarker": {
+      "title": "Height marker",
+      "description": "A height marker on a route. With elevation \"custom\" it sets the absolute road height there (the profile is interpolated between markers); with a preset it adds a smooth bump of this height on top of the preset terrain.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "position", "heightM"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "position": { "$ref": "#/$defs/Point" },
+        "route": {
+          "$ref": "#/$defs/RouteRef",
+          "description": "Route the marker is on (default: main).",
+          "default": "main"
+        },
+        "heightM": {
+          "title": "Height (m)",
+          "description": "Road height at the marker in metres: absolute with custom elevation, an offset from the preset terrain otherwise.",
+          "type": "number",
+          "minimum": -30,
+          "maximum": 40
+        }
+      }
+    },
     "Sketch": {
       "title": "Sketch",
       "description": "The drawn layout, in canvas coordinates. The geometry service turns it into a spline scaled to the lap length.",
@@ -226,6 +249,13 @@
           "maxItems": 50,
           "items": { "$ref": "#/$defs/Jump" },
           "default": []
+        },
+        "elevationMarkers": {
+          "title": "Height markers",
+          "type": "array",
+          "maxItems": 40,
+          "items": { "$ref": "#/$defs/ElevationMarker" },
+          "default": []
         }
       }
     },
@@ -242,8 +272,9 @@
     },
     "Elevation": {
       "title": "Elevation",
+      "description": "flat, gentle and hilly are seeded terrain presets (height markers add bumps on top); custom is flat ground shaped only by the height markers.",
       "type": "string",
-      "enum": ["flat", "gentle", "hilly"]
+      "enum": ["flat", "gentle", "hilly", "custom"]
     },
     "Environment": {
       "title": "Environment",
@@ -346,6 +377,43 @@
           "description": "For a bridge: the shortest run available on the over branch for a ramp up or down.",
           "type": "number",
           "minimum": 0
+        },
+        "rampGradePct": {
+          "description": "For a bridge: peak grade (%) of its ramps, after climbing high enough to clear the under branch's local height.",
+          "type": "number",
+          "minimum": 0
+        },
+        "heightStepM": {
+          "description": "For a flat crossing: difference between the two branches' marker-defined heights before they are levelled to meet.",
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "MarkerFeature": {
+      "title": "Marker feature",
+      "description": "A feature a height marker sits on: the start grid area or a bridge ramp.",
+      "type": "string",
+      "enum": ["grid", "bridge"]
+    },
+    "ElevationMarkerFacts": {
+      "title": "Height marker facts",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sM": {
+          "description": "Distance along the marker's route (from the start/finish on the main loop, from the start join on an alternative route).",
+          "type": "number",
+          "minimum": 0
+        },
+        "gradePct": {
+          "description": "Steepest sustained grade (%) the marker demands: the larger height change per distance to its neighbouring markers or anchors.",
+          "type": "number",
+          "minimum": 0
+        },
+        "feature": {
+          "$ref": "#/$defs/MarkerFeature",
+          "description": "Set when the marker sits on the grid area or a bridge ramp; absent otherwise."
         }
       }
     },
@@ -418,6 +486,21 @@
           "description": "Per-alternative-route facts, keyed by route id.",
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/AltRouteFacts" }
+        },
+        "elevationMarkers": {
+          "description": "Per-height-marker facts, keyed by marker id (markers on a route that was built).",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/ElevationMarkerFacts" }
+        },
+        "gridMaxGradePct": {
+          "description": "Steepest grade (%) of the marker-defined height profile within the grid area (custom: the whole profile; presets: the markers' bumps).",
+          "type": "number",
+          "minimum": 0
+        },
+        "heightRangeM": {
+          "description": "Highest minus lowest road surface height over all routes.",
+          "type": "number",
+          "minimum": 0
         }
       }
     }
