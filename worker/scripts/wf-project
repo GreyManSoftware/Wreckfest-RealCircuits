@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Prepare a writable bgeometry/bimage "project root" by overlaying read-only data trees with symlinks.
+#   wf-project ROOT [EXTRA_ROOT ...]
+# bgeometry resolves game data (e.g. data/property/settings/surfacelist.srfl, surfaces, shared textures)
+# relative to the project root, i.e. the folder that contains the input's "data" folder. This links every
+# entry missing from ROOT/data to EXTRA_ROOT/data (e.g. a mod) and finally to $WRECKFEST_DIR/data.
+# Earlier sources win; real files already in ROOT always win. Nothing is copied or written to the sources.
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+    echo "usage: wf-project ROOT [EXTRA_ROOT ...]" >&2
+    exit 2
+fi
+
+root="$1"; shift
+mkdir -p "$root/data"
+
+# link_tree SRC DST: symlink entries of SRC that DST lacks; merge directories that exist in both.
+link_tree() {
+    local src="$1" dst="$2" s t e old
+    shopt -s nullglob dotglob
+    for s in "$src"/*; do
+        e="${s##*/}"
+        t="$dst/$e"
+        if [[ ! -e "$t" && ! -L "$t" ]]; then
+            ln -s "$s" "$t"
+        elif [[ -d "$s" && -d "$t" ]]; then
+            if [[ -L "$t" ]]; then
+                old="$(readlink "$t")"
+                rm "$t"
+                mkdir "$t"
+                link_tree "$old" "$t"
+            fi
+            link_tree "$s" "$t"
+        fi
+    done
+}
+
+for src in "$@" "${WRECKFEST_DIR:-/wreckfest}"; do
+    [[ -d "$src/data" ]] || { echo "wf-project: $src/data not found" >&2; exit 1; }
+    link_tree "$src/data" "$root/data"
+done

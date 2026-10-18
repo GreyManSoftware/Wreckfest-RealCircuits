@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Run a Wreckfest command-line tool under Wine.
+#   wf-tool bgeometry -v -input /abs/proj/data/track/x/x.bgo3 -output /abs/proj/data/track/x/x.scne
+#   wf-tool bimage -auto -input /abs/proj/data/art/textures/t_c5.tga -output /abs/.../t_c5.bmap
+#
+# The .exe is staged from the read-only game mount ($WRECKFEST_DIR/tools) into the container's own
+# filesystem ($WF_TOOL_CACHE) on first use: Wine can't map PE images from Docker Desktop's 9p/drvfs bind
+# mounts (the process faults at its entry point). The copy lives only in the running container, never in
+# the image. Use absolute Linux paths for -input/-output (Wine maps / to Z:) and prepare the project root
+# with wf-project so bgeometry can find the game's data. Exits with the tool's exit code.
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+    echo "usage: wf-tool <bgeometry|bimage> [args...]" >&2
+    exit 2
+fi
+
+tool="${1%.exe}"; shift
+src="${WRECKFEST_DIR:-/wreckfest}/tools/${tool}.exe"
+cache="${WF_TOOL_CACHE:-$HOME/.cache/wftools}"
+exe="$cache/${tool}.exe"
+
+if [[ ! -f "$src" ]]; then
+    echo "wf-tool: $src not found; mount the Wreckfest install read-only at ${WRECKFEST_DIR:-/wreckfest}" >&2
+    exit 127
+fi
+if [[ ! -f "$exe" ]] || ! cmp -s "$src" "$exe"; then
+    mkdir -p "$cache"
+    cp "$src" "$exe.part" && mv "$exe.part" "$exe"
+fi
+
+exec wine "$exe" "$@"
