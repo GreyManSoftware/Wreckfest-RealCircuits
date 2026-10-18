@@ -40,6 +40,27 @@ Safety:
   writes `server_config.cfg`, `initial_server_config.cfg` or `Start-WreckfestServer.ps1`. Ask Chris
   before applying.
 
+### Enabling the mod without the Mods menu
+
+**Close Wreckfest first.** The game rewrites the mod list when it exits, and the script refuses to write while
+`Wreckfest_x64.exe`/`Wreckfest.exe` is running (dedicated servers started with `server_config` are ignored).
+
+```powershell
+.\tools\Install-TrackMod.ps1 -Zip .\my_oval.zip -Enable          # install, then enable in the mod list
+.\tools\Install-TrackMod.ps1 -Enable -Slug my_oval -WhatIf      # preview
+.\tools\Install-TrackMod.ps1 -Enable -Slug my_oval              # enable an installed mod
+.\tools\Install-TrackMod.ps1 -Disable -Slug my_oval
+.\tools\Install-TrackMod.ps1 -ListMods                          # print names, order and enabled state
+```
+
+The list is `C:\Program Files (x86)\Steam\userdata\<id>\228380\local\wreckfest\modlist.mods`. It is found
+automatically. If more than one Steam user has one, pass `-SteamUserId <id>`, or pass `-ModListPath <file>`.
+Before each write, the script backs up the file to `modlist.mods.bak-<yyyyMMdd-HHmmss>`, next to it and in
+`.local\modlist-backups\`. It then re-reads the written file and restores the backup if the file doesn't verify.
+An existing `mods/<slug>/` entry is switched on. Otherwise a new entry is added, named from the mod's
+`modinfo.modi` (or the slug). Needs Python 3.11+ (`py` or `python`); the format is described in
+[docs/modlist-format.md](docs/modlist-format.md).
+
 Tests (fake game dir under `.local\fake-game`, never the real D: install):
 
 ```powershell
