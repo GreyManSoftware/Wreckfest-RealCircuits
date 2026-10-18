@@ -1,0 +1,87 @@
+{
+  "meta": {
+    "name": "Forest Hills",
+    "slug": "forest_hills"
+  },
+  "sketch": {
+    "canvas": {
+      "width": 1000,
+      "height": 700
+    },
+    "mainLoop": {
+      "points": [
+        {
+          "x": 120,
+          "y": 420
+        },
+        {
+          "x": 180,
+          "y": 200
+        },
+        {
+          "x": 330,
+          "y": 110
+        },
+        {
+          "x": 520,
+          "y": 160
+        },
+        {
+          "x": 600,
+          "y": 300
+        },
+        {
+          "x": 720,
+          "y": 180
+        },
+        {
+          "x": 880,
+          "y": 150
+        },
+        {
+          "x": 940,
+          "y": 330
+        },
+        {
+          "x": 860,
+          "y": 520
+        },
+        {
+          "x": 640,
+          "y": 600
+        },
+        {
+          "x": 420,
+          "y": 560
+        },
+        {
+          "x": 260,
+          "y": 600
+        }
+      ]
+    },
+    "startFinish": {
+      "position": {
+        "x": 150,
+        "y": 310
+      },
+      "headingDeg": 285
+    }
+  },
+  "options": {
+    "lapLengthKm": 3.0,
+    "widthM": 14,
+    "surface": "gravel",
+    "kerbs": true,
+    "walls": "tyres",
+    "elevation": "hilly",
+    "environment": "forest",
+    "gridSize": 20,
+    "weathers": [
+      "morning",
+      "sunset"
+    ],
+    "reverseLayout": false,
+    "defaultLaps": 5
+  }
+}
