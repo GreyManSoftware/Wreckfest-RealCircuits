@@ -8,10 +8,21 @@ services:
       context: .
       dockerfile: src/Api/Dockerfile
     image: trackgen-api:dev
+    # ${...} values come from .env (gitignored; see .env.example), which Compose reads automatically if present.
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      Geometry__BaseUrl: http://geom:8000
-      # Storage connection settings (Azurite) are added with the jobs/blob feature; keep secrets in .env (gitignored).
+      # SQLite file and Data Protection key ring live on the api-data named volume.
+      Database__Path: /data/trackgen.db
+      DataProtection__KeysPath: /data/keys
+      GEOM_URL: http://geom:8000
+      # Azurite's development account, reached through the compose service name (no key in this file).
+      Storage__ConnectionString: UseDevelopmentStorage=true;DevelopmentStorageProxyUri=http://azurite
+      # Shared secret for the worker's PATCH /api/internal/builds/{id}; empty disables the endpoint.
+      Worker__Secret: ${TRACKGEN_WORKER_SECRET:-}
+      # Optional pinned first-admin invite code; empty means a random one is printed to the log.
+      Auth__BootstrapAdminCode: ${TRACKGEN_BOOTSTRAP_ADMIN_CODE:-}
+    volumes:
+      - api-data:/data
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
@@ -71,3 +82,4 @@ services:
 
 volumes:
   azurite-data:
+  api-data:
