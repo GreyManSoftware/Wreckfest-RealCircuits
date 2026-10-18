@@ -63,7 +63,9 @@
     }
   },
   "facts": {
-    "firstSectorLengthM": -1
+    "firstSectorLengthM": -1,
+    "unannotatedCrossings": [],
+    "unmatchedCrossingAnnotations": []
   },
   "expect": {
     "schemaValid": false,

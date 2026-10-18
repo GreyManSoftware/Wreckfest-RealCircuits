@@ -91,7 +91,9 @@
     }
   },
   "facts": {
-    "altRoutes": {}
+    "altRoutes": {},
+    "unannotatedCrossings": [],
+    "unmatchedCrossingAnnotations": []
   },
   "expect": {
     "schemaValid": true,

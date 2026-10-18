@@ -1,0 +1,488 @@
+{
+  "description": "At most 50 jumps (sketch arrays have maxItems so huge inputs are rejected cheaply).",
+  "spec": {
+    "meta": {
+      "name": "Test Track",
+      "slug": "test_track"
+    },
+    "sketch": {
+      "canvas": {
+        "width": 1000,
+        "height": 700
+      },
+      "mainLoop": {
+        "points": [
+          {
+            "x": 100,
+            "y": 100
+          },
+          {
+            "x": 500,
+            "y": 80
+          },
+          {
+            "x": 900,
+            "y": 100
+          },
+          {
+            "x": 900,
+            "y": 600
+          },
+          {
+            "x": 500,
+            "y": 620
+          },
+          {
+            "x": 100,
+            "y": 600
+          }
+        ]
+      },
+      "startFinish": {
+        "position": {
+          "x": 300,
+          "y": 90
+        },
+        "headingDeg": 0
+      },
+      "jumps": [
+        {
+          "id": "j0",
+          "position": {
+            "x": 100,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j1",
+          "position": {
+            "x": 101,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j2",
+          "position": {
+            "x": 102,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j3",
+          "position": {
+            "x": 103,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j4",
+          "position": {
+            "x": 104,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j5",
+          "position": {
+            "x": 105,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j6",
+          "position": {
+            "x": 106,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j7",
+          "position": {
+            "x": 107,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j8",
+          "position": {
+            "x": 108,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j9",
+          "position": {
+            "x": 109,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j10",
+          "position": {
+            "x": 110,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j11",
+          "position": {
+            "x": 111,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j12",
+          "position": {
+            "x": 112,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j13",
+          "position": {
+            "x": 113,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j14",
+          "position": {
+            "x": 114,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j15",
+          "position": {
+            "x": 115,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j16",
+          "position": {
+            "x": 116,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j17",
+          "position": {
+            "x": 117,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j18",
+          "position": {
+            "x": 118,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j19",
+          "position": {
+            "x": 119,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j20",
+          "position": {
+            "x": 120,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j21",
+          "position": {
+            "x": 121,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j22",
+          "position": {
+            "x": 122,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j23",
+          "position": {
+            "x": 123,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j24",
+          "position": {
+            "x": 124,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j25",
+          "position": {
+            "x": 125,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j26",
+          "position": {
+            "x": 126,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j27",
+          "position": {
+            "x": 127,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j28",
+          "position": {
+            "x": 128,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j29",
+          "position": {
+            "x": 129,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j30",
+          "position": {
+            "x": 130,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j31",
+          "position": {
+            "x": 131,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j32",
+          "position": {
+            "x": 132,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j33",
+          "position": {
+            "x": 133,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j34",
+          "position": {
+            "x": 134,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j35",
+          "position": {
+            "x": 135,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j36",
+          "position": {
+            "x": 136,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j37",
+          "position": {
+            "x": 137,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j38",
+          "position": {
+            "x": 138,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j39",
+          "position": {
+            "x": 139,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j40",
+          "position": {
+            "x": 140,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j41",
+          "position": {
+            "x": 141,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j42",
+          "position": {
+            "x": 142,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j43",
+          "position": {
+            "x": 143,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j44",
+          "position": {
+            "x": 144,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j45",
+          "position": {
+            "x": 145,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j46",
+          "position": {
+            "x": 146,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j47",
+          "position": {
+            "x": 147,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j48",
+          "position": {
+            "x": 148,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j49",
+          "position": {
+            "x": 149,
+            "y": 100
+          },
+          "size": "small"
+        },
+        {
+          "id": "j50",
+          "position": {
+            "x": 150,
+            "y": 100
+          },
+          "size": "small"
+        }
+      ]
+    },
+    "options": {
+      "lapLengthKm": 1.5,
+      "widthM": 12,
+      "surface": "mixed",
+      "kerbs": true,
+      "walls": "tyres",
+      "elevation": "gentle",
+      "environment": "gravel_pit",
+      "gridSize": 16,
+      "weathers": [
+        "midday"
+      ],
+      "reverseLayout": false,
+      "defaultLaps": 5
+    }
+  },
+  "expect": {
+    "schemaValid": false,
+    "valid": false,
+    "errors": [],
+    "warnings": [],
+    "disabled": [],
+    "hidden": [],
+    "flags": [],
+    "deferred": [],
+    "schemaErrorPaths": [
+      "/sketch/jumps"
+    ]
+  }
+}

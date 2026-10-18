@@ -96,7 +96,9 @@
         "startGapM": 0,
         "endGapM": 0
       }
-    }
+    },
+    "unannotatedCrossings": [],
+    "unmatchedCrossingAnnotations": []
   },
   "expect": {
     "schemaValid": true,

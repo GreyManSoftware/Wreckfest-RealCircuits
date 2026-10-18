@@ -440,7 +440,7 @@ class Options:
 
 @dataclass(kw_only=True)
 class CrossingFacts:
-    """Crossing facts"""
+    """Facts for an annotated crossing that matches a real crossing. Annotations listed in unmatchedCrossingAnnotations have no entry."""
 
     nearest_jump_m: float | None = None
     available_ramp_length_m: float | None = None
@@ -485,6 +485,30 @@ class AltRouteFacts:
 
 
 @dataclass(kw_only=True)
+class UnannotatedCrossing:
+    """A place where the track crosses itself that no crossing annotation marks."""
+
+    id: str
+    x: float
+    y: float
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> UnannotatedCrossing:
+        return cls(
+            id=str(data["id"]),
+            x=float(data["x"]),
+            y=float(data["y"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["id"] = self.id
+        out["x"] = self.x
+        out["y"] = self.y
+        return out
+
+
+@dataclass(kw_only=True)
 class GeometryFacts:
     """Measurements computed by the geometry service (trackgen_geom) from the scaled layout. The rules engine compares them against thresholds in track-rules.json; it never computes geometry itself."""
 
@@ -492,6 +516,8 @@ class GeometryFacts:
     max_abs_coordinate_m: float | None = None
     min_corner_radius_m: float | None = None
     crossings: dict[str, CrossingFacts] | None = None
+    unannotated_crossings: list[UnannotatedCrossing] | None = None
+    unmatched_crossing_annotations: list[str] | None = None
     alt_routes: dict[str, AltRouteFacts] | None = None
 
     @classmethod
@@ -501,6 +527,8 @@ class GeometryFacts:
             max_abs_coordinate_m=None if data.get("maxAbsCoordinateM") is None else float(data["maxAbsCoordinateM"]),
             min_corner_radius_m=None if data.get("minCornerRadiusM") is None else float(data["minCornerRadiusM"]),
             crossings=None if data.get("crossings") is None else {k0: CrossingFacts.from_dict(v0) for k0, v0 in data["crossings"].items()},
+            unannotated_crossings=None if data.get("unannotatedCrossings") is None else [UnannotatedCrossing.from_dict(v0) for v0 in data["unannotatedCrossings"]],
+            unmatched_crossing_annotations=None if data.get("unmatchedCrossingAnnotations") is None else [str(v0) for v0 in data["unmatchedCrossingAnnotations"]],
             alt_routes=None if data.get("altRoutes") is None else {k0: AltRouteFacts.from_dict(v0) for k0, v0 in data["altRoutes"].items()},
         )
 
@@ -514,6 +542,10 @@ class GeometryFacts:
             out["minCornerRadiusM"] = self.min_corner_radius_m
         if self.crossings is not None:
             out["crossings"] = {k0: v0.to_dict() for k0, v0 in self.crossings.items()}
+        if self.unannotated_crossings is not None:
+            out["unannotatedCrossings"] = [v0.to_dict() for v0 in self.unannotated_crossings]
+        if self.unmatched_crossing_annotations is not None:
+            out["unmatchedCrossingAnnotations"] = [v0 for v0 in self.unmatched_crossing_annotations]
         if self.alt_routes is not None:
             out["altRoutes"] = {k0: v0.to_dict() for k0, v0 in self.alt_routes.items()}
         return out
@@ -541,6 +573,7 @@ __all__ = [
     "StartFinish",
     "Surface",
     "TrackSpec",
+    "UnannotatedCrossing",
     "Walls",
     "Weather",
 ]

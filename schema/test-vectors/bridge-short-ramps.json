@@ -81,7 +81,9 @@
       "c1": {
         "availableRampLengthM": 35
       }
-    }
+    },
+    "unannotatedCrossings": [],
+    "unmatchedCrossingAnnotations": []
   },
   "expect": {
     "schemaValid": true,

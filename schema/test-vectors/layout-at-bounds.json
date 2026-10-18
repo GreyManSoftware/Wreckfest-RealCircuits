@@ -63,7 +63,9 @@
     }
   },
   "facts": {
-    "maxAbsCoordinateM": 2000
+    "maxAbsCoordinateM": 2000,
+    "unannotatedCrossings": [],
+    "unmatchedCrossingAnnotations": []
   },
   "expect": {
     "schemaValid": true,

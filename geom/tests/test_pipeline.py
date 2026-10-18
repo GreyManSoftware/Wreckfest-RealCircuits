@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import time
 from pathlib import Path
 from typing import Any
 
@@ -212,7 +213,7 @@ def test_over_param_selects_the_other_pass() -> None:
     assert over.z - under.z == pytest.approx(C.BRIDGE_DECK_HEIGHT_M, abs=1e-6)
 
 
-def test_unannotated_crossing_needs_annotation() -> None:
+def test_unannotated_crossing_fails_the_rules() -> None:
     spec = sample("figure8_bridge")
     spec["sketch"]["crossings"] = []
     result = build_track_model(spec)
@@ -220,18 +221,40 @@ def test_unannotated_crossing_needs_annotation() -> None:
     assert (c.type, c.annotated, c.id) == ("unannotated", False, "auto1")
     assert "crossing-needs-annotation" in codes(result)
     assert result.facts["crossings"] == {}
+    [fact] = result.facts["unannotatedCrossings"]
+    assert fact["id"] == "auto1"
+    assert math.hypot(fact["x"] - 500, fact["y"] - 350) < 5  # canvas coordinates of the lemniscate centre
+    assert "crossing-annotation-required" in violations(result)
+    assert not result.valid and result.rule_result.deferred == []
     assert max(z(result.model.route("main"))) < C.BRIDGE_DECK_HEIGHT_M  # no bridge built
 
 
-def test_annotation_without_crossing_is_reported_but_measured() -> None:
+@pytest.mark.parametrize("ctype", ["flat", "bridge"])
+def test_annotation_without_crossing_is_reported_and_ignored(ctype: str) -> None:
     spec = sample("oval")
-    spec["sketch"]["crossings"] = [{"id": "x", "position": {"x": 500, "y": 150}, "type": "flat"}]
+    spec["sketch"]["crossings"] = [{"id": "x", "position": {"x": 500, "y": 150}, "type": ctype}]
+    if ctype == "bridge":
+        spec["sketch"]["crossings"][0]["over"] = {"route": "main"}
     result = build_track_model(spec)
     assert "crossing-annotation-unmatched" in codes(result)
-    assert result.facts["crossings"]["x"]["nearestJumpM"] == pytest.approx(1200.0)
-    assert "flat-crossing-jump-clearance" not in result.rule_result.deferred
+    assert result.facts["unmatchedCrossingAnnotations"] == ["x"]
+    assert "x" not in result.facts["crossings"]
+    assert {v.rule_id for v in result.rule_result.violations} == {"crossing-annotation-matches"}
+    assert result.rule_result.violations[0].severity == "warning"
+    assert result.rule_result.deferred == [] and result.valid
     [c] = result.model.crossings
     assert c.detected is False
+    assert max(z(result.model.route("main"))) == 0.0  # nothing built for it
+
+
+def test_no_jump_nearby_leaves_out_nearest_jump(built: dict[str, Any]) -> None:
+    spec = sample("figure8_bridge")
+    spec["sketch"]["jumps"] = []
+    spec["sketch"]["crossings"][0] = {"id": "bridge1", "position": {"x": 500, "y": 350}, "type": "flat"}
+    result = build_track_model(spec)
+    assert result.facts["crossings"] == {"bridge1": {}}
+    assert result.valid and result.rule_result.deferred == []
+    assert "nearestJumpM" in built["figure8_bridge"].facts["crossings"]["bridge1"]
 
 
 def test_flat_crossing_near_a_jump_fails_the_clearance_rule() -> None:
@@ -456,19 +479,19 @@ def test_reverse_layout_keeps_only_bidirectional_jumps_in_the_road() -> None:
 
 
 @pytest.mark.parametrize("path", SAMPLES, ids=[p.stem for p in SAMPLES])
-def test_grid_slots(path: Path, built: dict[str, Any]) -> None:
+def test_grid_slots_are_ahead_of_the_line(path: Path, built: dict[str, Any]) -> None:
     spec = load(path)
     model = built[path.stem].model
     grid = model.grid
     n = spec["options"]["gridSize"]
+    rows = math.ceil(n / 2)
+    spacing = RULE_CONSTANTS["gridRowSpacingM"]
     assert len(grid.slots) == n
     assert [s.name for s in grid.slots] == [f"#startpoint{i:02d}" for i in range(1, n + 1)]
-    lap = model.lap_length_m
-    for row in range(math.ceil(n / 2)):
+    for row in range(rows):
         pair = [s for s in grid.slots if s.row == row]
         assert len(pair) == (2 if 2 * row + 1 < n else 1)
-        behind = lap - pair[0].s
-        assert behind == pytest.approx(C.GRID_FRONT_OFFSET_M + row * RULE_CONSTANTS["gridRowSpacingM"])
+        assert pair[0].s == pytest.approx(C.GRID_LINE_OFFSET_M + (rows - 1 - row) * spacing)
         if len(pair) == 2:
             a, b = pair
             assert {a.side, b.side} == {"left", "right"}
@@ -476,7 +499,36 @@ def test_grid_slots(path: Path, built: dict[str, Any]) -> None:
             assert gap == pytest.approx(RULE_CONSTANTS["gridSlotWidthM"], abs=1e-6)
     assert grid.car_change.name == "#startpointcarchange"
     first = built[path.stem].facts["firstSectorLengthM"]
-    assert first >= math.ceil(n / 2) * RULE_CONSTANTS["gridRowSpacingM"]
+    assert first >= rows * spacing
+    # Every slot is on clear road: inside the first sector and off any jump or ramp.
+    assert max(s.s for s in grid.slots) + C.PREVIEW_CAR_LENGTH_M / 2 <= first
+    for j in model.jumps:
+        if j.route == "main":
+            assert all(not (j.start_s <= s.s <= j.end_s) for s in grid.slots)
+    for c in model.crossings:
+        if c.over_branch is not None and c.branches[c.over_branch].route == "main":
+            b = c.branches[c.over_branch]
+            lo, hi = b.s - c.deck_half_length_m - c.ramp_up_m, b.s + c.deck_half_length_m + c.ramp_down_m
+            assert all(not (lo <= s.s <= hi) for s in grid.slots)
+
+
+def test_jump_on_the_grid_fails_the_grid_rule() -> None:
+    """Regression: loop_alt_jump with a grid of 24 and a large jump where the grid would be."""
+    spec = sample("loop_alt_jump")
+    spec["options"]["gridSize"] = 24
+    spec["sketch"]["jumps"].append({"id": "big", "position": {"x": 440, "y": 550}, "size": "large"})
+    result = build_track_model(spec)
+    big = next(j for j in result.model.jumps if j.id == "big")
+    assert 0 < big.start_s < 96
+    assert result.facts["firstSectorLengthM"] == pytest.approx(big.start_s, abs=1e-3)
+    assert "grid-first-sector-length" in violations(result)
+    assert not result.valid
+
+    clear = sample("loop_alt_jump")
+    clear["options"]["gridSize"] = 24
+    ok = build_track_model(clear)
+    assert ok.facts["firstSectorLengthM"] >= 96 and ok.valid
+    assert max(s.s for s in ok.model.grid.slots) < ok.facts["firstSectorLengthM"]
 
 
 @pytest.mark.parametrize("path", SAMPLES, ids=[p.stem for p in SAMPLES])
@@ -486,8 +538,10 @@ def test_checkpoints(path: Path, built: dict[str, Any]) -> None:
     assert C.CHECKPOINT_MIN <= len(main_cps) <= C.CHECKPOINT_MAX
     assert main_cps[-1].is_finish and main_cps[-1].s == 0.0
     assert not any(c.is_finish for c in main_cps[:-1])
-    grid_len = math.ceil(model.grid.size / 2) * RULE_CONSTANTS["gridRowSpacingM"]
-    assert main_cps[0].s >= min(grid_len, model.first_sector_length_m) - 1e-9
+    rows = math.ceil(model.grid.size / 2)
+    pole = C.GRID_LINE_OFFSET_M + (rows - 1) * RULE_CONSTANTS["gridRowSpacingM"]
+    assert main_cps[0].s == pytest.approx(pole + C.GRID_CHECKPOINT_MARGIN_M)
+    assert main_cps[0].s > max(s.s for s in model.grid.slots)
     s = [c.s for c in main_cps[:-1]]
     assert s == sorted(s) and s[-1] < model.lap_length_m
     for c in model.checkpoints:
@@ -554,6 +608,97 @@ def test_vectors_build_with_non_deferred_geometry_rules(path: Path) -> None:
     assert result.rule_result.schema_valid, result.rule_result.schema_errors
     assert GEOMETRY_RULES.isdisjoint(result.rule_result.deferred)
     for crossing in vector["spec"]["sketch"].get("crossings", []):
-        assert crossing["id"] in result.facts["crossings"]
+        cid = crossing["id"]
+        assert (cid in result.facts["crossings"]) != (cid in result.facts["unmatchedCrossingAnnotations"])
     for alt in vector["spec"]["sketch"].get("altRoutes", []):
         assert alt["id"] in result.facts["altRoutes"]
+
+
+# --- size guards -------------------------------------------------------------------------------
+
+
+def scaled_main_loop(factor: float) -> dict[str, Any]:
+    """The loop_alt_jump sample with only the main loop (and start/finish) shrunk by ``factor``."""
+    spec = sample("loop_alt_jump")
+    for p in spec["sketch"]["mainLoop"]["points"] + [spec["sketch"]["startFinish"]["position"]]:
+        p["x"] /= factor
+        p["y"] /= factor
+    return spec
+
+
+@pytest.mark.parametrize("factor", [1e3, 1e4])
+def test_shrunk_main_loop_is_rejected_quickly(factor: float) -> None:
+    start = time.perf_counter()
+    result = build_track_model(scaled_main_loop(factor))
+    assert time.perf_counter() - start < 2.0
+    assert result.model is None and not result.valid
+    assert [e.code for e in result.errors] == ["main-loop-too-small"]
+
+
+def test_tiny_main_loop_is_rejected_quickly() -> None:
+    spec = sample("oval")
+    spec["sketch"]["mainLoop"]["points"] = [{"x": x * 1e-7, "y": y * 1e-7} for x, y in [(0, 0), (1, 0), (1, 1)]]
+    del spec["sketch"]["startFinish"]
+    start = time.perf_counter()
+    result = build_track_model(spec)
+    assert time.perf_counter() - start < 2.0
+    assert [e.code for e in result.errors] == ["main-loop-too-small"]
+    assert result.model is None and result.facts is None and not result.valid
+
+
+def test_tiny_canvas_with_a_matching_loop_still_builds() -> None:
+    spec = sample("oval")
+    k = 1e-6
+    spec["sketch"]["canvas"] = {"width": 1000 * k, "height": 600 * k}
+    for p in spec["sketch"]["mainLoop"]["points"] + [spec["sketch"]["startFinish"]["position"]]:
+        p["x"] *= k
+        p["y"] *= k
+    result = build_track_model(spec)
+    assert result.valid, (result.errors, [v.message for v in result.rule_result.violations])
+    assert result.model.lap_length_m == pytest.approx(1200.0)
+
+
+def test_main_loop_with_too_few_distinct_points_is_rejected() -> None:
+    spec = sample("oval")
+    spec["sketch"]["mainLoop"]["points"] = [{"x": 0, "y": 0}, {"x": 500, "y": 0}, {"x": 0, "y": 0}]
+    del spec["sketch"]["startFinish"]
+    result = build_track_model(spec)
+    assert [e.code for e in result.errors] == ["main-loop-degenerate"]
+
+
+@pytest.mark.parametrize(
+    ("factor", "code"), [(40.0, "alt-route-too-long"), (2.5, "alt-route-out-of-bounds")], ids=["long", "far"]
+)
+def test_oversized_alt_route_is_rejected_quickly(factor: float, code: str) -> None:
+    spec = sample("loop_alt_jump")
+    if code == "alt-route-too-long":
+        spec["sketch"]["altRoutes"][0]["points"] = (
+            [{"x": 350, "y": 150}]
+            + [{"x": 350 + 600 * (i % 2), "y": 150 + 2 * i} for i in range(1, int(factor) * 4)]
+            + [{"x": 650, "y": 150}]
+        )
+    else:
+        spec["sketch"]["altRoutes"][0]["points"][2] = {"x": 500, "y": -2130}  # ~2.3 km out, ~4.2 km long
+    start = time.perf_counter()
+    result = build_track_model(spec)
+    assert time.perf_counter() - start < 2.0
+    assert [e.code for e in result.errors] == [code]
+    assert result.model is None and not result.valid
+
+
+def test_huge_stroke_point_counts_are_rejected_cheaply() -> None:
+    spec = sample("oval")
+    t = np.linspace(0, 2 * math.pi, 200_000, endpoint=False)
+    circle = [{"x": float(500 + 300 * math.cos(a)), "y": float(300 + 250 * math.sin(a))} for a in t]
+    spec["sketch"]["mainLoop"]["points"] = circle
+    start = time.perf_counter()
+    result = build_track_model(spec)
+    assert time.perf_counter() - start < 0.5
+    assert result.model is None and not result.rule_result.schema_valid
+    assert [e.path for e in result.rule_result.schema_errors] == ["/sketch/mainLoop/points"]
+
+    spec["sketch"]["mainLoop"]["points"] = circle[::20]  # 10,000 points: the maximum
+    start = time.perf_counter()
+    result = build_track_model(spec)
+    assert time.perf_counter() - start < 5.0
+    assert result.model is not None

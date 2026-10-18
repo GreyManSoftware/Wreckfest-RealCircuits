@@ -85,7 +85,9 @@
     }
   },
   "facts": {
-    "crossings": {}
+    "crossings": {},
+    "unannotatedCrossings": [],
+    "unmatchedCrossingAnnotations": []
   },
   "expect": {
     "schemaValid": true,

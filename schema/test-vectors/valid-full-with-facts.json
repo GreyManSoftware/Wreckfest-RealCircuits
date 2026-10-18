@@ -150,7 +150,9 @@
         "startGapM": 0.5,
         "endGapM": 1.0
       }
-    }
+    },
+    "unannotatedCrossings": [],
+    "unmatchedCrossingAnnotations": []
   },
   "expect": {
     "schemaValid": true,

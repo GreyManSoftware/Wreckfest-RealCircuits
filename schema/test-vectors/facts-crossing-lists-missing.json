@@ -1,0 +1,85 @@
+{
+  "description": "Facts without the crossing lists defer the crossing-annotation rules.",
+  "spec": {
+    "meta": {
+      "name": "Test Track",
+      "slug": "test_track"
+    },
+    "sketch": {
+      "canvas": {
+        "width": 1000,
+        "height": 700
+      },
+      "mainLoop": {
+        "points": [
+          {
+            "x": 100,
+            "y": 100
+          },
+          {
+            "x": 500,
+            "y": 80
+          },
+          {
+            "x": 900,
+            "y": 100
+          },
+          {
+            "x": 900,
+            "y": 600
+          },
+          {
+            "x": 500,
+            "y": 620
+          },
+          {
+            "x": 100,
+            "y": 600
+          }
+        ]
+      },
+      "startFinish": {
+        "position": {
+          "x": 300,
+          "y": 90
+        },
+        "headingDeg": 0
+      }
+    },
+    "options": {
+      "lapLengthKm": 1.5,
+      "widthM": 12,
+      "surface": "mixed",
+      "kerbs": true,
+      "walls": "tyres",
+      "elevation": "gentle",
+      "environment": "gravel_pit",
+      "gridSize": 16,
+      "weathers": [
+        "midday"
+      ],
+      "reverseLayout": false,
+      "defaultLaps": 5
+    }
+  },
+  "facts": {
+    "firstSectorLengthM": 100,
+    "maxAbsCoordinateM": 800,
+    "minCornerRadiusM": 20,
+    "crossings": {},
+    "altRoutes": {}
+  },
+  "expect": {
+    "schemaValid": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "disabled": [],
+    "hidden": [],
+    "flags": [],
+    "deferred": [
+      "crossing-annotation-matches",
+      "crossing-annotation-required"
+    ]
+  }
+}

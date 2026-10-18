@@ -80,6 +80,7 @@
         "points": {
           "type": "array",
           "minItems": 3,
+          "maxItems": 10000,
           "items": { "$ref": "#/$defs/Point" }
         }
       }
@@ -127,6 +128,7 @@
         "points": {
           "type": "array",
           "minItems": 2,
+          "maxItems": 10000,
           "items": { "$ref": "#/$defs/Point" }
         },
         "start": { "$ref": "#/$defs/Attachment" },
@@ -207,18 +209,21 @@
         "altRoutes": {
           "title": "Alternative routes",
           "type": "array",
+          "maxItems": 20,
           "items": { "$ref": "#/$defs/AltRoute" },
           "default": []
         },
         "crossings": {
           "title": "Crossings",
           "type": "array",
+          "maxItems": 50,
           "items": { "$ref": "#/$defs/Crossing" },
           "default": []
         },
         "jumps": {
           "title": "Jumps",
           "type": "array",
+          "maxItems": 50,
           "items": { "$ref": "#/$defs/Jump" },
           "default": []
         }
@@ -328,11 +333,12 @@
     },
     "CrossingFacts": {
       "title": "Crossing facts",
+      "description": "Facts for an annotated crossing that matches a real crossing. Annotations listed in unmatchedCrossingAnnotations have no entry.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "nearestJumpM": {
-          "description": "Distance along either branch from the crossing to the nearest jump or ramp.",
+          "description": "Distance along either branch from the crossing to the nearest jump or ramp. Absent when neither branch has a jump or ramp.",
           "type": "number",
           "minimum": 0
         },
@@ -360,6 +366,18 @@
         }
       }
     },
+    "UnannotatedCrossing": {
+      "title": "Unannotated crossing",
+      "description": "A place where the track crosses itself that no crossing annotation marks.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "x", "y"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id", "description": "Generated id (auto1, auto2, ...)." },
+        "x": { "type": "number", "description": "Canvas x of the crossing, so the UI can place a marker there." },
+        "y": { "type": "number", "description": "Canvas y of the crossing." }
+      }
+    },
     "GeometryFacts": {
       "title": "Geometry facts",
       "description": "Measurements computed by the geometry service (trackgen_geom) from the scaled layout. The rules engine compares them against thresholds in track-rules.json; it never computes geometry itself.",
@@ -367,7 +385,7 @@
       "additionalProperties": false,
       "properties": {
         "firstSectorLengthM": {
-          "description": "Length of the first sector (start/finish to the first checkpoint), which holds the grid.",
+          "description": "Clear road ahead of the start/finish line available for the grid: up to the first tight corner, crossing, jump, ramp or alternative-route junction. The grid sits here, ahead of the line, and the first checkpoint follows the last grid row.",
           "type": "number",
           "minimum": 0
         },
@@ -385,6 +403,16 @@
           "description": "Per-crossing facts, keyed by crossing id.",
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/CrossingFacts" }
+        },
+        "unannotatedCrossings": {
+          "description": "Places where the track crosses itself that no annotation marks. Always reported by the geometry core (possibly empty).",
+          "type": "array",
+          "items": { "$ref": "#/$defs/UnannotatedCrossing" }
+        },
+        "unmatchedCrossingAnnotations": {
+          "description": "Ids of crossing annotations that match no place where the track crosses itself. Always reported by the geometry core (possibly empty).",
+          "type": "array",
+          "items": { "$ref": "#/$defs/Id" }
         },
         "altRoutes": {
           "description": "Per-alternative-route facts, keyed by route id.",

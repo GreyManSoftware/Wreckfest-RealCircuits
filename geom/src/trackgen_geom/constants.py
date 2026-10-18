@@ -28,6 +28,11 @@ SMOOTH_SIGMA_M = 15.0  # Gaussian low-pass on the scaled raw stroke (removes han
 CONTROL_SPACING_M = 25.0  # spacing of the B-spline control points fitted to the smoothed stroke
 SUBDIVISION_LEVELS = 4  # cubic B-spline subdivision rounds (16 points per control span)
 RADIUS_WINDOW = 3  # samples either side used for the circumradius (about a 12 m chord)
+MAX_CONTROL_POINTS = 2_000  # defensive cap (a 15 km route at 25 m is 600)
+
+# --- Input size guards (checked before any smoothing) ----------------------------------------
+MIN_MAIN_LOOP_CANVAS_FRACTION = 0.01  # main-loop length must be at least 1% of the larger canvas side
+ALT_ROUTE_MAX_LAP_FACTOR = 3.0  # an alternative-route stroke may be at most 3x the lap length
 
 # --- Minimum-radius relaxation ---------------------------------------------------------------
 RELAX_TARGET_MARGIN = 0.03  # aim 3% above the required radius
@@ -99,10 +104,11 @@ JUMP_TABLE_M = 6.0  # flat table top between the two takeoffs of a bidirectional
 JUMP_PROFILE_STEP_M = 1.0
 
 # --- Grid, sectors and checkpoints -----------------------------------------------------------
-GRID_FRONT_OFFSET_M = 4.0  # pole row distance behind the start line
+GRID_LINE_OFFSET_M = 4.0  # back row distance ahead of the start line (the grid is ahead of the line)
+GRID_CHECKPOINT_MARGIN_M = 10.0  # first checkpoint this far beyond the front (pole) row
 GRID_SHARP_RADIUS_M = 50.0  # a corner tighter than this ends the first sector
 GRID_MAX_TURN_DEG = 45.0  # ...as does turning further than this from the start heading
-START_CLEAR_M = 10.0  # kept free of ramps beyond the start line
+START_CLEAR_M = 10.0  # kept free of ramps behind the start line
 CHECKPOINT_SPACING_M = 250.0
 CHECKPOINT_MIN = 6
 CHECKPOINT_MAX = 10

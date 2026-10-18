@@ -95,7 +95,9 @@
       "alt1": {
         "startGapM": 0.5
       }
-    }
+    },
+    "unannotatedCrossings": [],
+    "unmatchedCrossingAnnotations": []
   },
   "expect": {
     "schemaValid": true,

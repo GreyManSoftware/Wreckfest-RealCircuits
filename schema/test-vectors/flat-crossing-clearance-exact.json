@@ -87,7 +87,9 @@
       "c1": {
         "nearestJumpM": 30
       }
-    }
+    },
+    "unannotatedCrossings": [],
+    "unmatchedCrossingAnnotations": []
   },
   "expect": {
     "schemaValid": true,

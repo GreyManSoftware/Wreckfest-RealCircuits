@@ -213,7 +213,7 @@
     {
       "id": "grid-first-sector-length",
       "title": "First sector holds the grid",
-      "description": "The first sector must be at least ceil(gridSize / 2) x gridRowSpacingM long.",
+      "description": "The grid sits ahead of the start/finish line, so the clear road there (the first sector) must be at least ceil(gridSize / 2) x gridRowSpacingM long.",
       "evaluatedBy": "geometry",
       "requires": ["facts.firstSectorLengthM"],
       "let": {
@@ -270,18 +270,54 @@
       }
     },
     {
+      "id": "crossing-annotation-required",
+      "title": "Crossings are marked",
+      "description": "Every place where the track crosses itself must be marked as a bridge or a flat crossing.",
+      "evaluatedBy": "geometry",
+      "requires": ["facts.unannotatedCrossings"],
+      "forEach": { "path": "facts.unannotatedCrossings", "as": "c" },
+      "effect": {
+        "type": "error",
+        "path": "/sketch/crossings",
+        "message": "The track crosses itself at ({$c.x}, {$c.y}); mark it as a bridge or a flat crossing."
+      }
+    },
+    {
+      "id": "crossing-annotation-matches",
+      "title": "Crossing markers are on a crossing",
+      "description": "A crossing marker that isn't on a place where the track crosses itself is ignored by the build.",
+      "evaluatedBy": "geometry",
+      "requires": ["facts.unmatchedCrossingAnnotations"],
+      "forEach": { "path": "sketch.crossings", "as": "crossing" },
+      "when": { "in": [{ "var": "$crossing.id" }, { "var": "facts.unmatchedCrossingAnnotations" }] },
+      "effect": {
+        "type": "warning",
+        "message": "Crossing {$crossing.id} isn't on a place where the track crosses itself, so it is ignored."
+      }
+    },
+    {
       "id": "flat-crossing-jump-clearance",
       "title": "No jumps near flat crossings",
-      "description": "A flat crossing is not allowed where either branch has a jump or ramp within flatCrossingJumpClearanceM.",
+      "description": "A flat crossing is not allowed where either branch has a jump or ramp within flatCrossingJumpClearanceM. A crossing whose facts have no nearestJumpM has no jump or ramp on either branch.",
       "evaluatedBy": "geometry",
       "requires": ["facts.crossings"],
       "forEach": { "path": "sketch.crossings", "as": "crossing" },
       "let": { "f": { "get": [{ "var": "facts.crossings" }, { "var": "$crossing.id" }] } },
-      "when": { "==": [{ "var": "$crossing.type" }, "flat"] },
-      "requiresEach": ["$f.nearestJumpM"],
+      "when": {
+        "and": [
+          { "==": [{ "var": "$crossing.type" }, "flat"] },
+          { "not": { "in": [{ "var": "$crossing.id" }, { "var": "facts.unmatchedCrossingAnnotations" }] } }
+        ]
+      },
+      "requiresEach": ["$f"],
       "effect": {
         "type": "require",
-        "assert": { ">=": [{ "var": "$f.nearestJumpM" }, { "var": "constants.flatCrossingJumpClearanceM" }] },
+        "assert": {
+          "or": [
+            { "not": { "exists": { "var": "$f.nearestJumpM" } } },
+            { ">=": [{ "var": "$f.nearestJumpM" }, { "var": "constants.flatCrossingJumpClearanceM" }] }
+          ]
+        },
         "severity": "error",
         "message": "Flat crossing {$crossing.id} is {$f.nearestJumpM} m from a jump; keep jumps at least {constants.flatCrossingJumpClearanceM} m away or make it a bridge."
       }
@@ -294,7 +330,12 @@
       "requires": ["facts.crossings"],
       "forEach": { "path": "sketch.crossings", "as": "crossing" },
       "let": { "f": { "get": [{ "var": "facts.crossings" }, { "var": "$crossing.id" }] } },
-      "when": { "==": [{ "var": "$crossing.type" }, "bridge"] },
+      "when": {
+        "and": [
+          { "==": [{ "var": "$crossing.type" }, "bridge"] },
+          { "not": { "in": [{ "var": "$crossing.id" }, { "var": "facts.unmatchedCrossingAnnotations" }] } }
+        ]
+      },
       "requiresEach": ["$f.availableRampLengthM"],
       "effect": {
         "type": "require",

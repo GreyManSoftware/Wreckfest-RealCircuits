@@ -36,16 +36,29 @@ class Centreline:
 
 def _control_points(p: np.ndarray, closed: bool) -> np.ndarray:
     q = pl.gaussian_smooth(p, closed, C.SMOOTH_SIGMA_M, C.SAMPLE_SPACING_M)
-    total = pl.length(q, closed)
+    n = min(round(pl.length(q, closed) / C.CONTROL_SPACING_M), C.MAX_CONTROL_POINTS)
+    return pl.resample_closed(q, max(8, n)) if closed else pl.resample_open(q, max(2, n))
+
+
+def _sample(dense: np.ndarray, closed: bool, n: int) -> tuple[np.ndarray, np.ndarray]:
+    """Evenly resample a subdivided curve into ``n`` spans; also return each sample's (fractional)
+    control-point index, which subdivision makes exact: control point j sits at dense index j * 2^levels."""
+    n = min(n, pl.MAX_POINTS)
+    cum = pl.cumulative(dense, closed)
     if closed:
-        return pl.resample_closed(q, max(8, round(total / C.CONTROL_SPACING_M)))
-    return pl.resample_open(q, max(2, round(total / C.CONTROL_SPACING_M)))
+        t = np.arange(n) * (cum[-1] / n)
+        samples = pl.resample_closed(dense, n)
+    else:
+        t = np.linspace(0.0, cum[-1], n + 1)
+        samples = pl.resample_open(dense, n)
+    idx = np.clip(np.searchsorted(cum, t, side="right") - 1, 0, len(dense) - 1)
+    return samples, idx / float(2**C.SUBDIVISION_LEVELS)
 
 
 def relax(
     ctrl: np.ndarray,
     closed: bool,
-    build: Callable[[np.ndarray], tuple[np.ndarray, float]],
+    build: Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]],
     target_radius: float,
     max_deviation: float,
     pinned: tuple[int, ...] = (),
@@ -53,11 +66,11 @@ def relax(
     """Laplacian-smooth control points near corners tighter than ``target_radius`` until none remain,
     the shape tolerance (max control-point movement) would be exceeded, or the iteration cap is hit.
 
-    ``build(ctrl)`` returns the evenly sampled centreline and the factor it was scaled by.
+    ``build(ctrl)`` returns the evenly sampled centreline and each sample's control-point index.
     Returns the final control points, samples and a summary.
     """
     original = ctrl.copy()
-    samples, factor = build(ctrl)
+    samples, ctrl_pos = build(ctrl)
     n = len(ctrl)
     pin = np.zeros(n, dtype=bool)
     for i in pinned:
@@ -68,9 +81,7 @@ def relax(
         tight = np.flatnonzero(r < target_radius)
         if len(tight) == 0:
             return ctrl, samples, Relaxation(it, True, deviation)
-        pts = samples[tight] / factor
-        d = np.hypot(pts[:, None, 0] - ctrl[None, :, 0], pts[:, None, 1] - ctrl[None, :, 1])
-        nearest = np.unique(np.argmin(d, axis=1))
+        nearest = np.unique(np.rint(ctrl_pos[tight]).astype(int))
         mask = np.zeros(n, dtype=bool)
         for k in range(-C.RELAX_MASK_SPREAD, C.RELAX_MASK_SPREAD + 1):
             idx = nearest + k
@@ -92,7 +103,7 @@ def relax(
         if cand_dev > max_deviation:
             return ctrl, samples, Relaxation(it, False, deviation)
         ctrl, deviation = candidate, cand_dev
-        samples, factor = build(ctrl)
+        samples, ctrl_pos = build(ctrl)
     return ctrl, samples, Relaxation(C.RELAX_MAX_ITERATIONS, False, deviation)
 
 
@@ -110,20 +121,20 @@ def build_main_loop(
 ) -> Centreline:
     """Closed centreline of exactly ``lap_length_m``, sampled about every SAMPLE_SPACING_M, oriented
     to the start/finish heading, with point 0 (s = 0) at the start/finish."""
-    p = pl.dedupe(canvas_to_world(raw_points), closed=True)
-    if len(p) < 3:
-        raise GeometryError("The main loop needs at least three distinct points.")
+    p = canvas_to_world(raw_points)
     raw_len = pl.length(p, True)
-    if raw_len <= 0:
-        raise GeometryError("The main loop has no length.")
-    k0 = lap_length_m / raw_len
-    p = p * k0
+    k0 = lap_length_m / raw_len if raw_len > 0 else math.inf
+    if not math.isfinite(k0):
+        raise GeometryError("The main loop has no length.", "main-loop-degenerate")
+    p = pl.dedupe(p * k0, closed=True, eps=1e-6)
+    if len(p) < 3:
+        raise GeometryError("The main loop needs at least three distinct points.", "main-loop-degenerate")
     n = max(16, round(lap_length_m / C.SAMPLE_SPACING_M))
 
-    def build(ctrl: np.ndarray) -> tuple[np.ndarray, float]:
+    def build(ctrl: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         dense = pl.subdivide_closed(ctrl, C.SUBDIVISION_LEVELS)
-        f = lap_length_m / pl.length(dense, True)
-        return pl.resample_closed(dense * f, n), f
+        samples, pos = _sample(dense, True, n)
+        return samples * (lap_length_m / pl.length(dense, True)), pos
 
     ctrl = _control_points(p, closed=True)
     ctrl, _, relaxation = relax(ctrl, True, build, target_radius, max_deviation_for(lap_length_m))
@@ -160,14 +171,14 @@ def build_alt_route(
 ) -> tuple[np.ndarray, Relaxation]:
     """Open centreline from ``start`` to ``end`` (exact main-loop vertices) following the stroke.
     The first and last spans lean towards the main loop's driving direction so the branch blends in."""
-    p = pl.dedupe(canvas_to_world(raw_points) * scale, closed=False)
+    p = pl.dedupe(canvas_to_world(raw_points) * scale, closed=False, eps=1e-6)
     if len(p) < 2:
         p = np.vstack([start, end])
     p = p.copy()
     p[0], p[-1] = start, end
-    p = pl.dedupe(p, closed=False)
+    p = pl.dedupe(p, closed=False, eps=1e-6)
     if len(p) < 2:
-        raise GeometryError("An alternative route starts and ends at the same place.")
+        raise GeometryError("An alternative route starts and ends at the same place.", "alt-route-degenerate")
     ctrl = _control_points(p, closed=False)
     total = pl.length(ctrl, False)
     guide = min(C.ALT_TANGENT_GUIDE * C.CONTROL_SPACING_M, 0.25 * total)
@@ -180,9 +191,9 @@ def build_alt_route(
     g1 = unit(unit(main_tangent_end) + unit(ctrl[-1] - ctrl[-2]))
     ctrl = np.vstack([ctrl[:1], ctrl[:1] + g0 * guide, ctrl[1:-1], ctrl[-1:] - g1 * guide, ctrl[-1:]])
 
-    def build(c: np.ndarray) -> tuple[np.ndarray, float]:
+    def build(c: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         dense = pl.subdivide_open(c, C.SUBDIVISION_LEVELS)
-        return pl.resample_open(dense, max(2, round(pl.length(dense, False) / C.SAMPLE_SPACING_M))), 1.0
+        return _sample(dense, False, max(2, round(pl.length(dense, False) / C.SAMPLE_SPACING_M)))
 
     _, samples, relaxation = relax(ctrl, False, build, target_radius, max_deviation_for(total))
     samples[0], samples[-1] = start, end

@@ -36,15 +36,18 @@ from .model import (
 )
 from .polyline import GeometryError
 
-__all__ = ["GeometryWarning", "Result", "build_track_model"]
+__all__ = ["GeometryIssue", "GeometryWarning", "Result", "build_track_model"]
 
 FACT_DECIMALS = 3
 
 
 @dataclass(frozen=True)
-class GeometryWarning:
+class GeometryIssue:
     code: str
     message: str
+
+
+GeometryWarning = GeometryIssue
 
 
 @dataclass
@@ -53,7 +56,8 @@ class Result:
 
     ``option_result`` is the rules evaluation without facts (option-level rules; geometry rules
     deferred); ``rule_result`` is the full evaluation with the computed facts. ``model``, ``facts``
-    and the SVGs are None when the spec is schema-invalid or has no buildable main loop.
+    and the SVGs are None when the spec is schema-invalid, has no main loop, or the sketch is
+    rejected; rejections are listed in ``errors`` (e.g. ``main-loop-too-small``).
     """
 
     model: TrackModel | None
@@ -62,11 +66,12 @@ class Result:
     option_result: rules.EvaluationResult
     preview_svg: str | None
     elevation_svg: str | None
-    warnings: list[GeometryWarning] = field(default_factory=list)
+    warnings: list[GeometryIssue] = field(default_factory=list)
+    errors: list[GeometryIssue] = field(default_factory=list)
 
     @property
     def valid(self) -> bool:
-        return self.model is not None and self.rule_result.valid
+        return self.model is not None and not self.errors and self.rule_result.valid
 
 
 # ---------------------------------------------------------------------------------------------
@@ -207,6 +212,34 @@ def _half_footprint(width: float, angle_deg: float) -> float:
 # ---------------------------------------------------------------------------------------------
 
 
+def _oversized(spec: Any) -> list[rules.SchemaError]:
+    """Sketch arrays over their schema ``maxItems``, found without a full validation pass (which is
+    slow for huge inputs). Anything else malformed is left to the schema validation."""
+    sketch = spec.get("sketch") if isinstance(spec, Mapping) else None
+    if not isinstance(sketch, Mapping):
+        return []
+    defs = rules.load_schema()["$defs"]
+    checks: list[tuple[str, Any, Mapping[str, Any]]] = []
+    main = sketch.get("mainLoop")
+    if isinstance(main, Mapping):
+        checks.append(("/sketch/mainLoop/points", main.get("points"), defs["MainLoop"]["properties"]["points"]))
+    for key in ("altRoutes", "crossings", "jumps"):
+        checks.append((f"/sketch/{key}", sketch.get(key), defs["Sketch"]["properties"][key]))
+    alts = sketch.get("altRoutes")
+    if isinstance(alts, list):
+        limit = defs["Sketch"]["properties"]["altRoutes"]["maxItems"]
+        for i, alt in enumerate(alts[: limit + 1]):
+            if isinstance(alt, Mapping):
+                checks.append(
+                    (f"/sketch/altRoutes/{i}/points", alt.get("points"), defs["AltRoute"]["properties"]["points"])
+                )
+    return [
+        rules.SchemaError(path, f"{len(value)} items is more than the maximum of {schema['maxItems']}")
+        for path, value, schema in checks
+        if isinstance(value, list) and len(value) > schema["maxItems"]
+    ]
+
+
 def build_track_model(spec: Mapping[str, Any] | Any) -> Result:
     """Validate ``spec``, build the TrackModel and geometry facts, and evaluate the rules.
 
@@ -218,8 +251,12 @@ def build_track_model(spec: Mapping[str, Any] | Any) -> Result:
     """
     to_dict = getattr(spec, "to_dict", None)
     spec = to_dict() if callable(to_dict) else spec
+    warnings: list[GeometryIssue] = []
+    oversized = _oversized(spec)
+    if oversized:
+        rejected = rules.EvaluationResult(schema_valid=False, schema_errors=oversized)
+        return Result(None, None, rejected, rejected, None, None, warnings)
     option_result = rules.evaluate(spec)
-    warnings: list[GeometryWarning] = []
     if not option_result.schema_valid:
         return Result(None, None, option_result, option_result, None, None, warnings)
     if "mainLoop" not in spec["sketch"]:
@@ -229,8 +266,8 @@ def build_track_model(spec: Mapping[str, Any] | Any) -> Result:
     try:
         model, facts = _Builder(spec, symmetric, warnings).build()
     except GeometryError as exc:
-        warnings.append(GeometryWarning("geometry-error", str(exc)))
-        return Result(None, None, option_result, option_result, None, None, warnings)
+        error = GeometryIssue(exc.code, str(exc))
+        return Result(None, None, option_result, option_result, None, None, warnings, [error])
 
     from .preview import elevation_svg, preview_svg
 
@@ -260,6 +297,14 @@ class _Builder:
         need = self.width / 2.0 + float(self.consts["minInnerEdgeRadiusM"])
         target = need * (1.0 + C.RELAX_TARGET_MARGIN)
         raw_main = [(p["x"], p["y"]) for p in self.sketch["mainLoop"]["points"]]
+        canvas = self.sketch["canvas"]
+        perimeter = pl.length(canvas_to_world(raw_main), True)
+        size = max(float(canvas["width"]), float(canvas["height"]))
+        if not perimeter >= C.MIN_MAIN_LOOP_CANVAS_FRACTION * size:
+            raise GeometryError(
+                f"The main loop is too small to build: {perimeter:.3g} canvas units long on a {size:g}-unit canvas.",
+                "main-loop-too-small",
+            )
         sf = self.sketch.get("startFinish")
         if sf:
             start, heading, toward = (sf["position"]["x"], sf["position"]["y"]), sf["headingDeg"], None
@@ -278,6 +323,7 @@ class _Builder:
             return canvas_to_world([(pt["x"], pt["y"])])[0] * self.scale
 
         alts = _unique_by_id(self.sketch.get("altRoutes", []), "alt-route", self.warnings)
+        self._check_alt_sizes(alts, pts)
         attach: list[tuple[float, float, np.ndarray, np.ndarray]] = []
         for alt in alts:
             raw_s, raw_e = w0(alt["points"][0]), w0(alt["points"][-1])
@@ -345,6 +391,26 @@ class _Builder:
             self.routes.append(r)
             self.alt_gaps[rid] = (g0, g1)
         self.by_id = {r.id: r for r in self.routes}
+
+    def _check_alt_sizes(self, alts: list[Mapping[str, Any]], main_pts: np.ndarray) -> None:
+        """Reject absurd alternative-route strokes before any smoothing (cheap, vectorised)."""
+        centre = (main_pts.min(axis=0) + main_pts.max(axis=0)) / 2.0
+        limit = float(self.consts["maxAbsCoordinateM"])
+        for alt in alts:
+            raw = canvas_to_world([(p["x"], p["y"]) for p in alt["points"]]) * self.scale
+            length = pl.length(raw, False)
+            if not length <= C.ALT_ROUTE_MAX_LAP_FACTOR * self.lap:
+                raise GeometryError(
+                    f"Alternative route {alt['id']} is {length:.3g} m long, more than "
+                    f"{C.ALT_ROUTE_MAX_LAP_FACTOR:g} times the lap.",
+                    "alt-route-too-long",
+                )
+            reach = float(np.max(np.abs(raw - centre)))
+            if not reach <= limit:
+                raise GeometryError(
+                    f"Alternative route {alt['id']} reaches {reach:.3g} m from the centre (max {limit:g} m).",
+                    "alt-route-out-of-bounds",
+                )
 
     def _insert_vertices(self, pts: np.ndarray, s_list: list[float]) -> np.ndarray:
         cum = pl.cumulative(pts, True)
@@ -520,10 +586,6 @@ class _Builder:
 
     # -- obstacles, bridges and facts --------------------------------------------------------------
 
-    def _grid_length(self) -> float:
-        rows = math.ceil(int(self.options["gridSize"]) / 2)
-        return rows * float(self.consts["gridRowSpacingM"])
-
     def _obstacles(self) -> list[_Obstacle]:
         obs: list[_Obstacle] = []
         for ci, c in enumerate(self.crossings):
@@ -541,14 +603,18 @@ class _Builder:
             obs.append(_Obstacle(r.id, r.length - C.JUNCTION_CLEAR_M, r.length + 1.0, "junction", "end"))
         return obs
 
+    def _grid_zone_end(self) -> float:
+        """Arc length of the first checkpoint: the front (pole) row plus a margin."""
+        rows = math.ceil(int(self.options["gridSize"]) / 2)
+        pole = C.GRID_LINE_OFFSET_M + (rows - 1) * float(self.consts["gridRowSpacingM"])
+        return pole + C.GRID_CHECKPOINT_MARGIN_M
+
     def _bridges(self) -> None:
         obstacles = self._obstacles()
-        grid = _Obstacle(
-            "main", self.lap - self._grid_length() - C.GRID_FRONT_OFFSET_M, self.lap + C.START_CLEAR_M, "grid"
-        )
+        grid = _Obstacle("main", -C.START_CLEAR_M, self._grid_zone_end(), "grid")
         ramp_len = el.bridge_ramp_length(float(self.consts["bridgeRampMinLengthM"]))
         for ci, c in enumerate(self.crossings):
-            if c.type != "bridge" or c.over is None:
+            if c.type != "bridge" or c.over is None or not c.detected:
                 continue
             rid, s = c.branches[c.over]
             route = self.by_id[rid]
@@ -567,7 +633,7 @@ class _Builder:
                 c.up = c.down = min(ramp_len, c.available)
             else:
                 c.up, c.down = min(ramp_len, max(0.0, before)), min(ramp_len, max(0.0, after))
-            if c.detected and min(c.up, c.down) < ramp_len:
+            if min(c.up, c.down) < ramp_len:
                 self.warn(
                     "bridge-ramps-short",
                     f"Bridge {c.id} only has room for {min(c.up, c.down):.0f} m ramps "
@@ -585,9 +651,11 @@ class _Builder:
         return out
 
     def _crossing_facts(self) -> dict[str, dict[str, float]]:
+        """Facts for annotations that match a real crossing. ``nearestJumpM`` is left out when neither
+        branch has a jump or ramp."""
         facts: dict[str, dict[str, float]] = {}
         for ci, c in enumerate(self.crossings):
-            if not c.annotated:
+            if not (c.annotated and c.detected):
                 continue
             features = [_Obstacle(j.route, j.a, j.b, "jump") for j in self.jumps] + self._ramp_intervals(ci)
             nearest = math.inf
@@ -596,11 +664,24 @@ class _Builder:
                 for f in features:
                     if f.route == rid:
                         nearest = min(nearest, route.dist_to(s, f.a, f.b))
-            entry = {"nearestJumpM": _round(nearest if math.isfinite(nearest) else self.lap)}
+            entry = {"nearestJumpM": _round(nearest)} if math.isfinite(nearest) else {}
             if c.type == "bridge":
                 entry["availableRampLengthM"] = _round(c.available or 0.0)
             facts[c.id] = entry
         return facts
+
+    def _unannotated_facts(self) -> list[dict[str, Any]]:
+        """Unannotated crossings in canvas coordinates, so the UI can mark them."""
+        out = []
+        for c in self.crossings:
+            if not c.annotated:
+                x, y = self.to_canvas(c.position)
+                out.append({"id": c.id, "x": x, "y": y})
+        return out
+
+    def to_canvas(self, p: np.ndarray) -> tuple[float, float]:
+        w = (p + self.centre) / self.scale
+        return _round(w[0], 2), _round(-w[1], 2)
 
     # -- elevation -------------------------------------------------------------------------------
 
@@ -627,37 +708,28 @@ class _Builder:
 
     # -- grid, first sector, checkpoints --------------------------------------------------------
 
-    def _first_sector(self) -> tuple[float, float]:
-        """Clear run ahead of the start line (the first-sector length) and behind it."""
+    def _first_sector(self) -> float:
+        """Clear road ahead of the start line, where the grid sits: up to the first tight corner, a turn of
+        more than GRID_MAX_TURN_DEG, or a crossing, jump, bridge ramp or junction."""
         m = self.main
         r = pl.radii(m.pts, True, C.RADIUS_WINDOW)
         sharp = np.flatnonzero(r < C.GRID_SHARP_RADIUS_M)
         turn = np.unwrap(m.heading) - m.heading[0]
-        limit = math.radians(C.GRID_MAX_TURN_DEG)
-        ahead = [float(m.s[sharp[0]]) if len(sharp) else self.lap]
-        far = np.flatnonzero(np.abs(turn) > limit)
-        ahead.append(float(m.s[far[0]]) if len(far) else self.lap)
-        behind = [(self.lap - float(m.s[sharp[-1]])) % self.lap if len(sharp) else self.lap]
-        back = np.concatenate([[m.heading[0]], m.heading[:0:-1]])
-        far_b = np.flatnonzero(np.abs(np.unwrap(back) - m.heading[0]) > limit)
-        behind.append(self.lap - float(m.s[len(m.s) - far_b[0]]) if len(far_b) else self.lap)
+        far = np.flatnonzero(np.abs(turn) > math.radians(C.GRID_MAX_TURN_DEG))
+        ahead = [float(m.s[sharp[0]]) if len(sharp) else self.lap, float(m.s[far[0]]) if len(far) else self.lap]
         for o in self._obstacles() + self._ramp_intervals():
             if o.route == "main":
                 ahead.append(m.fwd_to(0.0, o.a, o.b))
-                behind.append(m.bwd_to(0.0, o.a, o.b))
-        return min(ahead), min(behind)
+        return min(ahead)
 
-    def _grid(self, first_sector: float, behind: float) -> Grid:
+    def _grid(self, first_sector: float) -> Grid:
+        """Grid slots ahead of the start line (to verify in game): the back row GRID_LINE_OFFSET_M past the
+        line, the pole row furthest ahead, in pairs gridSlotWidthM apart."""
         m = self.main
         n = int(self.options["gridSize"])
+        rows = math.ceil(n / 2)
         spacing = float(self.consts["gridRowSpacingM"])
         slot_w = float(self.consts["gridSlotWidthM"])
-        need_behind = C.GRID_FRONT_OFFSET_M + self._grid_length()
-        if behind < need_behind:
-            self.warn(
-                "grid-behind-line-obstructed",
-                f"The grid needs {need_behind:.0f} m clear behind the start line; there are {behind:.0f} m.",
-            )
         k = pl.signed_curvature(m.pts, True, C.RADIUS_WINDOW)
         in_sector = m.s <= max(first_sector, C.SAMPLE_SPACING_M)
         pole_left = float(np.sum(k[in_sector])) >= 0.0
@@ -665,7 +737,7 @@ class _Builder:
         for i in range(n):
             row = i // 2
             left = pole_left if i % 2 == 0 else not pole_left
-            s = (-(C.GRID_FRONT_OFFSET_M + row * spacing)) % self.lap
+            s = C.GRID_LINE_OFFSET_M + (rows - 1 - row) * spacing
             h = m.heading_at(s)
             normal = np.array([-math.sin(h), math.cos(h)]) * (slot_w / 2.0) * (1.0 if left else -1.0)
             p = m.at(s) + normal
@@ -682,9 +754,9 @@ class _Builder:
             r.id, index, s, [p[0], p[1], r.z_at(s)], r.heading_at(s), self.width + 2 * C.CHECKPOINT_MARGIN_M, finish
         )
 
-    def _checkpoints(self, first_sector: float) -> list[Checkpoint]:
+    def _checkpoints(self) -> list[Checkpoint]:
         n = min(C.CHECKPOINT_MAX, max(C.CHECKPOINT_MIN, round(self.lap / C.CHECKPOINT_SPACING_M)))
-        s1 = max(C.SAMPLE_SPACING_M, min(first_sector, max(self._grid_length(), self.lap / n)))
+        s1 = self._grid_zone_end()
         step = (self.lap - s1) / (n - 1)
         out = [self._checkpoint(self.main, k, s1 + k * step) for k in range(n - 1)]
         out.append(self._checkpoint(self.main, n - 1, 0.0, finish=True))
@@ -701,9 +773,9 @@ class _Builder:
         self._jumps()
         self._bridges()
         self._elevation()
-        first_sector, behind = self._first_sector()
-        grid = self._grid(first_sector, behind)
-        checkpoints = self._checkpoints(first_sector)
+        first_sector = self._first_sector()
+        grid = self._grid(first_sector)
+        checkpoints = self._checkpoints()
 
         half_w = self.width / 2.0
         routes: list[Route] = []
@@ -834,6 +906,8 @@ class _Builder:
             "maxAbsCoordinateM": _round(max_abs),
             "minCornerRadiusM": _round(min(min_radius, 1e5)),
             "crossings": self._crossing_facts(),
+            "unannotatedCrossings": self._unannotated_facts(),
+            "unmatchedCrossingAnnotations": [c.id for c in self.crossings if c.annotated and not c.detected],
             "altRoutes": {
                 rid: {"startGapM": _round(g0), "endGapM": _round(g1)} for rid, (g0, g1) in self.alt_gaps.items()
             },

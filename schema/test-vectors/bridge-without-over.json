@@ -85,6 +85,8 @@
     "deferred": [
       "alt-route-joins-main-loop",
       "bridge-ramp-length",
+      "crossing-annotation-matches",
+      "crossing-annotation-required",
       "flat-crossing-jump-clearance",
       "grid-first-sector-length",
       "layout-within-bounds",

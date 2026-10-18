@@ -63,7 +63,9 @@
     }
   },
   "facts": {
-    "minCornerRadiusM": 16
+    "minCornerRadiusM": 16,
+    "unannotatedCrossings": [],
+    "unmatchedCrossingAnnotations": []
   },
   "expect": {
     "schemaValid": true,
