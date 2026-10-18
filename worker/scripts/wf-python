@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Run Blender's bundled Python 3.11 (the image has no system Python). It has trackgen_geom, numpy, jsonschema,
+# Pillow, cairosvg and the Azure Storage SDKs installed (see worker/Dockerfile).
+set -euo pipefail
+shopt -s nullglob
+for py in /opt/blender/*/python/bin/python3.*; do
+    if [[ "$py" =~ python3\.[0-9]+$ ]]; then exec "$py" "$@"; fi
+done
+echo "wf-python: Blender's Python not found under /opt/blender" >&2
+exit 127

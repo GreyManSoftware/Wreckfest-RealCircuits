@@ -65,10 +65,20 @@ ENV HOME=/home/worker \
     WRECKFEST_DIR=/wreckfest
 RUN wineboot --init && wineserver --wait
 
+# Pipeline dependencies, in Blender's bundled Python 3.11 (the image has no system Python): Pillow and cairosvg
+# (with libcairo and DejaVu fonts) for the menu images, and the Azure Storage SDKs for the queue consumer.
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libcairo2 fonts-dejavu-core \
+ && rm -rf /var/lib/apt/lists/* \
+ && BPY="$(ls /opt/blender/*/python/bin/python3.* | grep -E 'python3\.[0-9]+$' | head -n1)" \
+ && "$BPY" -m pip install --no-cache-dir --disable-pip-version-check --root-user-action=ignore \
+      pillow==12.2.0 cairosvg==2.9.1 azure-storage-queue==12.18.0 azure-storage-blob==12.31.0 \
+ && "$BPY" -c "import PIL, cairosvg, azure.storage.queue, azure.storage.blob; print('Pillow', PIL.__version__)"
+
 # The geometry core (trackgen_geom) goes into Blender's bundled Python 3.11, which already ships numpy;
 # pip adds jsonschema and its dependencies. Only the package sources are copied (no tests or venvs). This
 # sits after the Wine prefix so a geom change doesn't rebuild the large layers above.
-USER root
 COPY geom/pyproject.toml geom/README.md /tmp/geom/
 COPY geom/src/ /tmp/geom/src/
 RUN BPY="$(ls /opt/blender/*/python/bin/python3.* | grep -E 'python3\.[0-9]+$' | head -n1)" \
@@ -81,7 +91,8 @@ COPY --chmod=0755 worker/scripts/ /opt/worker/scripts/
 COPY --chmod=0755 worker/smoke/ /opt/worker/smoke/
 COPY worker/blender/ /opt/worker/blender/
 COPY worker/builder/ /opt/worker/builder/
+COPY worker/pipeline/ /opt/worker/pipeline/
 ENV PATH=/opt/worker/scripts:$PATH
 
 ENTRYPOINT ["/opt/worker/scripts/entrypoint.sh"]
-CMD ["info"]
+CMD ["worker"]

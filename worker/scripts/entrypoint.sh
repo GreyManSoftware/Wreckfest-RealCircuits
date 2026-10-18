@@ -4,6 +4,8 @@
 #   smoke [a..d]  run the toolchain smoke tests (see /opt/worker/smoke/run-smoke.sh)
 #   build ARGS    build the Blender scenes: build --spec spec.json [--model model.json] --out DIR
 #   builder-tests [spec ...]  run the builder tests (see /opt/worker/builder/tests/run_builder_tests.sh)
+#   worker        queue consumer: build queued tracks and report to the API (see /opt/worker/pipeline/consumer.py)
+#   build-mod --spec spec.json --out DIR [--tcat LAYOUT=FILE]  run the whole pipeline without the queue
 #   <cmd> ...     run any command (e.g. blender -b ..., wf-tool bgeometry ...)
 set -euo pipefail
 
@@ -34,5 +36,7 @@ case "${1:-info}" in
     build) shift; exec blender -b --factory-startup --python-exit-code 1 \
         --python /opt/worker/builder/build_scene.py -- "$@" ;;
     builder-tests) shift; exec bash /opt/worker/builder/tests/run_builder_tests.sh "$@" ;;
+    worker) shift; exec wf-python -u /opt/worker/pipeline/consumer.py "$@" ;;
+    build-mod) shift; exec wf-python -u /opt/worker/pipeline/pipeline.py "$@" ;;
     *) exec "$@" ;;
 esac
