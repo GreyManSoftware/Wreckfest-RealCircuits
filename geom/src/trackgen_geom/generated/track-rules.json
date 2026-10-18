@@ -36,6 +36,75 @@
       }
     },
     {
+      "id": "alt-route-ids-unique",
+      "title": "Alternative route ids are unique",
+      "evaluatedBy": "engine",
+      "forEach": { "path": "sketch.altRoutes", "as": "route" },
+      "effect": {
+        "type": "require",
+        "assert": {
+          "==": [
+            {
+              "count": {
+                "over": { "var": "sketch.altRoutes" },
+                "as": "other",
+                "where": { "==": [{ "var": "$other.id" }, { "var": "$route.id" }] }
+              }
+            },
+            1
+          ]
+        },
+        "severity": "error",
+        "message": "Alternative route id {$route.id} is used more than once."
+      }
+    },
+    {
+      "id": "crossing-ids-unique",
+      "title": "Crossing ids are unique",
+      "evaluatedBy": "engine",
+      "forEach": { "path": "sketch.crossings", "as": "crossing" },
+      "effect": {
+        "type": "require",
+        "assert": {
+          "==": [
+            {
+              "count": {
+                "over": { "var": "sketch.crossings" },
+                "as": "other",
+                "where": { "==": [{ "var": "$other.id" }, { "var": "$crossing.id" }] }
+              }
+            },
+            1
+          ]
+        },
+        "severity": "error",
+        "message": "Crossing id {$crossing.id} is used more than once."
+      }
+    },
+    {
+      "id": "jump-ids-unique",
+      "title": "Jump ids are unique",
+      "evaluatedBy": "engine",
+      "forEach": { "path": "sketch.jumps", "as": "jump" },
+      "effect": {
+        "type": "require",
+        "assert": {
+          "==": [
+            {
+              "count": {
+                "over": { "var": "sketch.jumps" },
+                "as": "other",
+                "where": { "==": [{ "var": "$other.id" }, { "var": "$jump.id" }] }
+              }
+            },
+            1
+          ]
+        },
+        "severity": "error",
+        "message": "Jump id {$jump.id} is used more than once."
+      }
+    },
+    {
       "id": "alt-route-attachments-required",
       "title": "Alternative routes must attach to the main loop",
       "description": "Each alternative route needs a start and an end attachment on the main loop.",
@@ -43,9 +112,7 @@
       "forEach": { "path": "sketch.altRoutes", "as": "route" },
       "effect": {
         "type": "require",
-        "assert": {
-          "and": [{ "exists": { "var": "$route.start" } }, { "exists": { "var": "$route.end" } }]
-        },
+        "assert": { "and": [{ "exists": { "var": "$route.start" } }, { "exists": { "var": "$route.end" } }] },
         "severity": "error",
         "message": "Alternative route {$route.id} must start and end on the main loop."
       }
@@ -58,7 +125,7 @@
       "requires": ["facts.altRoutes"],
       "forEach": { "path": "sketch.altRoutes", "as": "route" },
       "let": { "f": { "get": [{ "var": "facts.altRoutes" }, { "var": "$route.id" }] } },
-      "when": { "exists": { "var": "$f" } },
+      "requiresEach": ["$f.startGapM", "$f.endGapM"],
       "effect": {
         "type": "require",
         "assert": {
@@ -90,6 +157,30 @@
         },
         "severity": "error",
         "message": "Jump {$jump.id} is on route {$jump.route}, which doesn't exist."
+      }
+    },
+    {
+      "id": "crossing-over-route-exists",
+      "title": "Bridges go over a known route",
+      "evaluatedBy": "engine",
+      "forEach": { "path": "sketch.crossings", "as": "crossing" },
+      "when": {
+        "and": [
+          { "exists": { "var": "$crossing.over.route" } },
+          { "!=": [{ "var": "$crossing.over.route" }, "main"] }
+        ]
+      },
+      "effect": {
+        "type": "require",
+        "assert": {
+          "any": {
+            "over": { "var": "sketch.altRoutes" },
+            "as": "r",
+            "where": { "==": [{ "var": "$r.id" }, { "var": "$crossing.over.route" }] }
+          }
+        },
+        "severity": "error",
+        "message": "Crossing {$crossing.id} goes over route {$crossing.over.route}, which doesn't exist."
       }
     },
     {
@@ -127,7 +218,10 @@
       "requires": ["facts.firstSectorLengthM"],
       "let": {
         "needM": {
-          "*": [{ "ceil": { "/": [{ "var": "options.gridSize" }, 2] } }, { "var": "constants.gridRowSpacingM" }]
+          "*": [
+            { "ceil": { "/": [{ "var": "options.gridSize" }, 2] } },
+            { "var": "constants.gridRowSpacingM" }
+          ]
         }
       },
       "effect": {
@@ -183,12 +277,8 @@
       "requires": ["facts.crossings"],
       "forEach": { "path": "sketch.crossings", "as": "crossing" },
       "let": { "f": { "get": [{ "var": "facts.crossings" }, { "var": "$crossing.id" }] } },
-      "when": {
-        "and": [
-          { "==": [{ "var": "$crossing.type" }, "flat"] },
-          { "exists": { "var": "$f.nearestJumpM" } }
-        ]
-      },
+      "when": { "==": [{ "var": "$crossing.type" }, "flat"] },
+      "requiresEach": ["$f.nearestJumpM"],
       "effect": {
         "type": "require",
         "assert": { ">=": [{ "var": "$f.nearestJumpM" }, { "var": "constants.flatCrossingJumpClearanceM" }] },
@@ -204,15 +294,13 @@
       "requires": ["facts.crossings"],
       "forEach": { "path": "sketch.crossings", "as": "crossing" },
       "let": { "f": { "get": [{ "var": "facts.crossings" }, { "var": "$crossing.id" }] } },
-      "when": {
-        "and": [
-          { "==": [{ "var": "$crossing.type" }, "bridge"] },
-          { "exists": { "var": "$f.availableRampLengthM" } }
-        ]
-      },
+      "when": { "==": [{ "var": "$crossing.type" }, "bridge"] },
+      "requiresEach": ["$f.availableRampLengthM"],
       "effect": {
         "type": "require",
-        "assert": { ">=": [{ "var": "$f.availableRampLengthM" }, { "var": "constants.bridgeRampMinLengthM" }] },
+        "assert": {
+          ">=": [{ "var": "$f.availableRampLengthM" }, { "var": "constants.bridgeRampMinLengthM" }]
+        },
         "severity": "error",
         "message": "Bridge {$crossing.id} has only {$f.availableRampLengthM} m for its ramps; it needs {constants.bridgeRampMinLengthM} m."
       }
@@ -237,7 +325,11 @@
       "description": "The tightest centreline radius must be at least half the width plus minInnerEdgeRadiusM.",
       "evaluatedBy": "geometry",
       "requires": ["facts.minCornerRadiusM"],
-      "let": { "needM": { "+": [{ "/": [{ "var": "options.widthM" }, 2] }, { "var": "constants.minInnerEdgeRadiusM" }] } },
+      "let": {
+        "needM": {
+          "+": [{ "/": [{ "var": "options.widthM" }, 2] }, { "var": "constants.minInnerEdgeRadiusM" }]
+        }
+      },
       "effect": {
         "type": "require",
         "assert": { ">=": [{ "var": "facts.minCornerRadiusM" }, { "var": "$needM" }] },

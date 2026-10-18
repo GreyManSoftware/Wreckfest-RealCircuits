@@ -29,7 +29,7 @@
           "title": "Track id",
           "description": "Track and mod id: 3-24 characters, lowercase letters, digits and underscores, starting with a letter.",
           "type": "string",
-          "pattern": "^[a-z][a-z0-9_]{2,23}$"
+          "pattern": "^[a-z][a-z0-9_]{2,23}(?![\\s\\S])"
         },
         "description": {
           "title": "Description",
@@ -41,12 +41,12 @@
     "Id": {
       "description": "Identifier of a sketch element (route, crossing or jump), unique within its list.",
       "type": "string",
-      "pattern": "^[A-Za-z0-9_-]{1,32}$"
+      "pattern": "^[A-Za-z0-9_-]{1,32}(?![\\s\\S])"
     },
     "RouteRef": {
       "description": "A route: \"main\" for the main loop, otherwise the id of an alternative route.",
       "type": "string",
-      "pattern": "^[A-Za-z0-9_-]{1,32}$"
+      "pattern": "^[A-Za-z0-9_-]{1,32}(?![\\s\\S])"
     },
     "Point": {
       "title": "Point",
@@ -119,7 +119,11 @@
       "additionalProperties": false,
       "required": ["id", "points"],
       "properties": {
-        "id": { "$ref": "#/$defs/Id" },
+        "id": {
+          "$ref": "#/$defs/Id",
+          "description": "Route id; \"main\" is reserved for the main loop.",
+          "not": { "const": "main" }
+        },
         "points": {
           "type": "array",
           "minItems": 2,

@@ -1,0 +1,29 @@
+{
+  "description": "Shared cases for format_value / formatValue / FormatValue. Numbers: shortest round-trip decimal representation, rounded half away from zero to 2 decimals, trailing zeros (and point) trimmed; negative zero prints as 0. null prints as ?, booleans as true/false, strings verbatim.",
+  "cases": [
+    [0.125, "0.13"],
+    [2.675, "2.68"],
+    [1.005, "1.01"],
+    [2.0, "2"],
+    [1.5, "1.5"],
+    [-0.125, "-0.13"],
+    [0, "0"],
+    [-0.0, "0"],
+    [-0.001, "0"],
+    [0.005, "0.01"],
+    [0.995, "1"],
+    [9.995, "10"],
+    [-2.5, "-2.5"],
+    [96, "96"],
+    [95.9, "95.9"],
+    [0.3333333333333333, "0.33"],
+    [123.456, "123.46"],
+    [1e21, "1000000000000000000000"],
+    [1.5e-7, "0"],
+    [-1234567.891, "-1234567.89"],
+    [null, "?"],
+    [true, "true"],
+    [false, "false"],
+    ["tarmac", "tarmac"]
+  ]
+}

@@ -239,19 +239,42 @@ def evaluate_expr(expr: Any, ctx: Mapping[str, Any], scope: Mapping[str, Any] | 
     raise ValueError(f"unknown operator: {op}")
 
 
+def format_number(x: float) -> str:
+    """Formats a number for messages and option keys: take the shortest round-trip decimal
+    representation, round half away from zero to 2 decimals, trim trailing zeros (and the point).
+    Implemented digit-by-digit so Python, TypeScript and C# agree exactly."""
+    if not math.isfinite(x):
+        return "?"
+    text = repr(abs(float(x))).lower() if isinstance(x, float) else str(abs(x))
+    mantissa, _, exp = text.partition("e")
+    int_digits, _, frac_digits = mantissa.partition(".")
+    digits = int_digits + frac_digits
+    point = len(int_digits) + (int(exp) if exp else 0)
+    if point <= 0:
+        int_part, frac = "0", "0" * -point + digits
+    elif point >= len(digits):
+        int_part, frac = digits + "0" * (point - len(digits)), ""
+    else:
+        int_part, frac = digits[:point], digits[point:]
+    scaled = int(int_part + (frac + "00")[:2])
+    if len(frac) > 2 and frac[2] >= "5":
+        scaled += 1
+    s = str(scaled).rjust(3, "0")
+    whole, cents = s[:-2].lstrip("0") or "0", s[-2:].rstrip("0")
+    out = f"{whole}.{cents}" if cents else whole
+    return out if out == "0" or x > 0 else "-" + out
+
+
 def format_value(v: Any) -> str:
     if v is None:
         return "?"
     if isinstance(v, bool):
         return "true" if v else "false"
     if _is_num(v):
-        f = float(v)
-        if f.is_integer():
-            return str(int(f))
-        return f"{f:.2f}".rstrip("0").rstrip(".")
+        return format_number(v)
     if isinstance(v, str):
         return v
-    return json.dumps(v)
+    return json.dumps(v, separators=(",", ":"))
 
 
 def _render(template: str, ctx: Mapping[str, Any], scope: Mapping[str, Any]) -> str:
@@ -334,6 +357,10 @@ def _evaluate_rule(rule: Mapping[str, Any], ctx: Mapping[str, Any], result: Eval
         for name, expr in rule.get("let", {}).items():
             scope["$" + name] = evaluate_expr(expr, ctx, scope)
         if "when" in rule and not _truthy(evaluate_expr(rule["when"], ctx, scope)):
+            continue
+        if any(_lookup(p, ctx, scope) is None for p in rule.get("requiresEach", [])):
+            if rule_id not in result.deferred:
+                result.deferred.append(rule_id)
             continue
         path = effect.get("path", item_path)
 

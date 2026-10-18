@@ -25,7 +25,7 @@
       "additionalProperties": false,
       "required": ["id", "title", "evaluatedBy", "effect"],
       "properties": {
-        "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*(?![\\s\\S])" },
         "title": { "type": "string" },
         "description": { "type": "string" },
         "evaluatedBy": {
@@ -33,7 +33,12 @@
           "enum": ["engine", "geometry"]
         },
         "requires": {
-          "description": "Paths (e.g. facts.firstSectorLengthM) that must be non-null for the rule to be evaluated; otherwise it is reported as deferred.",
+          "description": "Root paths (e.g. facts.firstSectorLengthM) that must be non-null for the rule to be evaluated at all; otherwise the rule is reported as deferred.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "requiresEach": {
+          "description": "Paths checked per evaluation (per forEach item), after `let` and `when`; may use $bindings (e.g. $f.nearestJumpM). If any is null, that item is skipped and the rule is reported as deferred.",
           "type": "array",
           "items": { "type": "string" }
         },
@@ -44,13 +49,13 @@
           "required": ["path", "as"],
           "properties": {
             "path": { "type": "string" },
-            "as": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9]*$" }
+            "as": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9]*(?![\\s\\S])" }
           }
         },
         "let": {
           "description": "Named values evaluated in order before `when`, bound as $<name>.",
           "type": "object",
-          "propertyNames": { "pattern": "^[a-zA-Z][a-zA-Z0-9]*$" },
+          "propertyNames": { "pattern": "^[a-zA-Z][a-zA-Z0-9]*(?![\\s\\S])" },
           "additionalProperties": { "$ref": "#/$defs/Expr" }
         },
         "when": { "$ref": "#/$defs/Expr" },
@@ -121,7 +126,7 @@
       "required": ["over", "as", "where"],
       "properties": {
         "over": { "$ref": "#/$defs/Expr" },
-        "as": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9]*$" },
+        "as": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9]*(?![\\s\\S])" },
         "where": { "$ref": "#/$defs/Expr" }
       }
     },

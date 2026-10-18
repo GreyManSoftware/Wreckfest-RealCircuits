@@ -164,5 +164,9 @@ def test_expressions(expr: Any, expected: Any) -> None:
     assert rules.evaluate_expr(expr, CTX) == expected
 
 
-def test_format_value() -> None:
-    assert [rules.format_value(v) for v in (None, True, 96.0, 95.9, 1 / 3, "x")] == ["?", "true", "96", "95.9", "0.33", "x"]
+FORMAT_CASES = json.loads((SCHEMA_DIR / "test-fixtures" / "format-value.json").read_text(encoding="utf-8"))["cases"]
+
+
+@pytest.mark.parametrize(("value", "expected"), FORMAT_CASES)
+def test_format_value(value: Any, expected: str) -> None:
+    assert rules.format_value(value) == expected
