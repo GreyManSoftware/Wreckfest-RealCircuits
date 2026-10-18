@@ -138,7 +138,7 @@ Every base mesh except `#static_cube_map` has the String custom property `Custom
 | `#startpointcarchange` | empty | Where the car is shown before the race | Handover, tutorial, wiki. The example has `#startpointpit01` instead (pit lane, used only when the `.tcat` enables it), so we follow the handover. |
 | `#xref <slug>_base.scne` + `xdir` | empty | Base scene subscene → OBJX `<slug>_base#xref`, path `data/track/<slug>/<slug>_base.scn` | Example layouts; Toolbox `find_xref_path` (`xdir` keeps names under Blender's 63-byte limit) |
 | `#xref ob/<prop>.scne` | empty | Stock prop subscene → `data/art/objects/<prop>.scn` | Toolbox; the example derby's `prop_trafficcone01#xref` |
-| `#static_cube_map` | 1 m cube, `dyn = "data/property/object/ghost"` | Reflection and ambient probe | Example base; wiki |
+| `#static_cube_map` | 0.3 m cube, `dyn = "data/property/object/ghost"`, material `ghost` with stock `tmp_ghost_c1` in slots 1 (colour) and 6 (opacity), 3.5 m above the start line | Reflection and ambient probe; invisible in game. An untextured material shows as a pink square (seen in game before 2026-10-18). | Example base (`ghost` material, 0.3 m cube, ~3 m up); every stock base (`ghost` + `tmp_ghost_c1`) |
 | `ai_path` | open curve (not exported) | AI line for re-running Toolbox's AI Route Generator by hand | Handover / tutorial (not closed) |
 
 ### Surfaces and materials
@@ -176,6 +176,7 @@ Also `kerb#curb`, `shoulder#gravel` (`runoff#gravel` without walls), `wall_concr
    - Bugbear Z is Blender y. The check uses the AI meshes' absolute coordinates: moving only the checkpoints or start points changes nothing, and moving only the AI meshes by +200 m makes it fail.
    - The builder therefore moves the whole track (base and layouts) along y, and rotates it by a multiple of 90° only if it would otherwise leave ±2000 m, so that both ends of every AI strip are at y ≤ −2.
    - `manifest.json` records the transform: `scene = rotate(model) + shift`.
+   - **The layout's `#xref <slug>_base.scne` stays at the origin.** The base scene's vertices already carry the transform, so moving the reference as well shifts the whole world a second time in game. Until 2026-10-18 the builder did exactly that: on "Cadwell" (shift −48.6 m) the grid, checkpoints and AI routes ended up ~45 m off the road. `check_export.py` now places the exported base road through the exported layout's base reference and requires every start point, checkpoint centre and AI race-route start to lie on it.
 2. **Sectors must be convex and face up** (`createaidata.cpp(258): "c.y > 0.f"`). This happened at alternative-route junctions with wide (10 m) route margins; the sector validation above prevents it.
 3. **`otherway = true` is applied, but bgeometry logs it as an error.** It writes `custom data has illegal key otherway` to `Error.log`, for every spelling (`OtherWay`, `Otherway`), and still builds. The `.scne` differs from one built without the key, and `otherway = false` gives the same file as no key. The tests and the pipeline treat that line (and the same for `crossstart`) as a known notice.
 4. **bgeometry can't read files on a Docker Desktop bind mount** (`Fatal disk error … FileCodecFile::ReadCacheBlock`). The tests build in the container's home and copy the results out.
@@ -211,7 +212,7 @@ Also `kerb#curb`, `shoulder#gravel` (`runoff#gravel` without walls), `wall_concr
   - `ai_path` open and not exported;
   - layout-only jumps.
 - **Export and build:** Toolbox exports every scene. bgeometry builds base first, then the layouts. Any non-empty `.scne` with an error, warning, assert or `Error.log` entry fails, except the known `otherway`/`crossstart` notice.
-- **`check_export.py`** reads the `.bgo3` back with `bgo_read`. It checks that every mesh and empty was exported with its CustomData, that the xref paths are right (`data/track/<slug>/<slug>_base.scn` and `data/art/objects/*.scn`), that the start points are dummies and the AI routes are meshes, and that the materials keep their `data/…` texture paths.
+- **`check_export.py`** reads the `.bgo3` back with `bgo_read`. It checks that every mesh and empty was exported with its CustomData, that the xref paths are right (`data/track/<slug>/<slug>_base.scn` and `data/art/objects/*.scn`), that the start points are dummies and the AI routes are meshes, that the materials keep their `data/…` texture paths, that **every texture resolves** (a stock `.bmap` under `/wreckfest/data` or a texture in the mod, otherwise it would render pink), that `#static_cube_map` uses the invisible `ghost` material, and that **every start point, checkpoint centre and AI race-route start lies on the exported base road** as the layout's base reference places it.
 - **Determinism:** `oval` is built twice, and the exported `.bgo3` files and `model.json` must be identical.
 
 Results (2026-10-18, `--cpus 8`, under a minute for everything):
@@ -243,7 +244,7 @@ Results (2026-10-18, `--cpus 8`, under a minute for everything):
 - Whether the lap is timed at the last checkpoint (the TrackModel's start/finish) or at the AI route start. Both are on the same line here.
 - Surfaces and looks: `road_sand#gravel`, the tyre wall approximation, terrain textures, kerb texture tiling, and the single-texture materials (no `#blend`, no normal or spec maps).
 - The whole-track move along y (needed by bgeometry) and the ±2000 m margin it uses.
-- `#static_cube_map` placement (centre of the terrain, 15 m up).
+- `#static_cube_map` placement (3.5 m above the start line).
 
 ## Pipeline
 

@@ -79,6 +79,15 @@ def check_base(out: str, slug: str, model: dict, spec: dict, manifest: dict) -> 
     check(any(n.startswith("terrain_") for n in obs), "base: terrain tiles exist",
           f"{sum(n.startswith('terrain_') for n in obs)} tiles")
     check("#static_cube_map" in obs, "base: #static_cube_map exists")
+    if "#static_cube_map" in obs:
+        cm = obs["#static_cube_map"]
+        mats = [m.name for m in cm.data.materials]
+        dims = max(cm.dimensions)
+        bsdf = next((n for n in cm.data.materials[0].node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None) if mats else None
+        check(mats == ["ghost"] and bsdf is not None and bsdf.inputs["Alpha"].is_linked and dims <= 0.31
+              and cm.get("CustomData") == C.STATIC_CUBE_MAP[1],
+              "base: #static_cube_map is a 0.3 m ghost cube (texture in the opacity slot), as the example",
+              f"materials {mats}, size {dims:.2f} m")
     check(("track_kerbs" in obs) == bool(opts.get("kerbs")), "base: kerbs follow options.kerbs")
     walls = [n for n in obs if n.startswith("walls_")]
     check(bool(walls) == (opts.get("walls") in ("concrete", "tyres")), "base: walls follow options.walls",
@@ -96,7 +105,7 @@ def check_base(out: str, slug: str, model: dict, spec: dict, manifest: dict) -> 
     for o in meshes:
         for m in o.data.materials:
             parts = m.name.split("#")
-            if len(parts) < 2 or parts[1] not in C.VALID_SURFACES:
+            if o.name != "#static_cube_map" and (len(parts) < 2 or parts[1] not in C.VALID_SURFACES):
                 bad_mats.append(m.name)
             if m.node_tree:
                 for nd in m.node_tree.nodes:

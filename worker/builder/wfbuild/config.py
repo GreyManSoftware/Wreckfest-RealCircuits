@@ -79,7 +79,7 @@ MATERIALS: dict[str, tuple[str, str, str]] = {
     "terrain_forest": ("terrain_forest#offroadfoliage", _FOREST + "ground_forestfloor4_c.tga", "ground"),
     "terrain_industrial": ("terrain_industrial#concrete", _FIELDS + "ground_concrete_slab_01_c.tga", "ground"),
     "terrain_sandpit": ("terrain_sandpit#offroadsand", _FIELDS + "ground_sand01_fields_c.tga", "ground"),
-    "cube_map": ("static_cube_map#default", "", "wall"),
+    "cube_map": ("ghost", _T + "tmp_ghost_c1.tga", "wall"),  # as every stock base; see GHOST_MATERIALS
 }
 
 # options.surface -> road material keys. "mixed" alternates asphalt and gravel by checkpoint sector
@@ -110,3 +110,8 @@ PROP_DENSITY_PER_HA = 1.5     # props per hectare of terrain, capped below
 PROP_MAX = 160
 
 STATIC_CUBE_MAP = ("#static_cube_map", 'dyn = "data/property/object/ghost"')  # as in the example base
+CUBE_MAP_SIZE = 0.3           # stock bases and the example: a 0.3 m cube...
+CUBE_MAP_HEIGHT = 3.5         # ...2-4 m above the ground near the track
+# Materials whose texture also goes into the opacity slot (6), so the object is invisible in game. The example's
+# "ghost" material has ghost_c1 in slots 1 and 6; stock bases use data/art/textures/tmp_ghost_c1 the same way.
+GHOST_MATERIALS = ("cube_map",)

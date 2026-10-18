@@ -68,12 +68,15 @@ def load_model(spec: dict, model_path: str | None, out: str, warnings: list[str]
 
 
 def static_cube_map(geo: TrackGeometry) -> Mesh:
-    x0, x1, y0, y1 = geo.extent
-    c = np.array([(x0 + x1) / 2.0, (y0 + y1) / 2.0, 0.0])
-    c[2] = float(geo.terrain(c[None, :])[0]) + 15.0
+    """Reflection probe like every stock base and the example: a 0.3 m cube with the "ghost" material (stock
+    tmp_ghost_c1 in the colour and opacity slots, so it doesn't render), ~3.5 m above the start line."""
+    r = geo.main
+    c = r.p[0].copy()
+    c[2] += C.CUBE_MAP_HEIGHT
+    h = C.CUBE_MAP_SIZE / 2.0
     m = Mesh(C.STATIC_CUBE_MAP[0], C.STATIC_CUBE_MAP[1], kind="helper")
     m.origin = tuple(c)
-    TrackGeometry._box(m, c[:2], 0.0, 1.0, c[2] - 0.5, c[2] + 0.5, "cube_map")
+    TrackGeometry._box(m, c[:2], 0.0, C.CUBE_MAP_SIZE, c[2] - h, c[2] + h, "cube_map")
     bottom = [i for i, v in enumerate(m.verts) if v[2] < c[2]]
     m.oriented_face(tuple(bottom), "cube_map", np.array([0, 0, -1.0]))
     return m
@@ -110,6 +113,10 @@ def placement(layouts, base_meshes) -> tuple[int, float]:
               file=sys.stderr)
         sys.exit(3)
     return best
+
+
+def is_base_xref(e) -> bool:
+    return e.name.startswith("#xref") and bool(e.xdir) and e.name.endswith("_base.scne")
 
 
 def transform(meshes, empties, curves, deg: int, dy: float) -> None:
@@ -161,7 +168,10 @@ def main() -> None:
     if rot or shift:
         transform(base_meshes, props, [], rot, shift)
         for lay in layouts:
-            transform(lay.meshes, lay.empties, lay.curves, rot, shift)
+            # The base subscene reference stays at the origin: the base scene's own vertices already carry
+            # the transform, so moving the reference too would shift the whole world a second time.
+            gameplay = [e for e in lay.empties if not is_base_xref(e)]
+            transform(lay.meshes, gameplay, lay.curves, rot, shift)
         warnings.append(f"placement: the whole track is rotated {rot} deg and moved {shift:.1f} m along y so every "
                         "AI route starts at y <= 0 (bgeometry assert startZ <= 0)")
     t_geom = time.time() - t0
