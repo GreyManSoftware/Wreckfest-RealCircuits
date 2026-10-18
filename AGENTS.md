@@ -29,7 +29,7 @@ Conventions for humans and coding agents working in this repo. The plan lives in
 
 | Path | What |
 |---|---|
-| `schema/` | `track-spec.schema.json` — **single source of truth** for the track spec and option rules |
+| `schema/` | `track-spec.schema.json` + `track-rules.json` — **single source of truth** for the track spec and option rules; `codegen/`, `test-vectors/` |
 | `src/Api/` | ASP.NET Core (.NET 10) minimal API `TrackGen.Api` (auth, tracks, jobs) |
 | `tests/Api.Tests/` | xUnit tests for the API (`WebApplicationFactory`) |
 | `src/web/` | React + TypeScript (Vite) frontend, vitest |
@@ -45,7 +45,14 @@ Conventions for humans and coding agents working in this repo. The plan lives in
 
 JSON Schema in `schema/` is the single source of truth. C#, TypeScript and Python types are generated
 from it; **generated types must not be hand-edited** — change the schema and regenerate. Option rules
-are covered by shared test vectors run in all three languages.
+are data (`schema/track-rules.json`), evaluated by small engines in each language
+(`geom/src/trackgen_geom/rules.py`, `src/web/src/rules/`, `src/Api/Rules/`) and covered by shared test
+vectors (`schema/test-vectors/`) run in all three test suites. Details: `schema/README.md`.
+
+```powershell
+py schema/codegen/generate.py          # regenerate src/web/src/generated, src/Api/Generated, geom/.../generated
+py schema/codegen/generate.py --check  # CI fails if generated files are stale
+```
 
 ## Build and test
 
@@ -62,6 +69,9 @@ cd geom
 py -m venv .venv
 .\.venv\Scripts\python -m pip install -e ".[service,test]"
 .\.venv\Scripts\python -m pytest
+
+# Generated code (stdlib-only; run after any schema change)
+py schema\codegen\generate.py
 
 # Local stack (api, geom, azurite); worker only with --profile worker
 docker compose config
