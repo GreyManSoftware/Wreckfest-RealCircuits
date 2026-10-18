@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/GreyManSoftware/WreckFest-TrackGen/schema/track-rules.schema.json",
+  "title": "TrackRules",
+  "description": "Declarative option and structural rules for the track spec. See schema/README.md for the expression language and evaluation semantics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "constants", "rules"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "type": "integer", "minimum": 1 },
+    "constants": {
+      "description": "Named numeric thresholds, readable in expressions as constants.<name>.",
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    },
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Rule" }
+    }
+  },
+  "$defs": {
+    "Rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "evaluatedBy", "effect"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "evaluatedBy": {
+          "description": "engine: decided from the spec alone. geometry: needs geometry facts from trackgen_geom; deferred when the facts in `requires` are absent.",
+          "enum": ["engine", "geometry"]
+        },
+        "requires": {
+          "description": "Paths (e.g. facts.firstSectorLengthM) that must be non-null for the rule to be evaluated; otherwise it is reported as deferred.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "forEach": {
+          "description": "Evaluate once per element of the array at `path`, binding it as $<as> and its index as $index.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "as"],
+          "properties": {
+            "path": { "type": "string" },
+            "as": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9]*$" }
+          }
+        },
+        "let": {
+          "description": "Named values evaluated in order before `when`, bound as $<name>.",
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-zA-Z][a-zA-Z0-9]*$" },
+          "additionalProperties": { "$ref": "#/$defs/Expr" }
+        },
+        "when": { "$ref": "#/$defs/Expr" },
+        "effect": { "$ref": "#/$defs/Effect" }
+      },
+      "if": { "properties": { "effect": { "properties": { "type": { "enum": ["disable", "hide"] } } } } },
+      "then": { "not": { "required": ["forEach"] } }
+    },
+    "Effect": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "option", "values", "reason"],
+          "properties": {
+            "type": { "enum": ["disable", "hide"] },
+            "option": { "type": "string" },
+            "values": { "type": "array", "minItems": 1 },
+            "reason": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "assert", "severity", "message"],
+          "properties": {
+            "type": { "const": "require" },
+            "assert": { "$ref": "#/$defs/Expr" },
+            "severity": { "enum": ["error", "warning"] },
+            "path": { "type": "string" },
+            "message": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "message"],
+          "properties": {
+            "type": { "enum": ["error", "warning"] },
+            "path": { "type": "string" },
+            "message": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "flag", "message"],
+          "properties": {
+            "type": { "const": "flag" },
+            "flag": { "type": "string" },
+            "message": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "Expr": {
+      "anyOf": [
+        { "type": ["null", "boolean", "number", "string"] },
+        { "type": "array", "items": { "$ref": "#/$defs/Expr" } },
+        { "$ref": "#/$defs/Op" }
+      ]
+    },
+    "ExprList": { "type": "array", "items": { "$ref": "#/$defs/Expr" } },
+    "Pair": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "$ref": "#/$defs/Expr" } },
+    "Quantifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["over", "as", "where"],
+      "properties": {
+        "over": { "$ref": "#/$defs/Expr" },
+        "as": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9]*$" },
+        "where": { "$ref": "#/$defs/Expr" }
+      }
+    },
+    "Op": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "var": { "type": "string" },
+        "get": { "$ref": "#/$defs/Pair" },
+        "exists": { "$ref": "#/$defs/Expr" },
+        "len": { "$ref": "#/$defs/Expr" },
+        "==": { "$ref": "#/$defs/Pair" },
+        "!=": { "$ref": "#/$defs/Pair" },
+        "<": { "$ref": "#/$defs/Pair" },
+        "<=": { "$ref": "#/$defs/Pair" },
+        ">": { "$ref": "#/$defs/Pair" },
+        ">=": { "$ref": "#/$defs/Pair" },
+        "in": { "$ref": "#/$defs/Pair" },
+        "and": { "$ref": "#/$defs/ExprList" },
+        "or": { "$ref": "#/$defs/ExprList" },
+        "not": { "$ref": "#/$defs/Expr" },
+        "if": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "$ref": "#/$defs/Expr" } },
+        "+": { "$ref": "#/$defs/ExprList" },
+        "*": { "$ref": "#/$defs/ExprList" },
+        "-": { "$ref": "#/$defs/Pair" },
+        "/": { "$ref": "#/$defs/Pair" },
+        "ceil": { "$ref": "#/$defs/Expr" },
+        "floor": { "$ref": "#/$defs/Expr" },
+        "any": { "$ref": "#/$defs/Quantifier" },
+        "all": { "$ref": "#/$defs/Quantifier" },
+        "count": { "$ref": "#/$defs/Quantifier" }
+      }
+    }
+  }
+}
