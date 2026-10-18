@@ -1,0 +1,65 @@
+{
+  "version": "0.1.0",
+  "valid": false,
+  "facts": {
+    "firstSectorLengthM": 101.999,
+    "maxAbsCoordinateM": 448.366,
+    "minCornerRadiusM": 110.872,
+    "crossings": {
+      "bridge1": {
+        "nearestJumpM": 485.0,
+        "availableRampLengthM": 436.925
+      }
+    },
+    "unannotatedCrossings": [],
+    "unmatchedCrossingAnnotations": [
+      "nowhere"
+    ],
+    "altRoutes": {}
+  },
+  "ruleResult": {
+    "schemaValid": true,
+    "schemaErrors": [],
+    "violations": [
+      {
+        "ruleId": "crossing-annotation-matches",
+        "severity": "warning",
+        "message": "Crossing nowhere isn't on a place where the track crosses itself, so it is ignored.",
+        "path": "/sketch/crossings/1"
+      },
+      {
+        "ruleId": "sandpit-no-tarmac",
+        "severity": "error",
+        "message": "Tarmac isn't offered in the sandpit; choose mixed for tarmac sections.",
+        "path": "/options/surface"
+      }
+    ],
+    "disabled": [
+      {
+        "ruleId": "sandpit-no-tarmac",
+        "option": "surface",
+        "values": [
+          "tarmac"
+        ],
+        "hidden": false,
+        "reason": "Tarmac isn't offered in the sandpit; choose mixed for tarmac sections."
+      }
+    ],
+    "flags": [
+      {
+        "ruleId": "reverse-bridge-symmetric-ramps",
+        "flag": "symmetricBridgeRamps",
+        "message": "Bridges get full-length ramps at both ends for the reverse layout."
+      }
+    ],
+    "deferred": [],
+    "valid": false
+  },
+  "warnings": [
+    {
+      "code": "crossing-annotation-unmatched",
+      "message": "Crossing nowhere doesn't mark a place where the track crosses itself; its facts are measured at the marker."
+    }
+  ],
+  "errors": []
+}

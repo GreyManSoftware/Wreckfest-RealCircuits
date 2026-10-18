@@ -10,7 +10,7 @@ py -m venv .venv
 $env:PIP_CACHE_DIR = 'E:\Source\wreckfest\.local\pip-cache'
 .\.venv\Scripts\python -m pip install -e ".[service,test]"
 .\.venv\Scripts\python -m pytest            # writes previews to tests\output\ (gitignored)
-.\.venv\Scripts\python -m uvicorn trackgen_geom.service:app --port 8000   # GET /healthz
+.\.venv\Scripts\python -m uvicorn trackgen_geom.service:app --port 8000   # see "Service" below
 ```
 
 Python types for the track spec are generated from `../schema/` into `trackgen_geom/generated/` (never hand-edit).
@@ -133,4 +133,58 @@ as a forward-only object. The reverse layout itself is the same geometry driven 
 `tests/test_geometry.py` (low-level maths) and `tests/test_pipeline.py` (samples in `tests/samples/`: oval,
 figure-8 with a bridge, loop with an alt route and jumps, hilly circuit; plus every schema-valid vector in
 `schema/test-vectors/`, which must build with no geometry rule deferred). Previews and model JSON go to
-`tests/output/`.
+`tests/output/`. `tests/test_service.py` covers the HTTP service and keeps the contract fixtures in
+`tests/contract/` current.
+
+## Service
+
+`trackgen_geom.service:app` is the internal FastAPI service the API calls (`GEOM_URL`, `http://geom:8000` in
+Compose). It runs `build_track_model` and reports measurements; pass or fail is the rules' job. The Blender worker
+doesn't call it: it installs this package and calls `build_track_model` directly.
+
+| Endpoint | Request | 200 response |
+|---|---|---|
+| `GET /healthz` | – | `{"status": "ok", "version"}` |
+| `POST /validate` | `{"spec": TrackSpec}` | `{version, valid, facts, ruleResult, warnings, errors}` |
+| `POST /preview` | `{"spec": TrackSpec}` | `/validate` plus `svg` (top-down), `elevationSvg` and `modelSummary` |
+| `POST /model` | `{"spec": TrackSpec}` | `/validate` plus `model` (the full TrackModel). Internal; nothing calls it yet. |
+
+- **`facts`:** `$defs/GeometryFacts`, always with `crossings`, `altRoutes`, `unannotatedCrossings` and
+  `unmatchedCrossingAnnotations`, even when they are empty.
+- **`ruleResult`:** `rule_result` with the facts, in the API's `EvaluationResult` shape: `schemaValid`,
+  `schemaErrors[{path, message}]`, `violations[{ruleId, severity, message, path}]`,
+  `disabled[{ruleId, option, values, hidden, reason}]`, `flags[{ruleId, flag, message}]`, `deferred[]`, plus `valid`.
+- **`warnings` / `errors`:** `[{code, message}]`. `errors` is always empty in a 200; `valid` is `result.valid`.
+- **`modelSummary`:** `{formatVersion, slug, lapLengthM, widthM, bounds, routes[{id, closed, lengthM}]}`.
+- **Determinism:** the same request gives a byte-identical body.
+
+Errors are `{"detail": {"code", "message", …}}`. The API maps any 4xx to its own 422 and anything else to 503.
+
+| Status | `code` | When |
+|---|---|---|
+| 400 | `bad-request` | The body isn't JSON (`NaN`/`Infinity` included) or isn't `{"spec": …}`. |
+| 413 | `body-too-large` | The body is over `GEOM_MAX_BODY_BYTES` (default 8 MiB, which fits every schema-valid spec). Also has `limit`. |
+| 422 | `schema-invalid` | The spec fails the schema, or a sketch array is over its `maxItems`. Has `schemaErrors[{path, message}]`. |
+| 422 | `geometry-rejected` | No geometry: a rejection in `errors[{code, message}]` (`main-loop-too-small`, …) or `main-loop-missing`. Also has `warnings`. |
+| 500 | `internal-error` | Unexpected exception. The message is generic; the traceback is logged. |
+| 503 | `compute-timeout` | The build took longer than `GEOM_COMPUTE_TIMEOUT_S` (default 15 s, below the API's 20 s client timeout). |
+
+**Runtime:** a single uvicorn worker. Builds run in a thread pool of `GEOM_MAX_CONCURRENCY` (default 2) threads; a
+request waiting for a free thread counts against its timeout. Python can't stop a thread, so **a timed-out build
+keeps running** (and holds its thread) until it finishes; the sketch size limits keep that bounded. Logs are JSON
+lines on stderr: one `request` entry per request (method, path, status, `durationMs`, `X-Request-Id`) and one
+`build` entry per build (slug, valid, warning count, error codes, `computeMs`). Set the level with `GEOM_LOG_LEVEL`.
+
+**Contract fixtures:** `tests/contract/validate-<case>.json` are real `/validate` responses for `figure8_bridge`,
+`loop_alt_jump` and `rule_failures` (`rule_failures.spec.json`: warnings, a disabled option, a flag and rule
+errors). `test_service.py` checks they still match the service (numbers within 0.01), and
+`tests/Api.Tests/GeometryContractTests.cs` deserialises them with the API's types and checks the C# rules agree.
+After a deliberate change to the response, regenerate them:
+
+```powershell
+$env:GEOM_UPDATE_CONTRACT = '1'; .\.venv\Scripts\python -m pytest tests\test_service.py -k contract; Remove-Item Env:GEOM_UPDATE_CONTRACT
+```
+
+**Docker:** `geom/Dockerfile` builds a slim, non-root image (`python:3.12-slim`, uid 10001) that runs
+`uvicorn trackgen_geom.service:app` on port 8000. In Compose, `geom` has a 1-CPU / 512 MB limit, a healthcheck on
+`/healthz`, and only a localhost port (`127.0.0.1:8000`, for `dotnet run`).

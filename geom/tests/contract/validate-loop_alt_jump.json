@@ -1,0 +1,29 @@
+{
+  "version": "0.1.0",
+  "valid": true,
+  "facts": {
+    "firstSectorLengthM": 296.001,
+    "maxAbsCoordinateM": 391.732,
+    "minCornerRadiusM": 16.495,
+    "crossings": {},
+    "unannotatedCrossings": [],
+    "unmatchedCrossingAnnotations": [],
+    "altRoutes": {
+      "shortcut": {
+        "startGapM": 0.0,
+        "endGapM": 0.0
+      }
+    }
+  },
+  "ruleResult": {
+    "schemaValid": true,
+    "schemaErrors": [],
+    "violations": [],
+    "disabled": [],
+    "flags": [],
+    "deferred": [],
+    "valid": true
+  },
+  "warnings": [],
+  "errors": []
+}

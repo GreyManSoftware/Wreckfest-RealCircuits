@@ -1,0 +1,35 @@
+{
+  "version": "0.1.0",
+  "valid": true,
+  "facts": {
+    "firstSectorLengthM": 101.999,
+    "maxAbsCoordinateM": 448.366,
+    "minCornerRadiusM": 110.872,
+    "crossings": {
+      "bridge1": {
+        "nearestJumpM": 485.0,
+        "availableRampLengthM": 436.925
+      }
+    },
+    "unannotatedCrossings": [],
+    "unmatchedCrossingAnnotations": [],
+    "altRoutes": {}
+  },
+  "ruleResult": {
+    "schemaValid": true,
+    "schemaErrors": [],
+    "violations": [],
+    "disabled": [],
+    "flags": [
+      {
+        "ruleId": "reverse-bridge-symmetric-ramps",
+        "flag": "symmetricBridgeRamps",
+        "message": "Bridges get full-length ramps at both ends for the reverse layout."
+      }
+    ],
+    "deferred": [],
+    "valid": true
+  },
+  "warnings": [],
+  "errors": []
+}
