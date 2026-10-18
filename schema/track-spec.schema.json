@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/GreyManSoftware/WreckFest-TrackGen/schema/track-spec.schema.json",
+  "title": "TrackSpec",
+  "description": "Wreckfest Track Generator track specification (placeholder; sketch, options and rules come in the schema phase).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["meta"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "slug"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Display name of the track."
+        },
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{2,31}$",
+          "description": "Track and mod id (lowercase letters, digits and underscores)."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,67 @@
+# Local development stack. CPU/memory limits keep the host under the 75% CPU budget.
+# Default: api + geom + azurite. Worker (Blender + Wine) only with: docker compose --profile worker up
+name: trackgen
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: src/Api/Dockerfile
+    image: trackgen-api:dev
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Geometry__BaseUrl: http://geom:8000
+      # Storage connection settings (Azurite) are added with the jobs/blob feature; keep secrets in .env (gitignored).
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      - geom
+      - azurite
+    cpus: 1.0
+    mem_limit: 512m
+    restart: unless-stopped
+
+  geom:
+    build:
+      context: geom
+    image: trackgen-geom:dev
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    cpus: 1.0
+    mem_limit: 512m
+    restart: unless-stopped
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    command: azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --location /data --skipApiVersionCheck
+    ports:
+      - "127.0.0.1:10000:10000"
+      - "127.0.0.1:10001:10001"
+      - "127.0.0.1:10002:10002"
+    volumes:
+      - azurite-data:/data
+    cpus: 0.5
+    mem_limit: 256m
+    restart: unless-stopped
+
+  worker:
+    profiles: ["worker"]
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    image: trackgen-worker:dev
+    volumes:
+      # Game tools and stock assets are mounted read-only, never baked into the image.
+      - ${WRECKFEST_TOOLS_DIR:-./.local/gametools}:/gametools:ro
+    depends_on:
+      - azurite
+    cpus: 4.0
+    mem_limit: 4g
+
+volumes:
+  azurite-data:
