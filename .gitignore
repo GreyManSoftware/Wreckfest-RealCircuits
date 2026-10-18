@@ -1,0 +1,72 @@
+# Local scratch, research, caches and toolchains (never commit)
+.local/
+
+# Server runbook: contains LAN addresses and private host details
+AGENT-HANDOVER.md
+
+# Game binaries and build outputs (licensed content; never commit)
+*.bmap
+*.scne
+*.bgo3
+*.exe
+*.dll
+*.vhcl
+*.weat
+*.evse
+*.envi
+*.weli
+*.modi
+*.tcat
+# Allow small test fixtures later
+!tests/fixtures/**
+
+# Secrets and local data
+.env
+.env.*
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl.bak
+*.tfvars
+
+# Build artifacts
+artifacts/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+TestResults/
+
+# Node
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+build/
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+Thumbs.db
+.DS_Store
