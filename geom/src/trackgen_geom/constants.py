@@ -82,8 +82,19 @@ ELEVATION_LEVELS: Mapping[str, ElevationLevel] = {
     "flat": ElevationLevel(0.0, 1.0, 1.0, 0.0),
     "gentle": ElevationLevel(3.0, 250.0, 600.0, 0.04),
     "hilly": ElevationLevel(10.0, 180.0, 450.0, 0.09),
+    "custom": ElevationLevel(0.0, 1.0, 1.0, 0.0),  # flat ground; the height markers shape the road
 }
 NOISE_COMPONENTS = 6
+
+# --- Height markers --------------------------------------------------------------------------
+MARKER_BUMP_MIN_RADIUS_M = 80.0  # presets: a marker's bump eases back to the terrain over at least this
+MARKER_BUMP_GRADE = 0.08  # ...and over at least |height| / this, so a lone bump is never too steep
+MARKER_MERGE_M = 0.5  # control points closer than this along a route are merged (the first wins)
+MARKER_MIN_SPACING_M = 1.0  # floor on the distance used for a marker's grade (coincident markers)
+MARKER_OFF_ROUTE_M = 30.0  # warn when a marker is further than this from its route
+FLAT_LEVEL_MIN_M = 40.0  # flat crossings: half-width of the correction that makes both branches meet
+FLAT_LEVEL_FACTOR = 15.0  # ...and at least this times the height step
+MAX_REPORTED_GRADE_PCT = 1000.0  # grade facts are capped here (coincident markers, ramps with no room)
 
 
 # --- Jumps -----------------------------------------------------------------------------------

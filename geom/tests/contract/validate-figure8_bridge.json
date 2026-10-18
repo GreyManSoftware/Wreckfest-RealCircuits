@@ -8,12 +8,16 @@
     "crossings": {
       "bridge1": {
         "nearestJumpM": 485.0,
-        "availableRampLengthM": 436.925
+        "availableRampLengthM": 436.925,
+        "rampGradePct": 17.333
       }
     },
     "unannotatedCrossings": [],
     "unmatchedCrossingAnnotations": [],
-    "altRoutes": {}
+    "altRoutes": {},
+    "elevationMarkers": {},
+    "gridMaxGradePct": 0.0,
+    "heightRangeM": 7.97
   },
   "ruleResult": {
     "schemaValid": true,

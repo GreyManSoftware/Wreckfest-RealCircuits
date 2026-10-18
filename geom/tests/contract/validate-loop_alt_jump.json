@@ -13,7 +13,10 @@
         "startGapM": 0.0,
         "endGapM": 0.0
       }
-    }
+    },
+    "elevationMarkers": {},
+    "gridMaxGradePct": 0.0,
+    "heightRangeM": 5.746
   },
   "ruleResult": {
     "schemaValid": true,

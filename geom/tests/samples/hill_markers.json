@@ -1,0 +1,146 @@
+{
+  "meta": {
+    "name": "Hill Markers",
+    "slug": "hill_markers",
+    "description": "Custom elevation shaped by height markers."
+  },
+  "sketch": {
+    "canvas": {
+      "width": 1000,
+      "height": 700
+    },
+    "mainLoop": {
+      "points": [
+        {
+          "x": 120,
+          "y": 420
+        },
+        {
+          "x": 180,
+          "y": 200
+        },
+        {
+          "x": 330,
+          "y": 110
+        },
+        {
+          "x": 520,
+          "y": 160
+        },
+        {
+          "x": 600,
+          "y": 300
+        },
+        {
+          "x": 720,
+          "y": 180
+        },
+        {
+          "x": 880,
+          "y": 150
+        },
+        {
+          "x": 940,
+          "y": 330
+        },
+        {
+          "x": 860,
+          "y": 520
+        },
+        {
+          "x": 640,
+          "y": 600
+        },
+        {
+          "x": 420,
+          "y": 560
+        },
+        {
+          "x": 260,
+          "y": 600
+        }
+      ]
+    },
+    "startFinish": {
+      "position": {
+        "x": 150,
+        "y": 310
+      },
+      "headingDeg": 285
+    },
+    "elevationMarkers": [
+      {
+        "id": "h1",
+        "position": {
+          "x": 180,
+          "y": 200
+        },
+        "heightM": 0
+      },
+      {
+        "id": "h2",
+        "position": {
+          "x": 330,
+          "y": 110
+        },
+        "heightM": 10
+      },
+      {
+        "id": "h3",
+        "position": {
+          "x": 600,
+          "y": 300
+        },
+        "heightM": 4
+      },
+      {
+        "id": "h4",
+        "position": {
+          "x": 880,
+          "y": 150
+        },
+        "heightM": 14
+      },
+      {
+        "id": "h5",
+        "position": {
+          "x": 860,
+          "y": 520
+        },
+        "heightM": 6
+      },
+      {
+        "id": "h6",
+        "position": {
+          "x": 420,
+          "y": 560
+        },
+        "heightM": -3
+      },
+      {
+        "id": "h7",
+        "position": {
+          "x": 120,
+          "y": 420
+        },
+        "heightM": 0
+      }
+    ]
+  },
+  "options": {
+    "lapLengthKm": 3.0,
+    "widthM": 14,
+    "surface": "gravel",
+    "kerbs": true,
+    "walls": "tyres",
+    "elevation": "custom",
+    "environment": "forest",
+    "gridSize": 20,
+    "weathers": [
+      "morning",
+      "sunset"
+    ],
+    "reverseLayout": false,
+    "defaultLaps": 5
+  }
+}

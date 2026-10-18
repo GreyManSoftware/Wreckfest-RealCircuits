@@ -51,7 +51,7 @@ Resampling is also capped at 100,000 points per call, as a backstop.
 | `pipeline.py` | `build_track_model`, `Result`, the build steps |
 | `centreline.py` | stroke → centreline (smoothing, B-spline, radius relaxation, scaling, orientation) |
 | `polyline.py` | numpy polyline toolkit: resampling, smoothing, subdivision, curvature, projection, intersections |
-| `elevation.py` | seeded terrain noise, bridge ramps, jump profiles |
+| `elevation.py` | seeded terrain noise, height-marker profiles (PCHIP), bridge ramps, jump profiles |
 | `model.py` | `TrackModel` dataclasses and JSON serialisation |
 | `preview.py` | top-down and elevation SVGs |
 | `constants.py` | modelling constants; rule thresholds are read from `track-rules.json` (`rule_constants()`) |
@@ -88,6 +88,29 @@ Resampling is also capped at 100,000 points per call, as a backstop.
   clears the under road, with ramps of max(`bridgeRampMinLengthM`, length for an 18% peak grade); the ramps
   stop at other crossings, jumps, junctions and the grid. With the `symmetricBridgeRamps` flag both ramps get the
   shorter length. Alt-route heights blend into the main loop's over 20 m and are equal at the joins.
+- **Height markers** (`sketch.elevationMarkers`). Each marker is projected onto its route (s along it; markers on
+  alt routes are kept `JUNCTION_CLEAR_M` from the ends). Each route gets a *marker profile* `m(s)`: a monotone
+  piecewise cubic (Fritsch-Butland PCHIP) through its control points, so it passes through every marker exactly
+  and never overshoots between two of them. On the closed main loop the control points wrap round (continuous
+  height and grade at the seam); one marker gives a constant, none gives 0. Alt routes get anchors at both ends
+  with the main loop's `m` at the joins, so the shared vertices stay identical.
+  - **custom:** the terrain is flat (`ELEVATION_LEVELS["custom"]`, amplitude 0) and the road is `m(s)`. The
+    builder's terrain follows the road near it and eases to flat ground away from it.
+  - **flat / gentle / hilly:** additive. Each marker is a bump on the preset terrain: zero anchors are added
+    `bump_radius = max(80 m, |h| / 8%)` either side unless the next bump is closer (then the profile goes straight
+    from one marker to the other). Road z = terrain + `m`.
+  - **Grades are reported, never fixed:** `gradePct` is the steeper |Δh| / Δs to the neighbouring control points
+    (a lone preset bump is 8%); `elevation-marker-grade` errors above 12%. PCHIP's peak grade can be up to 1.5×
+    that sustained grade at a single marker between two level ones.
+  - **Flat crossings:** both branches are eased (raised cosine, half-width max(40 m, 15 × step)) to their mean
+    height so they meet; the step before levelling is `heightStepM` (error above 0.5 m).
+  - **Bridges:** the over branch climbs `max(0, 6.5 m + max m(under, around the crossing) − min m(over, along
+    the deck))` (exactly 6.5 m without markers, as the terrain is the same for both branches), with ramps of
+    max(`bridgeRampMinLengthM`, climb / 18% peak). `rampGradePct` is the resulting peak ramp grade, and
+    `deckHeightM` in the model is the climb.
+  - **Grid and features:** `gridMaxGradePct` is the steepest grade of the main loop's `m` from `START_CLEAR_M`
+    behind the line to the first checkpoint. A marker in that area or on a bridge ramp gets `feature`
+    (warning). Jumps are still added on top.
 - **Jumps.** Small/medium/large: 1.0/1.8/2.8 m high, 8/12/16 m takeoff. One-way: concave takeoff to a 2 m lip,
   then a smooth landing 2.5× the takeoff. Bidirectional: two takeoffs either side of a 6 m table (symmetric).
 - **Grid and sectors.** The grid sits **ahead of** the start/finish line, inside the first sector (to verify in
@@ -117,6 +140,7 @@ Coordinates are **metres, right-handed, Z up** (Blender's convention): **x = eas
 | `startJoin/endJoin` | `{route: "main", sampleIndex, s}`: the main-loop vertex the alt route shares exactly |
 | `crossings[]` | `{id, annotated, detected, type (bridge/flat/unannotated), position [x, y], angleDeg, branches[{route, s, param, heading, z}], overBranch, deckHalfLengthM, rampUpM, rampDownM, deckHeightM}` |
 | `jumps[]` | `{id, route, size, bidirectional, s, position, heading, heightM, startS, endS, layouts, inBase, profile[[offset, dz]]}` |
+| `elevationMarkers[]` | `{id, route, s, position [x, y, z], heightM, gradePct, feature (grid/bridge or null)}`: the projected height markers |
 | `grid` | `{size, rowSpacingM, slotWidthM, slots[{name "#startpoint01", index, row, side, s, position, heading}], carChange{name "#startpointcarchange", position, heading}}` |
 | `checkpoints[]` | `{route, index, s, position, heading, widthM (road + 2×2 m), isFinish}` |
 | `aiLines[]` | `{route, aiIndex, closed, points[[x, y, z]]}`: the racing line (the centreline in v1) |
@@ -131,9 +155,11 @@ as a forward-only object. The reverse layout itself is the same geometry driven 
 ## Tests
 
 `tests/test_geometry.py` (low-level maths) and `tests/test_pipeline.py` (samples in `tests/samples/`: oval,
-figure-8 with a bridge, loop with an alt route and jumps, hilly circuit; plus every schema-valid vector in
+figure-8 with a bridge, loop with an alt route and jumps, hilly circuit, custom elevation with height markers; plus every schema-valid vector in
 `schema/test-vectors/`, which must build with no geometry rule deferred). Previews and model JSON go to
-`tests/output/`. `tests/test_service.py` covers the HTTP service and keeps the contract fixtures in
+`tests/output/`. `tests/test_elevation_markers.py` covers the marker profile (through every marker, monotone,
+closed loops), custom and preset elevation, alt-route joins, bridges, flat crossings and the elevation rules.
+`tests/test_service.py` covers the HTTP service and keeps the contract fixtures in
 `tests/contract/` current.
 
 ## Service

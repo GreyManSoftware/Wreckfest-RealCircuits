@@ -25,6 +25,7 @@ from .model import (
     CanvasTransform,
     Checkpoint,
     CrossingRecord,
+    ElevationMarkerRecord,
     Grid,
     GridSlot,
     Join,
@@ -86,6 +87,7 @@ class _Route:
         self.closed = closed
         self.ai_index = ai_index
         self.z = np.zeros(len(pts))
+        self.m = np.zeros(len(pts))  # height-marker profile (custom: the road; presets: the bumps)
         self.start_join: int | None = None  # main-loop vertex index (alt routes)
         self.end_join: int | None = None
 
@@ -100,6 +102,9 @@ class _Route:
 
     def z_at(self, s: float) -> float:
         return float(pl.interp_at(self.cum, self.z, self.closed, s))
+
+    def m_at(self, s: float) -> float:
+        return float(pl.interp_at(self.cum, self.m, self.closed, s))
 
     def heading_at(self, s: float) -> float:
         h = 0.5
@@ -165,6 +170,18 @@ class _Crossing:
     up: float = 0.0
     down: float = 0.0
     available: float | None = None
+    climb: float = C.BRIDGE_DECK_HEIGHT_M  # bridges: height the over branch rises above its own profile
+    step: float = 0.0  # flat crossings: marker-profile height difference between the branches
+
+
+@dataclass
+class _Marker:
+    id: str
+    route: str
+    s: float
+    height: float
+    grade: float = 0.0
+    feature: str | None = None
 
 
 @dataclass
@@ -223,7 +240,7 @@ def _oversized(spec: Any) -> list[rules.SchemaError]:
     main = sketch.get("mainLoop")
     if isinstance(main, Mapping):
         checks.append(("/sketch/mainLoop/points", main.get("points"), defs["MainLoop"]["properties"]["points"]))
-    for key in ("altRoutes", "crossings", "jumps"):
+    for key in ("altRoutes", "crossings", "jumps", "elevationMarkers"):
         checks.append((f"/sketch/{key}", sketch.get(key), defs["Sketch"]["properties"][key]))
     alts = sketch.get("altRoutes")
     if isinstance(alts, list):
@@ -584,6 +601,113 @@ class _Builder:
             layouts = ["forward", "reverse"] if (self.reverse and bidir) else ["forward"]
             self.jumps.append(_Jump(j["id"], route.id, size, bidir, s, s + a, s + b, in_base, layouts))
 
+    # -- height markers --------------------------------------------------------------------------
+
+    def _markers(self) -> None:
+        """Project the height markers onto their routes and build each route's marker profile ``m``:
+        custom elevation uses it as the road height; presets add it to the terrain as bumps."""
+        self.custom = self.options["elevation"] == "custom"
+        self.markers: list[_Marker] = []
+        for mk in _unique_by_id(self.sketch.get("elevationMarkers", []), "elevation-marker", self.warnings):
+            route = self.by_id.get(mk.get("route", "main"))
+            if route is None:
+                self.warn(
+                    "elevation-marker-route-missing",
+                    f"Height marker {mk['id']} is on a route that wasn't built; it is left out.",
+                )
+                continue
+            proj = pl.project(route.pts, route.closed, self.world(mk["position"]))
+            if proj.distance > C.MARKER_OFF_ROUTE_M:
+                self.warn(
+                    "elevation-marker-off-route",
+                    f"Height marker {mk['id']} is {proj.distance:.0f} m from route {route.id}; it is moved onto it.",
+                )
+            s = float(proj.s)
+            if not route.closed:
+                lo, hi = C.JUNCTION_CLEAR_M, route.length - C.JUNCTION_CLEAR_M
+                if lo > hi:
+                    lo = hi = route.length / 2.0
+                if not lo <= s <= hi:
+                    self.warn(
+                        "elevation-marker-moved",
+                        f"Height marker {mk['id']} was moved away from the end of route {route.id}.",
+                    )
+                    s = min(max(s, lo), hi)
+            self.markers.append(_Marker(mk["id"], route.id, s, float(mk["heightM"])))
+        additive = not self.custom
+        self.controls: dict[str, list[el.Control]] = {}
+        for r in self.routes:
+            own = [(m.id, m.s, m.height) for m in self.markers if m.route == r.id]
+            ends = (0.0, 0.0)
+            if not r.closed:
+                ends = (float(self.main.m[r.start_join]), float(self.main.m[r.end_join]))
+            ctrl = el.marker_controls(own, r.closed, r.length, additive, ends)
+            self.controls[r.id] = ctrl
+            r.m = el.marker_profile(r.s, ctrl, r.closed, r.length)
+            grades = el.control_grades(ctrl, r.closed, r.length)
+            for m in self.markers:
+                if m.route == r.id:
+                    m.grade = grades.get(m.id, 0.0)
+        self._level_flat_crossings()
+
+    def _level_flat_crossings(self) -> None:
+        """Both branches of a flat crossing must meet at one height: ease each branch's marker profile to
+        their mean height there. The step before levelling is reported (rule elevation-flat-crossing-level)."""
+        for c in self.crossings:
+            if c.type != "flat" or not c.detected or len(c.branches) != 2:
+                continue
+            (ra_id, sa), (rb_id, sb) = c.branches
+            ra, rb = self.by_id[ra_id], self.by_id[rb_id]
+            ma, mb = ra.m_at(sa), rb.m_at(sb)
+            c.step = abs(ma - mb)
+            if c.step <= 1e-9:
+                continue
+            target = (ma + mb) / 2.0
+            half = max(C.FLAT_LEVEL_MIN_M, C.FLAT_LEVEL_FACTOR * c.step)
+            for r, s, m in ((ra, sa, ma), (rb, sb, mb)):
+                r.m = r.m + (target - m) * el.level_window(r.wrap(r.s - s), half)
+
+    def _bridge_climb(self, c: _Crossing) -> float:
+        """Height the over branch must rise above its own profile so the deck clears the under branch's
+        local height by BRIDGE_DECK_HEIGHT_M. Only the marker profiles matter: the terrain is the same
+        for both branches at the crossing."""
+        if len(c.branches) != 2 or c.over is None:
+            return C.BRIDGE_DECK_HEIGHT_M
+
+        def window(i: int, pick: Any) -> float:
+            rid, s = c.branches[i]
+            r = self.by_id[rid]
+            near = np.abs(r.wrap(r.s - s)) <= c.halves[i]
+            vals = [r.m_at(s)] + r.m[near].tolist()
+            return float(pick(vals))
+
+        under = 1 - c.over
+        return max(0.0, C.BRIDGE_DECK_HEIGHT_M + window(under, max) - window(c.over, min))
+
+    def _marker_features(self) -> None:
+        grid = (-C.START_CLEAR_M, self._grid_zone_end())
+        ramps = self._ramp_intervals()
+        for m in self.markers:
+            r = self.by_id[m.route]
+            if m.route == "main" and r.dist_to(m.s, *grid) == 0.0:
+                m.feature = "grid"
+            elif any(o.route == m.route and r.dist_to(m.s, o.a, o.b) == 0.0 for o in ramps):
+                m.feature = "bridge"
+
+    def _grid_max_grade(self) -> float:
+        """Steepest grade of the main loop's marker profile over the grid area (behind the line to the
+        first checkpoint)."""
+        m = self.main
+        end = self._grid_zone_end()
+        idx = np.flatnonzero((m.s <= end) | (m.s >= m.length - C.START_CLEAR_M))
+        steepest = 0.0
+        for i in idx:
+            j = (i + 1) % len(m.s)
+            ds = (m.s[j] - m.s[i]) % m.length
+            if ds > 1e-6:
+                steepest = max(steepest, abs(float(m.m[j] - m.m[i])) / ds)
+        return steepest
+
     # -- obstacles, bridges and facts --------------------------------------------------------------
 
     def _obstacles(self) -> list[_Obstacle]:
@@ -612,10 +736,12 @@ class _Builder:
     def _bridges(self) -> None:
         obstacles = self._obstacles()
         grid = _Obstacle("main", -C.START_CLEAR_M, self._grid_zone_end(), "grid")
-        ramp_len = el.bridge_ramp_length(float(self.consts["bridgeRampMinLengthM"]))
+        ramp_min = float(self.consts["bridgeRampMinLengthM"])
         for ci, c in enumerate(self.crossings):
             if c.type != "bridge" or c.over is None or not c.detected:
                 continue
+            c.climb = self._bridge_climb(c)
+            ramp_len = el.bridge_ramp_length(ramp_min, c.climb)
             rid, s = c.branches[c.over]
             route = self.by_id[rid]
             half = c.halves[c.over]
@@ -667,6 +793,10 @@ class _Builder:
             entry = {"nearestJumpM": _round(nearest)} if math.isfinite(nearest) else {}
             if c.type == "bridge":
                 entry["availableRampLengthM"] = _round(c.available or 0.0)
+                grade = el.ramp_peak_grade(c.climb, min(c.up, c.down)) if c.climb > 0 else 0.0
+                entry["rampGradePct"] = _round(min(100.0 * grade, C.MAX_REPORTED_GRADE_PCT))
+            elif c.type == "flat":
+                entry["heightStepM"] = _round(c.step)
             facts[c.id] = entry
         return facts
 
@@ -689,12 +819,12 @@ class _Builder:
         self.terrain = el.Terrain(self.meta["slug"], self.options["elevation"])
         self.terrain.limit_grade([(r.pts, r.s, r.closed) for r in self.routes])
         for r in self.routes:
-            r.z = self.terrain.height(r.pts)
+            r.z = self.terrain.height(r.pts) + r.m
         for c in self.crossings:
             if c.type == "bridge" and c.over is not None and c.detected:
                 rid, s = c.branches[c.over]
                 r = self.by_id[rid]
-                r.z = r.z + el.bridge_bump(r.wrap(r.s - s), c.halves[c.over], c.up, c.down)
+                r.z = r.z + el.bridge_bump(r.wrap(r.s - s), c.halves[c.over], c.up, c.down, c.climb)
         for j in self.jumps:
             if j.in_base:
                 r = self.by_id[j.route]
@@ -771,8 +901,10 @@ class _Builder:
         self._routes()
         self._crossings()
         self._jumps()
+        self._markers()
         self._bridges()
         self._elevation()
+        self._marker_features()
         first_sector = self._first_sector()
         grid = self._grid(first_sector)
         checkpoints = self._checkpoints()
@@ -844,7 +976,7 @@ class _Builder:
                     c.halves[c.over] if is_bridge else 0.0,
                     c.up,
                     c.down,
-                    C.BRIDGE_DECK_HEIGHT_M if is_bridge else 0.0,
+                    c.climb if is_bridge else 0.0,
                 )
             )
 
@@ -874,6 +1006,14 @@ class _Builder:
                 )
             )
 
+        marker_records = []
+        for m in self.markers:
+            r = self.by_id[m.route]
+            p = r.at(m.s)
+            marker_records.append(
+                ElevationMarkerRecord(m.id, m.route, m.s, [p[0], p[1], r.z_at(m.s)], m.height, 100.0 * m.grade, m.feature)
+            )
+
         ai_lines = [
             AiLine(
                 r.id, r.ai_index, r.closed, [[x, y, z] for (x, y), z in zip(r.pts.tolist(), r.z.tolist(), strict=True)]
@@ -899,6 +1039,7 @@ class _Builder:
             checkpoints=checkpoints,
             ai_lines=ai_lines,
             first_sector_length_m=first_sector,
+            elevation_markers=marker_records,
             warnings=[f"{w.code}: {w.message}" for w in self.warnings],
         )
         facts: dict[str, Any] = {
@@ -911,5 +1052,15 @@ class _Builder:
             "altRoutes": {
                 rid: {"startGapM": _round(g0), "endGapM": _round(g1)} for rid, (g0, g1) in self.alt_gaps.items()
             },
+            "elevationMarkers": {
+                m.id: {
+                    "sM": _round(m.s),
+                    "gradePct": _round(min(100.0 * m.grade, C.MAX_REPORTED_GRADE_PCT)),
+                    **({"feature": m.feature} if m.feature else {}),
+                }
+                for m in self.markers
+            },
+            "gridMaxGradePct": _round(min(100.0 * self._grid_max_grade(), C.MAX_REPORTED_GRADE_PCT)),
+            "heightRangeM": _round(float(all_z.max() - all_z.min())),
         }
         return model, facts

@@ -51,6 +51,22 @@ def _section(route: Route, s0: float, s1: float) -> list[tuple[float, float]]:
     return [(x, y) for _, x, y in pick]
 
 
+def height_label(h: float) -> str:
+    """"+12", "-6.5", "0": a marker height for labels."""
+    out = f"{h:+.1f}".replace(".0", "")
+    return "0" if out in ("+0", "-0") else out
+
+
+def height_colour(h: float) -> str:
+    """Blue for low, green near 0, red for high (clamped at -30 / +40 m)."""
+    t = max(-1.0, min(1.0, h / (40.0 if h > 0 else 30.0)))
+    if t >= 0:
+        r, g, b = 60 + 195 * t, 170 - 110 * t, 70 - 30 * t
+    else:
+        r, g, b = 60 + 0 * t, 170 + 50 * t, 70 - 185 * t
+    return f"#{round(r):02x}{round(g):02x}{round(b):02x}"
+
+
 def _across(x: float, y: float, h: float, half: float) -> tuple[tuple[float, float], tuple[float, float]]:
     nx, ny = -math.sin(h), math.cos(h)
     return (x + nx * half, y + ny * half), (x - nx * half, y - ny * half)
@@ -132,6 +148,16 @@ def preview_svg(model: TrackModel) -> str:
         )
         lx, ly = v.pt(x, y).split(",")
         out.append(f'<text x="{_f(float(lx) + 8)}" y="{_f(float(ly) - 8)}" fill="#000000">{escape(j.id)}</text>')
+    for mk in model.elevation_markers:
+        mx, my = (float(t) for t in v.pt(mk.position[0], mk.position[1]).split(","))
+        out.append(
+            f'<circle class="height-marker" cx="{_f(mx)}" cy="{_f(my)}" r="5" fill="{height_colour(mk.height_m)}" '
+            f'stroke="#ffffff" stroke-width="1.5"/>'
+        )
+        out.append(
+            f'<text class="height-marker" x="{_f(mx + 7)}" y="{_f(my - 6)}" fill="#ffffff" stroke="#000000" '
+            f'stroke-width="0.3">{escape(height_label(mk.height_m))}</text>'
+        )
     colours = {"bridge": "#2f6fff", "flat": "#ff9f1a", "unannotated": "#ff2a2a"}
     for c in model.crossings:
         cx, cy = (float(t) for t in v.pt(*c.position).split(","))
@@ -189,6 +215,16 @@ def elevation_svg(model: TrackModel) -> str:
         )
         out.append(
             f'<text x="{_f(pad + b.s * sx + 6)}" y="{_f(height - pad - (b.z - z_lo) * sy - 6)}">{escape(c.id)}</text>'
+        )
+    for mk in model.elevation_markers:
+        x, y = pt(mk.s, mk.position[2]).split(",")
+        out.append(
+            f'<circle class="height-marker" cx="{x}" cy="{y}" r="4" fill="{height_colour(mk.height_m)}" '
+            f'stroke="#000000" stroke-width="0.8"/>'
+        )
+        out.append(
+            f'<text class="height-marker" x="{_f(float(x) - 8)}" y="{_f(float(y) + 16)}">'
+            f"{escape(height_label(mk.height_m))}</text>"
         )
     for j in model.jumps:
         x, y = pt(j.s, j.position[2]).split(",")

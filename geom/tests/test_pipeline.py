@@ -252,7 +252,7 @@ def test_no_jump_nearby_leaves_out_nearest_jump(built: dict[str, Any]) -> None:
     spec["sketch"]["jumps"] = []
     spec["sketch"]["crossings"][0] = {"id": "bridge1", "position": {"x": 500, "y": 350}, "type": "flat"}
     result = build_track_model(spec)
-    assert result.facts["crossings"] == {"bridge1": {}}
+    assert result.facts["crossings"] == {"bridge1": {"heightStepM": 0.0}}
     assert result.valid and result.rule_result.deferred == []
     assert "nearestJumpM" in built["figure8_bridge"].facts["crossings"]["bridge1"]
 

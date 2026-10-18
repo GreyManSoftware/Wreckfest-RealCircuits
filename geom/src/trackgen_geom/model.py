@@ -115,6 +115,17 @@ class JumpRecord:
 
 
 @dataclass
+class ElevationMarkerRecord:
+    id: str
+    route: str
+    s: float
+    position: Vec3  # on the road surface
+    height_m: float  # as given: absolute (custom elevation) or a bump on the preset terrain
+    grade_pct: float  # sustained grade to the neighbouring markers/anchors
+    feature: str | None = None  # grid | bridge when the marker sits on one
+
+
+@dataclass
 class Transform:
     name: str
     position: Vec3
@@ -203,6 +214,7 @@ class TrackModel:
     checkpoints: list[Checkpoint]
     ai_lines: list[AiLine]
     first_sector_length_m: float
+    elevation_markers: list[ElevationMarkerRecord] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
