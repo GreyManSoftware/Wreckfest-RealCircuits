@@ -69,14 +69,20 @@ services:
     restart: unless-stopped
 
   worker:
+    # Opt-in (needs the Wreckfest install): docker compose --profile worker up -d
     profiles: ["worker"]
     build:
       context: .
       dockerfile: worker/Dockerfile
     image: trackgen-worker:dev
-    # Default command prints versions and checks the game mount; `smoke` runs the toolchain smoke tests:
-    #   docker compose --profile worker run --rm worker smoke
-    command: ["info"]
+    # Default command is the queue consumer. One-off commands: `run --rm --no-deps worker info|smoke|build-mod ...`
+    command: ["worker"]
+    environment:
+      # The same Azurite connection string as the api service (the worker expands it to Azurite's dev account).
+      STORAGE_CONNECTION_STRING: UseDevelopmentStorage=true;DevelopmentStorageProxyUri=http://azurite
+      API_BASE_URL: http://api:8080
+      # Must match the api's Worker__Secret (both come from TRACKGEN_WORKER_SECRET in .env).
+      WORKER_SECRET: ${TRACKGEN_WORKER_SECRET:-}
     volumes:
       # The Wreckfest install (bgeometry.exe, bimage.exe, stock data) is mounted read-only, never baked in.
       - type: bind
@@ -85,8 +91,12 @@ services:
         read_only: true
     depends_on:
       - azurite
+      - api
+    # SIGTERM cancels a running build and returns its message to the queue; give it time to do so.
+    stop_grace_period: 30s
     cpus: 4.0
-    mem_limit: 4g
+    mem_limit: 6g
+    restart: unless-stopped
 
 volumes:
   azurite-data:
