@@ -36,13 +36,21 @@ services:
     build:
       context: geom
     image: trackgen-geom:dev
+    # Internal service: the api reaches it as http://geom:8000. The localhost-only port is for running the API
+    # outside Compose (`dotnet run`, where GEOM_URL defaults to http://localhost:8000); it is never exposed beyond
+    # this machine.
     ports:
       - "127.0.0.1:8000:8000"
+    environment:
+      # Below the API's Geometry:TimeoutSeconds (20) so a slow build returns a clear 503 rather than a client timeout.
+      GEOM_COMPUTE_TIMEOUT_S: "15"
+      GEOM_MAX_CONCURRENCY: "2"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=4)"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 15s
     cpus: 1.0
     mem_limit: 512m
     restart: unless-stopped
