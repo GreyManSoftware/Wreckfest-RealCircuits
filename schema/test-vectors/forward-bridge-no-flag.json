@@ -1,0 +1,106 @@
+{
+  "description": "Bridge without reverse layout: no symmetric-ramps flag, one-way jump fine.",
+  "spec": {
+    "meta": {
+      "name": "Test Track",
+      "slug": "test_track"
+    },
+    "sketch": {
+      "canvas": {
+        "width": 1000,
+        "height": 700
+      },
+      "mainLoop": {
+        "points": [
+          {
+            "x": 100,
+            "y": 100
+          },
+          {
+            "x": 500,
+            "y": 80
+          },
+          {
+            "x": 900,
+            "y": 100
+          },
+          {
+            "x": 900,
+            "y": 600
+          },
+          {
+            "x": 500,
+            "y": 620
+          },
+          {
+            "x": 100,
+            "y": 600
+          }
+        ]
+      },
+      "startFinish": {
+        "position": {
+          "x": 300,
+          "y": 90
+        },
+        "headingDeg": 0
+      },
+      "jumps": [
+        {
+          "id": "j1",
+          "position": {
+            "x": 500,
+            "y": 80
+          },
+          "size": "medium"
+        }
+      ],
+      "crossings": [
+        {
+          "id": "c1",
+          "position": {
+            "x": 500,
+            "y": 350
+          },
+          "type": "bridge",
+          "over": {
+            "route": "main",
+            "param": 0.25
+          }
+        }
+      ]
+    },
+    "options": {
+      "lapLengthKm": 1.5,
+      "widthM": 12,
+      "surface": "mixed",
+      "kerbs": true,
+      "walls": "tyres",
+      "elevation": "gentle",
+      "environment": "gravel_pit",
+      "gridSize": 16,
+      "weathers": [
+        "midday"
+      ],
+      "reverseLayout": false,
+      "defaultLaps": 5
+    }
+  },
+  "expect": {
+    "schemaValid": true,
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "disabled": [],
+    "hidden": [],
+    "flags": [],
+    "deferred": [
+      "alt-route-joins-main-loop",
+      "bridge-ramp-length",
+      "flat-crossing-jump-clearance",
+      "grid-first-sector-length",
+      "layout-within-bounds",
+      "min-corner-radius"
+    ]
+  }
+}

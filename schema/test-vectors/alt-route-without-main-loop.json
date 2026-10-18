@@ -1,0 +1,85 @@
+{
+  "description": "Alternative route but no main loop.",
+  "spec": {
+    "meta": {
+      "name": "Test Track",
+      "slug": "test_track"
+    },
+    "sketch": {
+      "canvas": {
+        "width": 1000,
+        "height": 700
+      },
+      "startFinish": {
+        "position": {
+          "x": 300,
+          "y": 90
+        },
+        "headingDeg": 0
+      },
+      "altRoutes": [
+        {
+          "id": "alt1",
+          "points": [
+            {
+              "x": 900,
+              "y": 300
+            },
+            {
+              "x": 700,
+              "y": 350
+            },
+            {
+              "x": 900,
+              "y": 450
+            }
+          ],
+          "start": {
+            "point": {
+              "x": 900,
+              "y": 300
+            }
+          },
+          "end": {
+            "param": 0.42
+          }
+        }
+      ]
+    },
+    "options": {
+      "lapLengthKm": 1.5,
+      "widthM": 12,
+      "surface": "mixed",
+      "kerbs": true,
+      "walls": "tyres",
+      "elevation": "gentle",
+      "environment": "gravel_pit",
+      "gridSize": 16,
+      "weathers": [
+        "midday"
+      ],
+      "reverseLayout": false,
+      "defaultLaps": 5
+    }
+  },
+  "expect": {
+    "schemaValid": true,
+    "valid": false,
+    "errors": [
+      "alt-route-requires-main-loop",
+      "main-loop-required"
+    ],
+    "warnings": [],
+    "disabled": [],
+    "hidden": [],
+    "flags": [],
+    "deferred": [
+      "alt-route-joins-main-loop",
+      "bridge-ramp-length",
+      "flat-crossing-jump-clearance",
+      "grid-first-sector-length",
+      "layout-within-bounds",
+      "min-corner-radius"
+    ]
+  }
+}

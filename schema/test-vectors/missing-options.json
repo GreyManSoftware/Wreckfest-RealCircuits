@@ -1,0 +1,63 @@
+{
+  "description": "Options are required.",
+  "spec": {
+    "meta": {
+      "name": "Test Track",
+      "slug": "test_track"
+    },
+    "sketch": {
+      "canvas": {
+        "width": 1000,
+        "height": 700
+      },
+      "mainLoop": {
+        "points": [
+          {
+            "x": 100,
+            "y": 100
+          },
+          {
+            "x": 500,
+            "y": 80
+          },
+          {
+            "x": 900,
+            "y": 100
+          },
+          {
+            "x": 900,
+            "y": 600
+          },
+          {
+            "x": 500,
+            "y": 620
+          },
+          {
+            "x": 100,
+            "y": 600
+          }
+        ]
+      },
+      "startFinish": {
+        "position": {
+          "x": 300,
+          "y": 90
+        },
+        "headingDeg": 0
+      }
+    }
+  },
+  "expect": {
+    "schemaValid": false,
+    "valid": false,
+    "errors": [],
+    "warnings": [],
+    "disabled": [],
+    "hidden": [],
+    "flags": [],
+    "deferred": [],
+    "schemaErrorPaths": [
+      ""
+    ]
+  }
+}

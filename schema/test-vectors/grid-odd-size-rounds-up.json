@@ -1,0 +1,86 @@
+{
+  "description": "Grid of 9 needs ceil(9/2) x 8 = 40 m; 39 m is too short.",
+  "spec": {
+    "meta": {
+      "name": "Test Track",
+      "slug": "test_track"
+    },
+    "sketch": {
+      "canvas": {
+        "width": 1000,
+        "height": 700
+      },
+      "mainLoop": {
+        "points": [
+          {
+            "x": 100,
+            "y": 100
+          },
+          {
+            "x": 500,
+            "y": 80
+          },
+          {
+            "x": 900,
+            "y": 100
+          },
+          {
+            "x": 900,
+            "y": 600
+          },
+          {
+            "x": 500,
+            "y": 620
+          },
+          {
+            "x": 100,
+            "y": 600
+          }
+        ]
+      },
+      "startFinish": {
+        "position": {
+          "x": 300,
+          "y": 90
+        },
+        "headingDeg": 0
+      }
+    },
+    "options": {
+      "lapLengthKm": 1.5,
+      "widthM": 12,
+      "surface": "mixed",
+      "kerbs": true,
+      "walls": "tyres",
+      "elevation": "gentle",
+      "environment": "gravel_pit",
+      "gridSize": 9,
+      "weathers": [
+        "midday"
+      ],
+      "reverseLayout": false,
+      "defaultLaps": 5
+    }
+  },
+  "facts": {
+    "firstSectorLengthM": 39
+  },
+  "expect": {
+    "schemaValid": true,
+    "valid": false,
+    "errors": [
+      "grid-first-sector-length"
+    ],
+    "warnings": [],
+    "disabled": [],
+    "hidden": [],
+    "flags": [],
+    "deferred": [
+      "alt-route-joins-main-loop",
+      "bridge-ramp-length",
+      "flat-crossing-jump-clearance",
+      "layout-within-bounds",
+      "min-corner-radius"
+    ]
+  }
+}
