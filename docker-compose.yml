@@ -55,9 +55,15 @@ services:
       context: .
       dockerfile: worker/Dockerfile
     image: trackgen-worker:dev
+    # Default command prints versions and checks the game mount; `smoke` runs the toolchain smoke tests:
+    #   docker compose --profile worker run --rm worker smoke
+    command: ["info"]
     volumes:
-      # Game tools and stock assets are mounted read-only, never baked into the image.
-      - ${WRECKFEST_TOOLS_DIR:-./.local/gametools}:/gametools:ro
+      # The Wreckfest install (bgeometry.exe, bimage.exe, stock data) is mounted read-only, never baked in.
+      - type: bind
+        source: ${WRECKFEST_DIR:-D:/SteamLibrary/steamapps/common/Wreckfest}
+        target: /wreckfest
+        read_only: true
     depends_on:
       - azurite
     cpus: 4.0
