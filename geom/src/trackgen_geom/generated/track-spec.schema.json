@@ -1,0 +1,393 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/GreyManSoftware/WreckFest-TrackGen/schema/track-spec.schema.json",
+  "title": "TrackSpec",
+  "description": "Wreckfest Track Generator track specification: metadata, the user's sketch (canvas coordinates) and build options. Cross-field rules live in track-rules.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["meta", "sketch", "options"],
+  "properties": {
+    "meta": { "$ref": "#/$defs/Meta" },
+    "sketch": { "$ref": "#/$defs/Sketch" },
+    "options": { "$ref": "#/$defs/Options" }
+  },
+  "$defs": {
+    "Meta": {
+      "title": "Track details",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "slug"],
+      "properties": {
+        "name": {
+          "title": "Name",
+          "description": "Display name of the track.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "slug": {
+          "title": "Track id",
+          "description": "Track and mod id: 3-24 characters, lowercase letters, digits and underscores, starting with a letter.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{2,23}$"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string",
+          "maxLength": 500
+        }
+      }
+    },
+    "Id": {
+      "description": "Identifier of a sketch element (route, crossing or jump), unique within its list.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,32}$"
+    },
+    "RouteRef": {
+      "description": "A route: \"main\" for the main loop, otherwise the id of an alternative route.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,32}$"
+    },
+    "Point": {
+      "title": "Point",
+      "description": "A point in canvas coordinates (x right, y down).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    },
+    "Canvas": {
+      "title": "Canvas",
+      "description": "Size of the drawing canvas the sketch coordinates refer to.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "MainLoop": {
+      "title": "Main loop",
+      "description": "The main loop stroke: a closed polyline. The last point joins the first; don't repeat the first point.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["points"],
+      "properties": {
+        "points": {
+          "type": "array",
+          "minItems": 3,
+          "items": { "$ref": "#/$defs/Point" }
+        }
+      }
+    },
+    "StartFinish": {
+      "title": "Start/finish",
+      "description": "Start/finish marker on the main loop and the driving direction. If omitted, the first main-loop point is used, heading towards the second.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["position", "headingDeg"],
+      "properties": {
+        "position": { "$ref": "#/$defs/Point" },
+        "headingDeg": {
+          "title": "Heading",
+          "description": "Driving direction in degrees on the canvas: 0 = +x (right), 90 = +y (down).",
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 360
+        }
+      }
+    },
+    "Attachment": {
+      "title": "Attachment",
+      "description": "Where an alternative route joins the main loop: a canvas point on the loop and/or a parameter along it (0 = start/finish, increasing in driving direction, < 1).",
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [{ "required": ["point"] }, { "required": ["param"] }],
+      "properties": {
+        "point": { "$ref": "#/$defs/Point" },
+        "param": { "type": "number", "minimum": 0, "exclusiveMaximum": 1 }
+      }
+    },
+    "AltRoute": {
+      "title": "Alternative route",
+      "description": "An alternative-route stroke. It must leave and rejoin the main loop (start and end attachments).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "points"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "points": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/Point" }
+        },
+        "start": { "$ref": "#/$defs/Attachment" },
+        "end": { "$ref": "#/$defs/Attachment" }
+      }
+    },
+    "CrossingType": {
+      "title": "Crossing type",
+      "description": "bridge: one branch goes over the other; flat: an at-grade intersection.",
+      "type": "string",
+      "enum": ["bridge", "flat"]
+    },
+    "BranchRef": {
+      "title": "Branch",
+      "description": "One branch through a crossing: the route plus, optionally, the parameter along it (needed to tell the two passes of a figure-of-eight apart).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route"],
+      "properties": {
+        "route": { "$ref": "#/$defs/RouteRef", "default": "main" },
+        "param": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "Crossing": {
+      "title": "Crossing",
+      "description": "Annotation for a place where the track crosses itself.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "position", "type"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "position": { "$ref": "#/$defs/Point" },
+        "type": { "$ref": "#/$defs/CrossingType", "default": "bridge" },
+        "over": {
+          "$ref": "#/$defs/BranchRef",
+          "description": "For a bridge: the branch that goes over."
+        }
+      }
+    },
+    "JumpSize": {
+      "title": "Jump size",
+      "type": "string",
+      "enum": ["small", "medium", "large"]
+    },
+    "Jump": {
+      "title": "Jump",
+      "description": "A jump (local ramp) marker.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "position", "size"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "position": { "$ref": "#/$defs/Point" },
+        "size": { "$ref": "#/$defs/JumpSize", "default": "medium" },
+        "route": {
+          "$ref": "#/$defs/RouteRef",
+          "description": "Route the jump is on (default: main).",
+          "default": "main"
+        },
+        "bidirectional": {
+          "title": "Bidirectional",
+          "description": "Ramp drivable in both directions (needed to keep the jump in the reverse layout).",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "Sketch": {
+      "title": "Sketch",
+      "description": "The drawn layout, in canvas coordinates. The geometry service turns it into a spline scaled to the lap length.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canvas"],
+      "properties": {
+        "canvas": { "$ref": "#/$defs/Canvas" },
+        "mainLoop": { "$ref": "#/$defs/MainLoop" },
+        "startFinish": { "$ref": "#/$defs/StartFinish" },
+        "altRoutes": {
+          "title": "Alternative routes",
+          "type": "array",
+          "items": { "$ref": "#/$defs/AltRoute" },
+          "default": []
+        },
+        "crossings": {
+          "title": "Crossings",
+          "type": "array",
+          "items": { "$ref": "#/$defs/Crossing" },
+          "default": []
+        },
+        "jumps": {
+          "title": "Jumps",
+          "type": "array",
+          "items": { "$ref": "#/$defs/Jump" },
+          "default": []
+        }
+      }
+    },
+    "Surface": {
+      "title": "Surface",
+      "type": "string",
+      "enum": ["tarmac", "gravel", "mixed", "sand"]
+    },
+    "Walls": {
+      "title": "Walls",
+      "description": "Wall type; none means open run-off.",
+      "type": "string",
+      "enum": ["concrete", "tyres", "none"]
+    },
+    "Elevation": {
+      "title": "Elevation",
+      "type": "string",
+      "enum": ["flat", "gentle", "hilly"]
+    },
+    "Environment": {
+      "title": "Environment",
+      "description": "Environment preset (stock textures and props).",
+      "type": "string",
+      "enum": ["gravel_pit", "farmland", "forest", "industrial", "sandpit"]
+    },
+    "Weather": {
+      "title": "Weather",
+      "description": "Stock weather (time-of-day) slot. Each environment preset maps a slot to a stock .weat (e.g. fields/fields08_midday1.weat). To be confirmed against game data per preset.",
+      "type": "string",
+      "enum": ["sunrise", "morning", "midday", "noon", "afternoon", "evening", "sunset"]
+    },
+    "Options": {
+      "title": "Options",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lapLengthKm",
+        "widthM",
+        "surface",
+        "kerbs",
+        "walls",
+        "elevation",
+        "environment",
+        "gridSize",
+        "weathers",
+        "reverseLayout",
+        "defaultLaps"
+      ],
+      "properties": {
+        "lapLengthKm": {
+          "title": "Lap length (km)",
+          "description": "Target lap length; the sketch is scaled to match.",
+          "type": "number",
+          "minimum": 0.8,
+          "maximum": 5.0,
+          "default": 1.5
+        },
+        "widthM": {
+          "title": "Track width (m)",
+          "type": "number",
+          "minimum": 8,
+          "maximum": 20,
+          "default": 12
+        },
+        "surface": { "$ref": "#/$defs/Surface", "default": "mixed" },
+        "kerbs": {
+          "title": "Kerbs",
+          "type": "boolean",
+          "default": true
+        },
+        "walls": { "$ref": "#/$defs/Walls", "default": "tyres" },
+        "elevation": { "$ref": "#/$defs/Elevation", "default": "gentle" },
+        "environment": { "$ref": "#/$defs/Environment", "default": "gravel_pit" },
+        "gridSize": {
+          "title": "Grid size",
+          "description": "Number of grid slots (cars), laid out two abreast.",
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 24,
+          "default": 16
+        },
+        "weathers": {
+          "title": "Weathers",
+          "description": "Weathers offered for this track (at least one).",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/Weather" },
+          "default": ["midday"]
+        },
+        "reverseLayout": {
+          "title": "Reverse layout",
+          "description": "Also build a reverse-direction layout.",
+          "type": "boolean",
+          "default": false
+        },
+        "defaultLaps": {
+          "title": "Default laps",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 5
+        }
+      }
+    },
+    "CrossingFacts": {
+      "title": "Crossing facts",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nearestJumpM": {
+          "description": "Distance along either branch from the crossing to the nearest jump or ramp.",
+          "type": "number",
+          "minimum": 0
+        },
+        "availableRampLengthM": {
+          "description": "For a bridge: the shortest run available on the over branch for a ramp up or down.",
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "AltRouteFacts": {
+      "title": "Alternative route facts",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "startGapM": {
+          "description": "Distance from the route's start to the main loop, before snapping.",
+          "type": "number",
+          "minimum": 0
+        },
+        "endGapM": {
+          "description": "Distance from the route's end to the main loop, before snapping.",
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "GeometryFacts": {
+      "title": "Geometry facts",
+      "description": "Measurements computed by the geometry service (trackgen_geom) from the scaled layout. The rules engine compares them against thresholds in track-rules.json; it never computes geometry itself.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "firstSectorLengthM": {
+          "description": "Length of the first sector (start/finish to the first checkpoint), which holds the grid.",
+          "type": "number",
+          "minimum": 0
+        },
+        "maxAbsCoordinateM": {
+          "description": "Largest |x| or |y| of any track geometry after centring and scaling.",
+          "type": "number",
+          "minimum": 0
+        },
+        "minCornerRadiusM": {
+          "description": "Tightest centreline corner radius after smoothing.",
+          "type": "number",
+          "minimum": 0
+        },
+        "crossings": {
+          "description": "Per-crossing facts, keyed by crossing id.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/CrossingFacts" }
+        },
+        "altRoutes": {
+          "description": "Per-alternative-route facts, keyed by route id.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/AltRouteFacts" }
+        }
+      }
+    }
+  }
+}

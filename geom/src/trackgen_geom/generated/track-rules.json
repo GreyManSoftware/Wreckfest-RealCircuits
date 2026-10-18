@@ -1,0 +1,289 @@
+{
+  "$schema": "./track-rules.schema.json",
+  "version": 1,
+  "constants": {
+    "gridRowSpacingM": 8,
+    "gridSlotWidthM": 4.5,
+    "maxAbsCoordinateM": 2000,
+    "minInnerEdgeRadiusM": 6,
+    "flatCrossingJumpClearanceM": 30,
+    "bridgeRampMinLengthM": 50,
+    "attachmentToleranceM": 2
+  },
+  "rules": [
+    {
+      "id": "main-loop-required",
+      "title": "Main loop required",
+      "description": "A track needs a closed main loop.",
+      "evaluatedBy": "engine",
+      "when": { "not": { "exists": { "var": "sketch.mainLoop" } } },
+      "effect": { "type": "error", "path": "/sketch/mainLoop", "message": "Draw the main loop first." }
+    },
+    {
+      "id": "alt-route-requires-main-loop",
+      "title": "Alternative routes need a main loop",
+      "evaluatedBy": "engine",
+      "when": {
+        "and": [
+          { ">": [{ "len": { "var": "sketch.altRoutes" } }, 0] },
+          { "not": { "exists": { "var": "sketch.mainLoop" } } }
+        ]
+      },
+      "effect": {
+        "type": "error",
+        "path": "/sketch/altRoutes",
+        "message": "Alternative routes must branch off a main loop; draw the main loop first."
+      }
+    },
+    {
+      "id": "alt-route-attachments-required",
+      "title": "Alternative routes must attach to the main loop",
+      "description": "Each alternative route needs a start and an end attachment on the main loop.",
+      "evaluatedBy": "engine",
+      "forEach": { "path": "sketch.altRoutes", "as": "route" },
+      "effect": {
+        "type": "require",
+        "assert": {
+          "and": [{ "exists": { "var": "$route.start" } }, { "exists": { "var": "$route.end" } }]
+        },
+        "severity": "error",
+        "message": "Alternative route {$route.id} must start and end on the main loop."
+      }
+    },
+    {
+      "id": "alt-route-joins-main-loop",
+      "title": "Alternative routes join the main loop",
+      "description": "The drawn ends must be close enough to the main loop to be snapped onto shared coordinates.",
+      "evaluatedBy": "geometry",
+      "requires": ["facts.altRoutes"],
+      "forEach": { "path": "sketch.altRoutes", "as": "route" },
+      "let": { "f": { "get": [{ "var": "facts.altRoutes" }, { "var": "$route.id" }] } },
+      "when": { "exists": { "var": "$f" } },
+      "effect": {
+        "type": "require",
+        "assert": {
+          "and": [
+            { "<=": [{ "var": "$f.startGapM" }, { "var": "constants.attachmentToleranceM" }] },
+            { "<=": [{ "var": "$f.endGapM" }, { "var": "constants.attachmentToleranceM" }] }
+          ]
+        },
+        "severity": "error",
+        "message": "Alternative route {$route.id} doesn't reach the main loop (gaps {$f.startGapM} m and {$f.endGapM} m; max {constants.attachmentToleranceM} m)."
+      }
+    },
+    {
+      "id": "jump-route-exists",
+      "title": "Jumps are on a known route",
+      "evaluatedBy": "engine",
+      "forEach": { "path": "sketch.jumps", "as": "jump" },
+      "when": {
+        "and": [{ "exists": { "var": "$jump.route" } }, { "!=": [{ "var": "$jump.route" }, "main"] }]
+      },
+      "effect": {
+        "type": "require",
+        "assert": {
+          "any": {
+            "over": { "var": "sketch.altRoutes" },
+            "as": "r",
+            "where": { "==": [{ "var": "$r.id" }, { "var": "$jump.route" }] }
+          }
+        },
+        "severity": "error",
+        "message": "Jump {$jump.id} is on route {$jump.route}, which doesn't exist."
+      }
+    },
+    {
+      "id": "bridge-over-branch-required",
+      "title": "Bridges say which branch goes over",
+      "evaluatedBy": "engine",
+      "forEach": { "path": "sketch.crossings", "as": "crossing" },
+      "when": { "==": [{ "var": "$crossing.type" }, "bridge"] },
+      "effect": {
+        "type": "require",
+        "assert": { "exists": { "var": "$crossing.over" } },
+        "severity": "error",
+        "message": "Bridge {$crossing.id} needs the branch that goes over."
+      }
+    },
+    {
+      "id": "grid-width-two-abreast",
+      "title": "Grid fits two abreast",
+      "description": "The grid is laid out in pairs, so the track must be wide enough for two slots side by side.",
+      "evaluatedBy": "engine",
+      "let": { "needM": { "*": [2, { "var": "constants.gridSlotWidthM" }] } },
+      "effect": {
+        "type": "require",
+        "assert": { ">=": [{ "var": "options.widthM" }, { "var": "$needM" }] },
+        "severity": "error",
+        "path": "/options/widthM",
+        "message": "The grid needs at least {$needM} m of width for two cars abreast; the track is {options.widthM} m."
+      }
+    },
+    {
+      "id": "grid-first-sector-length",
+      "title": "First sector holds the grid",
+      "description": "The first sector must be at least ceil(gridSize / 2) x gridRowSpacingM long.",
+      "evaluatedBy": "geometry",
+      "requires": ["facts.firstSectorLengthM"],
+      "let": {
+        "needM": {
+          "*": [{ "ceil": { "/": [{ "var": "options.gridSize" }, 2] } }, { "var": "constants.gridRowSpacingM" }]
+        }
+      },
+      "effect": {
+        "type": "require",
+        "assert": { ">=": [{ "var": "facts.firstSectorLengthM" }, { "var": "$needM" }] },
+        "severity": "error",
+        "path": "/options/gridSize",
+        "message": "A grid of {options.gridSize} needs a first sector of at least {$needM} m; it is {facts.firstSectorLengthM} m."
+      }
+    },
+    {
+      "id": "reverse-jumps-bidirectional",
+      "title": "Reverse layout keeps only bidirectional jumps",
+      "description": "One-directional jumps can't be driven backwards, so they are left out of the reverse layout.",
+      "evaluatedBy": "engine",
+      "forEach": { "path": "sketch.jumps", "as": "jump" },
+      "when": { "==": [{ "var": "options.reverseLayout" }, true] },
+      "effect": {
+        "type": "require",
+        "assert": { "==": [{ "var": "$jump.bidirectional" }, true] },
+        "severity": "warning",
+        "message": "Jump {$jump.id} is one-directional and will be left out of the reverse layout; make it bidirectional to keep it."
+      }
+    },
+    {
+      "id": "reverse-bridge-symmetric-ramps",
+      "title": "Reverse layout needs symmetric bridge ramps",
+      "description": "In a reverse layout, bridge ramps are driven both ways, so both ends get full-length ramps.",
+      "evaluatedBy": "engine",
+      "when": {
+        "and": [
+          { "==": [{ "var": "options.reverseLayout" }, true] },
+          {
+            "any": {
+              "over": { "var": "sketch.crossings" },
+              "as": "c",
+              "where": { "==": [{ "var": "$c.type" }, "bridge"] }
+            }
+          }
+        ]
+      },
+      "effect": {
+        "type": "flag",
+        "flag": "symmetricBridgeRamps",
+        "message": "Bridges get full-length ramps at both ends for the reverse layout."
+      }
+    },
+    {
+      "id": "flat-crossing-jump-clearance",
+      "title": "No jumps near flat crossings",
+      "description": "A flat crossing is not allowed where either branch has a jump or ramp within flatCrossingJumpClearanceM.",
+      "evaluatedBy": "geometry",
+      "requires": ["facts.crossings"],
+      "forEach": { "path": "sketch.crossings", "as": "crossing" },
+      "let": { "f": { "get": [{ "var": "facts.crossings" }, { "var": "$crossing.id" }] } },
+      "when": {
+        "and": [
+          { "==": [{ "var": "$crossing.type" }, "flat"] },
+          { "exists": { "var": "$f.nearestJumpM" } }
+        ]
+      },
+      "effect": {
+        "type": "require",
+        "assert": { ">=": [{ "var": "$f.nearestJumpM" }, { "var": "constants.flatCrossingJumpClearanceM" }] },
+        "severity": "error",
+        "message": "Flat crossing {$crossing.id} is {$f.nearestJumpM} m from a jump; keep jumps at least {constants.flatCrossingJumpClearanceM} m away or make it a bridge."
+      }
+    },
+    {
+      "id": "bridge-ramp-length",
+      "title": "Bridges have room for their ramps",
+      "description": "The over branch needs bridgeRampMinLengthM each side to climb to clearance height and back down.",
+      "evaluatedBy": "geometry",
+      "requires": ["facts.crossings"],
+      "forEach": { "path": "sketch.crossings", "as": "crossing" },
+      "let": { "f": { "get": [{ "var": "facts.crossings" }, { "var": "$crossing.id" }] } },
+      "when": {
+        "and": [
+          { "==": [{ "var": "$crossing.type" }, "bridge"] },
+          { "exists": { "var": "$f.availableRampLengthM" } }
+        ]
+      },
+      "effect": {
+        "type": "require",
+        "assert": { ">=": [{ "var": "$f.availableRampLengthM" }, { "var": "constants.bridgeRampMinLengthM" }] },
+        "severity": "error",
+        "message": "Bridge {$crossing.id} has only {$f.availableRampLengthM} m for its ramps; it needs {constants.bridgeRampMinLengthM} m."
+      }
+    },
+    {
+      "id": "layout-within-bounds",
+      "title": "Layout fits the map",
+      "description": "All geometry must stay within +/-2000 m of the origin; beyond that car physics goes wrong.",
+      "evaluatedBy": "geometry",
+      "requires": ["facts.maxAbsCoordinateM"],
+      "effect": {
+        "type": "require",
+        "assert": { "<=": [{ "var": "facts.maxAbsCoordinateM" }, { "var": "constants.maxAbsCoordinateM" }] },
+        "severity": "error",
+        "path": "/options/lapLengthKm",
+        "message": "The scaled layout reaches {facts.maxAbsCoordinateM} m from the centre (max {constants.maxAbsCoordinateM} m); shorten the lap or make the sketch less elongated."
+      }
+    },
+    {
+      "id": "min-corner-radius",
+      "title": "Corners not too tight for the width",
+      "description": "The tightest centreline radius must be at least half the width plus minInnerEdgeRadiusM.",
+      "evaluatedBy": "geometry",
+      "requires": ["facts.minCornerRadiusM"],
+      "let": { "needM": { "+": [{ "/": [{ "var": "options.widthM" }, 2] }, { "var": "constants.minInnerEdgeRadiusM" }] } },
+      "effect": {
+        "type": "require",
+        "assert": { ">=": [{ "var": "facts.minCornerRadiusM" }, { "var": "$needM" }] },
+        "severity": "error",
+        "path": "/options/widthM",
+        "message": "The tightest corner has a {facts.minCornerRadiusM} m radius; a {options.widthM} m wide track needs at least {$needM} m."
+      }
+    },
+    {
+      "id": "sandpit-no-tarmac",
+      "title": "No pure tarmac in the sandpit",
+      "description": "The sandpit preset has no tarmac surroundings; use mixed for tarmac sections.",
+      "evaluatedBy": "engine",
+      "when": { "==": [{ "var": "options.environment" }, "sandpit"] },
+      "effect": {
+        "type": "disable",
+        "option": "surface",
+        "values": ["tarmac"],
+        "reason": "Tarmac isn't offered in the sandpit; choose mixed for tarmac sections."
+      }
+    },
+    {
+      "id": "sand-surface-environments",
+      "title": "Sand only in sandy presets",
+      "description": "Provisional: sand surfaces are only offered in the sandpit and gravel pit presets.",
+      "evaluatedBy": "engine",
+      "when": { "in": [{ "var": "options.environment" }, ["farmland", "forest", "industrial"]] },
+      "effect": {
+        "type": "disable",
+        "option": "surface",
+        "values": ["sand"],
+        "reason": "Sand surfaces are only offered in the sandpit and gravel pit presets."
+      }
+    },
+    {
+      "id": "sand-no-kerbs",
+      "title": "No kerbs on sand",
+      "description": "Kerbs aren't placed on sand tracks, so the option is hidden.",
+      "evaluatedBy": "engine",
+      "when": { "==": [{ "var": "options.surface" }, "sand"] },
+      "effect": {
+        "type": "hide",
+        "option": "kerbs",
+        "values": [true],
+        "reason": "Sand tracks don't have kerbs."
+      }
+    }
+  ]
+}
