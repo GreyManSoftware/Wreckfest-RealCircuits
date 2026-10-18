@@ -2,6 +2,8 @@
 # Worker entrypoint.
 #   info          print tool versions and check the read-only game mount (default)
 #   smoke [a..d]  run the toolchain smoke tests (see /opt/worker/smoke/run-smoke.sh)
+#   build ARGS    build the Blender scenes: build --spec spec.json [--model model.json] --out DIR
+#   builder-tests [spec ...]  run the builder tests (see /opt/worker/builder/tests/run_builder_tests.sh)
 #   <cmd> ...     run any command (e.g. blender -b ..., wf-tool bgeometry ...)
 set -euo pipefail
 
@@ -29,5 +31,8 @@ info() {
 case "${1:-info}" in
     info) info ;;
     smoke) shift; exec /opt/worker/smoke/run-smoke.sh "$@" ;;
+    build) shift; exec blender -b --factory-startup --python-exit-code 1 \
+        --python /opt/worker/builder/build_scene.py -- "$@" ;;
+    builder-tests) shift; exec bash /opt/worker/builder/tests/run_builder_tests.sh "$@" ;;
     *) exec "$@" ;;
 esac

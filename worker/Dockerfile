@@ -65,9 +65,22 @@ ENV HOME=/home/worker \
     WRECKFEST_DIR=/wreckfest
 RUN wineboot --init && wineserver --wait
 
+# The geometry core (trackgen_geom) goes into Blender's bundled Python 3.11, which already ships numpy;
+# pip adds jsonschema and its dependencies. Only the package sources are copied (no tests or venvs). This
+# sits after the Wine prefix so a geom change doesn't rebuild the large layers above.
+USER root
+COPY geom/pyproject.toml geom/README.md /tmp/geom/
+COPY geom/src/ /tmp/geom/src/
+RUN BPY="$(ls /opt/blender/*/python/bin/python3.* | grep -E 'python3\.[0-9]+$' | head -n1)" \
+ && "$BPY" -m pip install --no-cache-dir --disable-pip-version-check --root-user-action=ignore /tmp/geom \
+ && "$BPY" -c "import trackgen_geom, jsonschema, numpy; print('trackgen_geom', trackgen_geom.__version__, 'numpy', numpy.__version__)" \
+ && rm -rf /tmp/geom
+USER worker
+
 COPY --chmod=0755 worker/scripts/ /opt/worker/scripts/
 COPY --chmod=0755 worker/smoke/ /opt/worker/smoke/
 COPY worker/blender/ /opt/worker/blender/
+COPY worker/builder/ /opt/worker/builder/
 ENV PATH=/opt/worker/scripts:$PATH
 
 ENTRYPOINT ["/opt/worker/scripts/entrypoint.sh"]
