@@ -25,17 +25,28 @@ function New-TestZip([string]$Name, [hashtable]$Entries) {
     $fs = [IO.File]::Open($path, 'Create')
     $za = New-Object IO.Compression.ZipArchive($fs, [IO.Compression.ZipArchiveMode]::Create)
     foreach ($k in $Entries.Keys) {
-        $w = New-Object IO.StreamWriter($za.CreateEntry($k).Open())
-        $w.Write($Entries[$k]); $w.Dispose()
+        $s = $za.CreateEntry($k).Open()
+        $v = $Entries[$k]
+        if ($v -is [byte[]]) { $s.Write($v, 0, $v.Length); $s.Dispose(); continue }
+        $w = New-Object IO.StreamWriter($s)
+        $w.Write($v); $w.Dispose()
     }
     $za.Dispose(); $fs.Dispose()
     $path
 }
 
+$userData = Join-Path $root 'userdata'
+$modListDir = Join-Path $userData '12345\228380\local\wreckfest'
+$modList = Join-Path $modListDir 'modlist.mods'
+$backups = Join-Path $root 'modlist-backups'
+
 function Invoke-Install([hashtable]$Params) {
     $Params.GameDir = $game
     $Params.TempRoot = $tmp
-    try { [pscustomobject]@{ Ok = $true; Out = (& $script @Params 6>&1 | Out-String) } }
+    if (-not $Params.ContainsKey('ModListPath')) { $Params.SteamUserDataDir = $userData }
+    $Params.ModListBackupDir = $backups
+    if (-not $Params.ContainsKey('GameProcessName')) { $Params.GameProcessName = 'trackgen_no_such_game_process' }
+    try { [pscustomobject]@{ Ok = $true; Out = (& $script @Params 6>&1 3>&1 | Out-String) } }
     catch { [pscustomobject]@{ Ok = $false; Out = $_.Exception.Message } }
 }
 
@@ -107,6 +118,90 @@ Check 'uninstall removes marked folder' ($r.Ok -and -not (Test-Path $target)) $r
 
 $left = @(Get-ChildItem $tmp -Directory -Filter 'install-*' -ErrorAction SilentlyContinue)
 Check 'temp dirs cleaned up' ($left.Count -eq 0) ($left -join ', ')
+
+# --- Mod list (modlist.mods) — synthetic fixture under .local\fake-game, never the real Steam file ---
+$helper = Join-Path $repo 'tools\wf_modlist.py'
+$py = if (Get-Command py -ErrorAction SilentlyContinue) { 'py' } else { 'python' }
+function Get-ModList([string]$Path) { (& $py $helper info $Path | Out-String | ConvertFrom-Json).entries }
+function Get-Sha([string]$Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash }
+New-Item -ItemType Directory -Path $modListDir -Force | Out-Null
+$fixtureScript = Join-Path $root 'make_fixture.py'
+@"
+import sys; sys.path.insert(0, r'$(Join-Path $repo 'tools')')
+import wf_modlist as w
+ws = 'd:/steamlibrary/steamapps/workshop/content/228380/'
+e = [w.ModEntry('The Very TrackPack', b'idom', ws + '764432700/modinfo.modi', 1, 0, ws + '764432700'),
+     w.ModEntry('Example Assets', b'idom', 'mods/example/modinfo.modi', 0, 1, 'mods/example/'),
+     w.ModEntry(' WinkyIsland', b'idom', 'mods/winkyisland/modinfo.modi', 1, 2, 'mods/winkyisland/'),
+     w.ModEntry('Speed Test Area', b'idom', ws + '2406354051/modinfo.modi', 0, 0x7FFFFFFF, ws + '2406354051')]
+ml = w.ModList(w.Bag(7, b'sdom', 0, b''), e)
+open(sys.argv[1], 'wb').write(w.modlist_encode(ml))
+"@ | Set-Content -LiteralPath $fixtureScript -Encoding ascii
+& $py $fixtureScript $modList
+$fixtureHash = Get-Sha $modList
+New-Item -ItemType Directory -Path "$game\mods\winkyisland" -Force | Out-Null
+$rt = & $py $helper roundtrip $modList | ConvertFrom-Json
+Check 'modlist fixture round-trips byte-identically' ($rt.byteIdentical -and $rt.decodeIdentical) ($rt | Out-String)
+$realList = @(Get-ChildItem 'C:\Program Files (x86)\Steam\userdata\*\228380\local\wreckfest\modlist.mods' -ErrorAction SilentlyContinue | Select-Object -First 1)
+if ($realList) {
+    $copy = Join-Path $root 'real-copy.mods'
+    Copy-Item -LiteralPath $realList[0].FullName -Destination $copy
+    $rt = & $py $helper roundtrip $copy | ConvertFrom-Json
+    Check 'copy of the real modlist round-trips byte-identically' ($rt.byteIdentical -and $rt.decodeIdentical) ($rt | Out-String)
+}
+
+$r = Invoke-Install @{ ListMods = $true }
+Check '-ListMods prints entries' ($r.Ok -and $r.Out -match 'Example Assets' -and $r.Out -match 'WinkyIsland' -and $r.Out -match 'yes' -and $r.Out -match 'no') $r.Out
+
+$r = Invoke-Install @{ Enable = $true; Slug = 'winkyisland' }
+Check 'enable already-enabled is a no-op' ($r.Ok -and $r.Out -match 'nothing to do' -and (Get-Sha $modList) -eq $fixtureHash -and -not (Test-Path $backups)) $r.Out
+
+$r = Invoke-Install @{ Enable = $true; Slug = 'example'; WhatIf = $true }
+Check 'enable -WhatIf writes nothing' ($r.Ok -and (Get-Sha $modList) -eq $fixtureHash -and -not (Test-Path $backups)) $r.Out
+
+$r = Invoke-Install @{ Enable = $true; Slug = 'example'; GameProcessName = (Get-Process -Id $PID).ProcessName }
+Check 'refuses while the game is running' (-not $r.Ok -and $r.Out -match 'running' -and (Get-Sha $modList) -eq $fixtureHash -and -not (Test-Path $backups)) $r.Out
+
+$before = Get-ModList $modList
+$r = Invoke-Install @{ Enable = $true; Slug = 'example' }
+$after = Get-ModList $modList
+$others = 0..3 | Where-Object { $_ -ne 1 } | Where-Object { ($before[$_] | ConvertTo-Json) -ne ($after[$_] | ConvertTo-Json) }
+Check 'enable flips only the Example Assets flag' ($r.Ok -and $after[1].enabled -and -not $before[1].enabled -and @($others).Count -eq 0 -and @($after).Count -eq 4) $r.Out
+$bakLocal = @(Get-ChildItem $modListDir -Filter 'modlist.mods.bak-*')
+$bakRepo = @(Get-ChildItem $backups -Filter 'modlist.mods.bak-*' -ErrorAction SilentlyContinue)
+Check 'backups created next to the list and in the backup dir' ($bakLocal.Count -eq 1 -and $bakRepo.Count -eq 1 -and (Get-Sha $bakLocal[0].FullName) -eq $fixtureHash -and (Get-Sha $bakRepo[0].FullName) -eq $fixtureHash)
+
+Start-Sleep -Seconds 1
+$r = Invoke-Install @{ Disable = $true; Slug = 'example' }
+Check 'disable restores the original bytes' ($r.Ok -and (Get-Sha $modList) -eq $fixtureHash) $r.Out
+
+$r = Invoke-Install @{ Disable = $true; Slug = 'nothere' }
+Check 'disable of an unlisted mod is a no-op' ($r.Ok -and $r.Out -match 'not in the list' -and (Get-Sha $modList) -eq $fixtureHash) $r.Out
+
+$modi = [byte[]]([byte[]](1, 0, 0, 0) + [Text.Encoding]::ASCII.GetBytes('idom') + [byte[]](0, 0, 0, 0, 7, 0, 0, 0) + [Text.Encoding]::ASCII.GetBytes('My Oval') + [byte[]](0, 0, 0, 0))
+$withModi = New-TestZip 'withmodi' @{ 'my_oval/modinfo.modi' = $modi; 'my_oval/data/a.txt' = 'x' }
+Start-Sleep -Seconds 1
+$r = Invoke-Install @{ Zip = $withModi; Enable = $true; Force = $true }
+$after = Get-ModList $modList
+$same = @(0..3 | Where-Object { ($before[$_] | ConvertTo-Json) -eq ($after[$_] | ConvertTo-Json) }).Count
+Check 'install -Enable adds a new entry, others intact' ($r.Ok -and @($after).Count -eq 5 -and $after[4].name -eq 'My Oval' -and $after[4].path -eq 'mods/my_oval/' -and $after[4].enabled -and $after[4].order -eq 3 -and $same -eq 4) $r.Out
+
+$hashBefore = Get-Sha $modList
+Start-Sleep -Seconds 1
+$env:TRACKGEN_MODLIST_TEST_FAULT = 'corrupt-after-write'
+try { $r = Invoke-Install @{ Disable = $true; Slug = 'my_oval' } } finally { Remove-Item Env:TRACKGEN_MODLIST_TEST_FAULT }
+Check 'failed verification restores the backup' (-not $r.Ok -and $r.Out -match 'Restored the backup' -and (Get-Sha $modList) -eq $hashBefore) $r.Out
+
+New-Item -ItemType Directory -Path (Join-Path $userData '67890\228380\local\wreckfest') -Force | Out-Null
+Copy-Item $modList (Join-Path $userData '67890\228380\local\wreckfest\modlist.mods')
+$r = Invoke-Install @{ ListMods = $true }
+Check 'two Steam users require -SteamUserId' (-not $r.Ok -and $r.Out -match 'SteamUserId') $r.Out
+$r = Invoke-Install @{ ListMods = $true; SteamUserId = '67890' }
+Check '-SteamUserId picks that list' ($r.Ok -and $r.Out -match '67890' -and $r.Out -match 'My Oval') $r.Out
+$r = Invoke-Install @{ ListMods = $true; ModListPath = $modList }
+Check '-ModListPath works' ($r.Ok -and $r.Out -match 'My Oval') $r.Out
+$leftLists = @(Get-ChildItem $tmp -Filter 'modlist-*.mods' -ErrorAction SilentlyContinue)
+Check 'staged mod lists cleaned up' ($leftLists.Count -eq 0) ($leftLists -join ', ')
 
 if ($script:fails) { Write-Host "$script:fails test(s) failed" -ForegroundColor Red; exit 1 }
 Write-Host 'All tests passed' -ForegroundColor Green

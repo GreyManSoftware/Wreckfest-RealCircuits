@@ -291,15 +291,18 @@ try {
     $events = @(Get-ChildItem -LiteralPath (Join-Path $staged "data\property\event\$modSlug") -Filter *.evse -File -ErrorAction SilentlyContinue |
         ForEach-Object { $_.BaseName } | Sort-Object)
 
+    $displayName = if ($Enable) { Get-ModDisplayName $staged $modSlug } else { $null }
     if ($PSCmdlet.ShouldProcess($target, 'Install track mod')) {
         if (-not (Test-Path -LiteralPath $modsDir)) { New-Item -ItemType Directory -Path $modsDir | Out-Null }
         if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
         Move-Item -LiteralPath $staged -Destination $target
         Write-Host "Installed $modSlug -> $target"
-        Write-Host 'Next: start Wreckfest, open the Mods menu, enable this mod and restart the game when asked.'
+        if ($Enable) { Write-Host 'Next: start Wreckfest (the mod is enabled in the mod list below).' }
+        else { Write-Host 'Next: start Wreckfest, open the Mods menu, enable this mod and restart the game when asked (or use -Enable).' }
         if ($events) { Write-Host "Then pick the event(s): $($events -join ', ')" }
         else { Write-Host "Then pick the '$modSlug' event in Custom Event (no .evse found under data\property\event\$modSlug)." }
     }
+    if ($Enable) { Update-ModList $modSlug $true $displayName }
 
     if ($Server) {
         $cfg = Join-Path $ServerDir 'server_config.cfg'
