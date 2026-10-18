@@ -1,0 +1,114 @@
+"""Geometry-core constants.
+
+Rule thresholds (grid row spacing and slot width, the bounds limit, the minimum inner-edge radius,
+flat-crossing clearance, bridge ramp length and the attachment tolerance) are deliberately NOT
+repeated here: read them from ``track-rules.json`` with :func:`rule_constants`. Everything below is
+a modelling choice of the geometry core, not a pass/fail threshold.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any
+
+from .rules import load_rules
+
+MODEL_FORMAT_VERSION = 1
+
+
+def rule_constants() -> Mapping[str, Any]:
+    """The ``constants`` block of ``track-rules.json`` (single source of truth for thresholds)."""
+    return load_rules()["constants"]
+
+
+# --- Stroke to centreline --------------------------------------------------------------------
+SAMPLE_SPACING_M = 2.0  # centreline sample spacing (the road is modelled in ~2 m squares)
+SMOOTH_SIGMA_M = 15.0  # Gaussian low-pass on the scaled raw stroke (removes hand-drawn jitter)
+CONTROL_SPACING_M = 25.0  # spacing of the B-spline control points fitted to the smoothed stroke
+SUBDIVISION_LEVELS = 4  # cubic B-spline subdivision rounds (16 points per control span)
+RADIUS_WINDOW = 3  # samples either side used for the circumradius (about a 12 m chord)
+
+# --- Minimum-radius relaxation ---------------------------------------------------------------
+RELAX_TARGET_MARGIN = 0.03  # aim 3% above the required radius
+RELAX_STEP = 0.5  # Laplacian step applied to control points near tight corners
+RELAX_MASK_SPREAD = 2  # control points either side of a tight spot that are relaxed too
+RELAX_MAX_ITERATIONS = 300
+RELAX_MAX_DEVIATION_MIN_M = 8.0  # shape tolerance: max control-point movement is the larger of
+RELAX_MAX_DEVIATION_FRACTION = 0.015  # this minimum and this fraction of the route length
+
+# --- Bounds ----------------------------------------------------------------------------------
+TERRAIN_MARGIN_M = 60.0  # terrain/run-off beyond the road edges, included in maxAbsCoordinateM
+
+# --- Alternative routes and junctions --------------------------------------------------------
+JUNCTION_MERGE_M = 0.05  # reuse an existing main-loop vertex this close to a junction
+JUNCTION_EXCLUSION_M = (
+    25.0  # alt/main intersections this close (along the alt route) to its ends are the junction itself
+)
+JUNCTION_CLEAR_M = 10.0  # bridge ramps and jumps keep this far from junctions
+JUNCTION_BLEND_M = 20.0  # length over which an alt route's heights blend into the main loop's
+ALT_TANGENT_GUIDE = 0.5  # guide control point distance, as a fraction of CONTROL_SPACING_M
+
+# --- Crossings -------------------------------------------------------------------------------
+INTERSECTION_CELL_M = 10.0  # spatial-hash cell for segment intersection tests
+SELF_INTERSECTION_MIN_GAP = 5  # ignore intersections between segments this close in index
+CROSSING_DEDUPE_M = 15.0  # intersections of the same pair of routes closer than this are one crossing
+CROSSING_MATCH_RADIUS_M = 40.0  # max distance between an annotation and the crossing it labels
+CROSSING_MIN_SIN = 0.3  # clamp for very shallow crossing angles when sizing decks
+CROSSING_SHALLOW_DEG = 25.0  # warn below this crossing angle
+CROSSING_CLEAR_MARGIN_M = 3.0  # clear road beyond the other branch's edge, either side
+
+# --- Bridges ---------------------------------------------------------------------------------
+BRIDGE_DECK_HEIGHT_M = 6.5  # over-branch road surface above the under branch
+BRIDGE_MAX_GRADE = 0.18  # peak ramp grade (ramps are lengthened to stay within it)
+RAMP_TRANSITION_FRACTION = 0.25  # parabolic vertical curves at each end of a ramp
+
+
+# --- Elevation -------------------------------------------------------------------------------
+@dataclass(frozen=True)
+class ElevationLevel:
+    amplitude_m: float
+    wavelength_min_m: float
+    wavelength_max_m: float
+    max_grade: float
+
+
+ELEVATION_LEVELS: Mapping[str, ElevationLevel] = {
+    "flat": ElevationLevel(0.0, 1.0, 1.0, 0.0),
+    "gentle": ElevationLevel(3.0, 250.0, 600.0, 0.04),
+    "hilly": ElevationLevel(10.0, 180.0, 450.0, 0.09),
+}
+NOISE_COMPONENTS = 6
+
+
+# --- Jumps -----------------------------------------------------------------------------------
+@dataclass(frozen=True)
+class JumpSize:
+    height_m: float
+    takeoff_m: float
+    landing_m: float
+
+
+JUMP_SIZES: Mapping[str, JumpSize] = {
+    "small": JumpSize(1.0, 8.0, 20.0),
+    "medium": JumpSize(1.8, 12.0, 30.0),
+    "large": JumpSize(2.8, 16.0, 40.0),
+}
+JUMP_LIP_M = 2.0  # flat lip after a one-directional takeoff
+JUMP_TABLE_M = 6.0  # flat table top between the two takeoffs of a bidirectional jump
+JUMP_PROFILE_STEP_M = 1.0
+
+# --- Grid, sectors and checkpoints -----------------------------------------------------------
+GRID_FRONT_OFFSET_M = 4.0  # pole row distance behind the start line
+GRID_SHARP_RADIUS_M = 50.0  # a corner tighter than this ends the first sector
+GRID_MAX_TURN_DEG = 45.0  # ...as does turning further than this from the start heading
+START_CLEAR_M = 10.0  # kept free of ramps beyond the start line
+CHECKPOINT_SPACING_M = 250.0
+CHECKPOINT_MIN = 6
+CHECKPOINT_MAX = 10
+CHECKPOINT_MARGIN_M = 2.0  # checkpoint planes extend this far beyond each road edge
+
+# --- Preview ---------------------------------------------------------------------------------
+PREVIEW_SIZE_PX = 1000
+PREVIEW_CAR_LENGTH_M = 4.2
+PREVIEW_CAR_WIDTH_M = 2.0
