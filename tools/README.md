@@ -2,6 +2,14 @@
 
 Local Windows helpers (phase 11).
 
+## Start-TrackGen.ps1 / Stop-TrackGen.ps1 / New-TrackGenInvite.ps1
+
+Run the local beta stack and its Dev Tunnel; see the runbook in the root [README](../README.md).
+`TrackGen.Common.ps1` holds shared helpers. The Dev Tunnels CLI path comes from `$env:DEVTUNNEL_EXE` (default
+`devtunnel.exe`, then `devtunnel` on PATH); the tunnel ID from `-TunnelId` /
+`$env:TRACKGEN_TUNNEL_ID` (default `trackgen`). The tunnel host is started detached (via WMI) so it outlives the
+console; `Stop-TrackGen.ps1` stops it by the PID in `.local\tunnel.pid`.
+
 ## Install-TrackMod.ps1
 
 Installs a generated track mod zip (one top-level `<slug>\` folder with `data\`, `modinfo.modi`,
