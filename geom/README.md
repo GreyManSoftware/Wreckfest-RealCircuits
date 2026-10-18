@@ -21,18 +21,30 @@ Python types for the track spec are generated from `../schema/` into `trackgen_g
 from trackgen_geom import build_track_model
 
 result = build_track_model(spec)       # spec: dict or generated TrackSpec
-result.model                           # TrackModel | None (None if schema-invalid or no main loop)
+result.model                           # TrackModel | None (None if schema-invalid, no main loop or rejected)
 result.model.to_json()                 # deterministic JSON (floats rounded to 4 dp)
 result.facts                           # GeometryFacts dict (schema $defs/GeometryFacts)
 result.option_result                   # rules without facts: option-level rules, geometry rules deferred
 result.rule_result                     # rules with the facts: the authoritative verdict
 result.preview_svg, result.elevation_svg
-result.warnings                        # [GeometryWarning(code, message)]
-result.valid                           # model built and no rule errors
+result.warnings                        # [GeometryIssue(code, message)]
+result.errors                          # [GeometryIssue] why the sketch was rejected (model is None)
+result.valid                           # model built, no errors and no rule errors
 ```
 
-Steps: validate the spec and evaluate the option-level rules → build the geometry → compute facts →
+Steps: reject oversized sketch arrays (schema `maxItems`, checked before the slow full validation) → validate the spec and evaluate the option-level rules → build the geometry → compute facts →
 evaluate all rules with the facts. The same spec always gives byte-identical model JSON and SVGs.
+
+**Rejections** (`result.errors`, cheap checks before any smoothing):
+
+| Code | When |
+|---|---|
+| `main-loop-too-small` | the main loop is shorter than 1% of the larger canvas side (e.g. a stray click) |
+| `main-loop-degenerate` | fewer than three distinct points |
+| `alt-route-too-long` | an alternative-route stroke, scaled like the main loop, is longer than 3× the lap |
+| `alt-route-out-of-bounds` | an alternative-route stroke reaches beyond `maxAbsCoordinateM` from the main loop's centre |
+
+Resampling is also capped at 100,000 points per call, as a backstop.
 
 | Module | What |
 |---|---|
@@ -64,8 +76,11 @@ evaluate all rules with the facts. The same spec always gives byte-identical mod
   ends to the snapped points.
 - **Crossings.** Segment intersections (spatial hash) within and between routes; hits within 25 m of an alt
   route's ends are the junction itself, and hits closer than 15 m are merged. Annotations are matched greedily
-  by distance (≤ 40 m). Unmatched intersections become `unannotated` crossings (`crossing-needs-annotation`);
-  unmatched annotations get facts measured at the marker (`crossing-annotation-unmatched`). For a bridge,
+  by distance (≤ 40 m). Unmatched intersections become `unannotated` crossings, reported in the
+  `unannotatedCrossings` fact (canvas coordinates; rule `crossing-annotation-required` is an error). Annotations
+  that match nothing are listed in `unmatchedCrossingAnnotations` (warning rule `crossing-annotation-matches`),
+  get no per-crossing facts and aren't built. `nearestJumpM` is left out when neither branch has a jump or bridge
+  ramp. For a bridge,
   `over.route` picks the branch and `over.param` disambiguates two passes of the same route.
 - **Elevation.** Ground height is a seeded 2D field (6 plane waves, seed = SHA-256 of the slug) so equal (x, y)
   always gives equal height. `flat` is 0; `gentle` ±3 m, ≤ 4% grade; `hilly` ±10 m, ≤ 9% grade (the field is
@@ -75,11 +90,13 @@ evaluate all rules with the facts. The same spec always gives byte-identical mod
   shorter length. Alt-route heights blend into the main loop's over 20 m and are equal at the joins.
 - **Jumps.** Small/medium/large: 1.0/1.8/2.8 m high, 8/12/16 m takeoff. One-way: concave takeoff to a 2 m lip,
   then a smooth landing 2.5× the takeoff. Bidirectional: two takeoffs either side of a 6 m table (symmetric).
-- **Grid and sectors.** `firstSectorLengthM` is the clear run after the start line until a corner tighter than
-  50 m, a turn of 45° from the start heading, a crossing, jump, ramp or junction. Slots sit behind the line,
-  4 m then every `gridRowSpacingM`, in pairs `gridSlotWidthM` apart; pole is on the inside of the first sector's
-  turn. Main checkpoints: 6–10 (every ~250 m), the first after the grid sector, the last at the start/finish
-  line; alt routes get evenly spaced ones too.
+- **Grid and sectors.** The grid sits **ahead of** the start/finish line, inside the first sector (to verify in
+  game). `firstSectorLengthM` is the clear road after the line until a corner tighter than 50 m, a turn of 45°
+  from the start heading, a crossing, jump, bridge ramp or junction, so `grid-first-sector-length` guarantees the
+  slots sit on clear road (never on a jump ramp). The back row is 4 m past the line, then every
+  `gridRowSpacingM` towards the pole row; pairs are `gridSlotWidthM` apart and the pole is on the inside of the
+  first sector's turn. Bridge ramps keep clear of the grid. Main checkpoints: 6–10 (every ~250 m); the first is
+  10 m past the pole row, the last is the start/finish line; alt routes get evenly spaced ones too.
 
 ## TrackModel (format version 1)
 

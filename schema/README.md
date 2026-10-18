@@ -18,11 +18,11 @@ TrackSpec
 ├─ meta      name, slug (^[a-z][a-z0-9_]{2,23}, the track/mod id), description?
 ├─ sketch    canvas coordinates (x right, y down)
 │  ├─ canvas       { width, height }
-│  ├─ mainLoop?    { points[≥3] }  (implicitly closed)
+│  ├─ mainLoop?    { points[3–10000] }  (implicitly closed)
 │  ├─ startFinish? { position, headingDeg }  (default: first point, heading to the second)
-│  ├─ altRoutes[]  { id (≠ "main"), points[≥2], start?, end? }; attachment = { point? , param? } (at least one)
-│  ├─ crossings[]  { id, position, type: bridge|flat, over?: { route, param? } }
-│  └─ jumps[]      { id, position, size: small|medium|large, route? = "main", bidirectional? = false }
+│  ├─ altRoutes[≤20]  { id (≠ "main"), points[2–10000], start?, end? }; attachment = { point? , param? } (at least one)
+│  ├─ crossings[≤50]  { id, position, type: bridge|flat, over?: { route, param? } }
+│  └─ jumps[≤50]      { id, position, size: small|medium|large, route? = "main", bidirectional? = false }
 └─ options   all required (the schema has the UI defaults)
    lapLengthKm 0.8–5 (1.5) · widthM 8–20 (12) · surface tarmac|gravel|mixed|sand (mixed) · kerbs (true)
    walls concrete|tyres|none (tyres) · elevation flat|gentle|hilly (gentle)
@@ -44,14 +44,27 @@ the same idiom for any new pattern.
 preset will map slots to stock files. The slot list comes from the stock file names; confirm it per preset when the
 builder is written.
 
+The `maxItems` limits keep requests bounded: the geometry service rejects oversized sketch arrays before doing any
+work.
+
 `mainLoop`, `startFinish` and the alternative-route attachments are optional in the schema so that a sketch can be
 saved while it is being drawn. The rules report what is missing.
 
 ### Geometry facts
 
-`GeometryFacts` (also in `$defs`) holds measurements that only the geometry core (`trackgen_geom`) can compute:
-`firstSectorLengthM`, `maxAbsCoordinateM`, `minCornerRadiusM`, `crossings[id].nearestJumpM`,
-`crossings[id].availableRampLengthM`, and `altRoutes[id].startGapM` and `endGapM`.
+`GeometryFacts` (also in `$defs`) holds measurements that only the geometry core (`trackgen_geom`) can compute. All
+fields are optional in the schema so partial facts stay valid (the rules then defer); the geometry core always reports
+all of them.
+
+| Fact | Meaning |
+|---|---|
+| `firstSectorLengthM` | Clear road **ahead of** the start/finish line, where the grid sits: up to the first tight corner, crossing, jump, ramp or junction. (Grid ahead of the line is to be verified in game.) |
+| `maxAbsCoordinateM` | Largest \|x\| or \|y\| of the road edges plus a terrain margin. |
+| `minCornerRadiusM` | Tightest centreline radius after smoothing. |
+| `crossings[id]` | Only for annotations that mark a real crossing. `nearestJumpM`: distance along either branch to the nearest jump or bridge ramp, **absent when neither branch has one**. `availableRampLengthM` (bridges): shortest run for a ramp. |
+| `unannotatedCrossings[]` | `{id, x, y}` for each place the track crosses itself with no annotation; `x`, `y` are canvas coordinates. |
+| `unmatchedCrossingAnnotations[]` | Ids of annotations that mark no real crossing. Those get no `crossings[id]` entry, and the per-crossing rules skip them. |
+| `altRoutes[id]` | `startGapM`, `endGapM`: distance from the raw stroke ends to the main loop. |
 
 ## Rules
 
@@ -154,11 +167,13 @@ Result shape (field case differs per language): `schemaValid`, `valid`, `schemaE
 | `crossing-over-route-exists` | engine | a crossing's `over.route` is `main` or an existing alternative route |
 | `bridge-over-branch-required` | engine | a bridge says which branch goes `over` |
 | `grid-width-two-abreast` | engine | `widthM ≥ 2 × gridSlotWidthM` (9 m) |
-| `grid-first-sector-length` | geometry | `firstSectorLengthM ≥ ceil(gridSize / 2) × gridRowSpacingM` (8 m) |
+| `grid-first-sector-length` | geometry | `firstSectorLengthM ≥ ceil(gridSize / 2) × gridRowSpacingM` (8 m): the clear road ahead of the line holds the grid |
 | `reverse-jumps-bidirectional` | engine | warning: one-way jumps are left out of the reverse layout |
 | `reverse-bridge-symmetric-ramps` | engine | flag `symmetricBridgeRamps` (reverse layout with a bridge) |
-| `flat-crossing-jump-clearance` | geometry | flat crossing ≥ `flatCrossingJumpClearanceM` (30 m) from a jump on either branch |
-| `bridge-ramp-length` | geometry | bridge has ≥ `bridgeRampMinLengthM` (50 m) for its ramps |
+| `crossing-annotation-required` | geometry | error for each entry in `unannotatedCrossings`: every crossing must be marked bridge or flat |
+| `crossing-annotation-matches` | geometry | **warning** for each annotation in `unmatchedCrossingAnnotations`: it is ignored by the build, which is harmless, so the track stays valid |
+| `flat-crossing-jump-clearance` | geometry | flat crossing ≥ `flatCrossingJumpClearanceM` (30 m) from a jump on either branch; passes when `nearestJumpM` is absent (deferred only when the crossing has no facts entry); skips unmatched annotations |
+| `bridge-ramp-length` | geometry | bridge has ≥ `bridgeRampMinLengthM` (50 m) for its ramps; skips unmatched annotations |
 | `layout-within-bounds` | geometry | `maxAbsCoordinateM ≤ 2000` |
 | `min-corner-radius` | geometry | `minCornerRadiusM ≥ widthM / 2 + minInnerEdgeRadiusM` (6 m) |
 | `sandpit-no-tarmac` | engine | disables `surface=tarmac` in the sandpit (`mixed` is still offered) |
