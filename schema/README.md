@@ -75,6 +75,15 @@ drawn tracks can't select (`elevation-imported-requires-import`, hidden). Real g
 `importedGridMaxGradePct` (4%). The drawn-track limits (12% markers, 3% grid) don't apply. Data sources and the
 importer: `docs/real-tracks.md`.
 
+An imported track can carry **alternative layouts** that share its base scene (`imported.altLayouts`, e.g.
+Anglesey's Coastal beside the International; the main one is named by `mainLayoutName`). Each is an open branch
+centreline from where it leaves the main centreline to where it rejoins it (ends snapped to the nearest main
+points; it must not bypass the start/finish line). The geometry core builds it as an alternative route (`aiIndex`
+-1, -2, ...) and lists every layout in the TrackModel's `layouts` (lap length, sections in driving order); the
+builder makes one layout per entry with the shared start/finish line and grid. Ids are unique
+(`imported-alt-layout-ids-unique`) and not `main`. `imported.seaLevelM` (datum-relative) marks ground below it as
+sea: the `coastal` environment floods it and turns the far ground into sea.
+
 ### Geometry facts
 
 `GeometryFacts` (also in `$defs`) holds measurements that only the geometry core (`trackgen_geom`) can compute. All
@@ -194,6 +203,7 @@ Result shape (field case differs per language): `schemaValid`, `valid`, `schemaE
 | `elevation-imported-requires-import` | engine | hides `elevation=imported` unless the track is imported |
 | `alt-route-requires-main-loop` | engine | error when there are alternative routes but no main loop |
 | `alt-route-ids-unique` | engine | no two alternative routes share an id (`count` quantifier) |
+| `imported-alt-layout-ids-unique` | engine | no two imported alternative layouts share an id |
 | `crossing-ids-unique` | engine | no two crossings share an id |
 | `jump-ids-unique` | engine | no two jumps share an id |
 | `elevation-marker-ids-unique` | engine | no two height markers share an id |
@@ -222,7 +232,7 @@ Result shape (field case differs per language): `schemaValid`, `valid`, `schemaE
 | `layout-within-bounds` | geometry | `maxAbsCoordinateM ≤ 2000` |
 | `min-corner-radius` | geometry | `minCornerRadiusM ≥ widthM / 2 + minInnerEdgeRadiusM` (6 m) |
 | `sandpit-no-tarmac` | engine | disables `surface=tarmac` in the sandpit (`mixed` is still offered) |
-| `sand-surface-environments` | engine | disables `surface=sand` in farmland, forest, industrial and parkland (provisional) |
+| `sand-surface-environments` | engine | disables `surface=sand` in farmland, forest, industrial, parkland and coastal (provisional) |
 | `sand-no-kerbs` | engine | hides `kerbs=true` on sand |
 
 The elevation rules only apply when there are height markers (without them the bridge climb is always the standard

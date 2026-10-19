@@ -7,7 +7,14 @@ Data (downloaded once and cached under E:\\Source\\wreckfest\\.local\\<slug>\\, 
 - **Layout:** OpenStreetMap ``highway=raceway`` ways listed in the recipe's ``lap`` (in driving order), plus
   ``landuse=forest`` / ``natural=wood`` polygons, from the Overpass API. (c) OpenStreetMap contributors, ODbL.
 - **Heights:** the Environment Agency LIDAR Composite DTM 1 m (bare earth, Open Government Licence v3) through
-  its WCS, in British National Grid (EPSG:27700).
+  its WCS, in British National Grid (EPSG:27700); or, with ``"dtm": "wales"``, the Welsh Government / NRW
+  LIDAR composite DTM 1 m (OGL v3) read from its national Cloud Optimised GeoTIFF by range requests
+  (``tools/real_tracks_data/cog.py``).
+
+Multi-layout recipes (``altLayouts``: each with its own ``lap`` of ways; ``[way, from_node, to_node]`` takes part
+of a way) fit every lap the same way and keep, per alternative layout, the branch that leaves the main lap, with
+its own heights and camber (``sketch.imported.altLayouts``). ``seaLevelODN`` floods no-data (sea) cells of the
+terrain just below it and sets ``seaLevelM``.
 
 Pipeline: OSM WGS84 -> OSGB36 (7-parameter Helmert) -> British National Grid metres -> local frame (x east,
 y north, metres, divided by the grid's local scale factor). The OSM line is then registered to the DTM by
@@ -232,24 +239,95 @@ def fetch_dtm(e0: float, n0: float, e1: float, n1: float, cache: Path, tile: int
     return Dtm(e0, n1, 1.0, full)
 
 
+WALES_DTM_COG = "https://dmwproductionblob.blob.core.windows.net/cogs/lidar/wales_dtm_32bit_cog.tif"
+
+
+def fetch_dtm_wales(e0: float, n0: float, e1: float, n1: float, cache: Path) -> Dtm:
+    """Welsh Government / NRW LIDAR composite DTM 1 m (OGL v3) over [e0, e1] x [n0, n1], read from the national
+    Cloud Optimised GeoTIFF with HTTP range requests (tools/real_tracks_data/cog.py; ranges cached). Sea and
+    other no-data cells are NaN."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "real_tracks_data"))
+    from cog import RemoteCog  # noqa: PLC0415 - optional, stdlib + numpy
+
+    path = cache / "dtm" / f"wales_{e0:.0f}_{n0:.0f}_{e1:.0f}_{n1:.0f}.npz"
+    if path.exists():
+        d = np.load(path)
+        return Dtm(float(d["x0"]), float(d["y1"]), 1.0, d["z"].astype(np.float64))
+    cog = RemoteCog(WALES_DTM_COG, str(cache / "cog_cache"))
+    z, xc, yc, res = cog.read_bbox(e0, n0, e1, n1)
+    if abs(res - 1.0) > 1e-9:
+        raise RuntimeError(f"unexpected DTM resolution {res}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(path, z=z.astype(np.float32), x0=xc - 0.5, y1=yc + 0.5)
+    return Dtm(xc - 0.5, yc + 0.5, 1.0, z)
+
+
+def horizon_profile(recipe: dict, eye: np.ndarray, eye_z: float, cache: Path, sea_level: float = 0.0) -> dict:
+    """The distant skyline from ``eye`` (BNG) at height ``eye_z`` (m ODN): per azimuth step (clockwise from grid
+    north) the highest elevation angle of the terrain between ``minDistanceM`` and ``maxDistanceM``, with earth
+    curvature and refraction (k = 0.13), from the Wales DTM's 32 m overview (no-data = sea at ``sea_level``),
+    and whether that skyline is the open sea."""
+    h = recipe["horizon"]
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "real_tracks_data"))
+    from cog import RemoteCog  # noqa: PLC0415
+
+    r_max, r_min = float(h.get("maxDistanceM", 45000.0)), float(h.get("minDistanceM", 3000.0))
+    step = float(h.get("stepDeg", 1.0))
+    cog = RemoteCog(WALES_DTM_COG, str(cache / "cog_cache"))
+    cog.use_level(int(h.get("overviewLevel", 5)))
+    z, xc, yc, res = cog.read_bbox(eye[0] - r_max, eye[1] - r_max, eye[0] + r_max, eye[1] + r_max)
+    z = np.where(np.isnan(z), sea_level, z)
+    grid = Dtm(xc - res / 2.0, yc + res / 2.0, res, z)
+    r = np.arange(r_min, r_max, res)
+    drop = r * r / (2 * 6371000.0) * 0.87
+    elev, sea = [], []
+    for az in np.arange(0.0, 360.0, step):
+        a = math.radians(az)
+        zz = grid.sample(eye[0] + r * math.sin(a), eye[1] + r * math.cos(a))
+        zz = np.where(np.isnan(zz), sea_level, zz)
+        ang = np.degrees(np.arctan((zz - drop - eye_z) / r))
+        i = int(np.argmax(ang))
+        elev.append(round(float(ang[i]), 3))
+        sea.append(bool(zz[i] < sea_level + 2.0))
+    return {"stepDeg": step, "elevationDeg": elev, "sea": sea}
+
+
+def load_dtm(recipe: dict, e0: float, n0: float, e1: float, n1: float, cache: Path) -> Dtm:
+    """The recipe's DTM (``"dtm": "ea"`` England, the default, or ``"wales"``)."""
+    if recipe.get("dtm", "ea") == "wales":
+        return fetch_dtm_wales(math.floor(e0), math.floor(n0), math.ceil(e1), math.ceil(n1), cache)
+    return fetch_dtm(e0, n0, e1, n1, cache)
+
+
+ATTRIBUTION_WALES = ("Layout (c) OpenStreetMap contributors, ODbL 1.0. Heights: Welsh Government / Natural Resources "
+                     "Wales LIDAR composite DTM 1 m, contains Natural Resources Wales information (c) Natural "
+                     "Resources Wales and database right, Open Government Licence v3.0.")
+
+
 # ------------------------------------------------------------------------------------------------ layout
-def stitch(osm: dict, lap: list[int]) -> tuple[list[tuple[float, float]], list[tuple[int, int, str]]]:
-    """The lap's way geometries joined end to end (each way must start where the previous one ends).
-    Returns the lat/lon points (closed loop, first point not repeated) and (way id, first point index, name)."""
+def stitch(osm: dict, lap: list) -> tuple[list[tuple[float, float]], list[tuple[int, int, str]]]:
+    """The lap's way geometries joined end to end (each way must start where the previous one ends). An item
+    ``[way, from_node, to_node]`` takes only that part of the way. Returns the lat/lon points (closed loop, first
+    point not repeated) and (way id, first point index, name)."""
     ways = {e["id"]: e for e in osm["elements"] if e["type"] == "way"}
     pts: list[tuple[float, float]] = []
     marks: list[tuple[int, int, str]] = []
-    prev_end = None
-    for wid in lap:
+    prev_end = first = None
+    for item in lap:
+        wid = item[0] if isinstance(item, list) else item
         w = ways[wid]
         nodes, geom = w["nodes"], w["geometry"]
+        if isinstance(item, list):
+            i, j = nodes.index(item[1]), nodes.index(item[2])
+            nodes, geom = nodes[i:j + 1], geom[i:j + 1]
         if prev_end is not None and nodes[0] != prev_end:
             raise ValueError(f"way {wid} doesn't start where the previous way ends ({nodes[0]} != {prev_end})")
+        first = nodes[0] if first is None else first
         marks.append((wid, len(pts), w.get("tags", {}).get("name", "")))
         seq = [(g["lat"], g["lon"]) for g in geom]
         pts.extend(seq if not pts else seq[1:])
         prev_end = nodes[-1]
-    if prev_end != ways[lap[0]]["nodes"][0]:
+    if prev_end != first:
         raise ValueError("the lap doesn't close")
     return pts[:-1], marks
 
@@ -404,8 +482,82 @@ def point_in_polygon(pts: np.ndarray, poly: np.ndarray) -> np.ndarray:
 
 
 # ------------------------------------------------------------------------------------------------ import
-def build(recipe: dict, cache: Path, step: float = 2.0, cell: float = 6.0, log=print) -> tuple[dict, dict]:
+def gauss_open(v: np.ndarray, sigma_samples: float) -> np.ndarray:
+    """Gaussian smoothing of an open sequence (ends padded with their own values)."""
+    if sigma_samples <= 0:
+        return v.copy()
+    r = int(math.ceil(4 * sigma_samples))
+    k = np.exp(-0.5 * (np.arange(-r, r + 1) / sigma_samples) ** 2)
+    k /= k.sum()
+    return np.convolve(np.pad(v, r, mode="edge"), k, mode="valid")
+
+
+def resample_open(p: np.ndarray, step: float) -> np.ndarray:
+    s = arc(p)
+    n = max(3, int(round(s[-1] / step)) + 1)
+    t = np.linspace(0.0, s[-1], n)
+    return np.column_stack([np.interp(t, s, p[:, 0]), np.interp(t, s, p[:, 1])])
+
+
+def normals_open(p: np.ndarray) -> np.ndarray:
+    d = np.gradient(p, axis=0)
+    t = d / np.maximum(np.hypot(*d.T), 1e-9)[:, None]
+    return np.column_stack([-t[:, 1], t[:, 0]])
+
+
+def fit_loop(bng: np.ndarray, dtm: Dtm, width: float, step: float) -> tuple[np.ndarray, np.ndarray, float]:
+    """Smooth the OSM polyline (it has corners at its nodes), register it to the road in the DTM and ease
+    corners tighter than rule min-corner-radius. Returns the points, the registration shifts and the largest
+    easing move."""
+    p = resample_closed(gauss_closed(resample_closed(bng, 1.0), 5.0), step)
+    _, nl = normals(p)
+    shift = register(dtm, p, nl, width, step)
+    p = resample_closed(gauss_closed(p + shift[:, None] * nl, 1.5), step)
+    need = (width / 2.0 + 6.0) * 1.03  # rule min-corner-radius (widthM / 2 + minInnerEdgeRadiusM), +3 %
+    p, eased = ease_corners(p, need)
+    return resample_closed(p, step), shift, eased
+
+
+def node_bng(osm: dict, node: int) -> np.ndarray:
+    for e in osm["elements"]:
+        if e["type"] == "way" and node in e["nodes"]:
+            g = e["geometry"][e["nodes"].index(node)]
+            return np.array(to_bng(g["lat"], g["lon"]))
+    raise ValueError(f"node {node} isn't on any fetched way")
+
+
+def branch_of(alt: np.ndarray, main: np.ndarray, step: float, blend_m: float = 30.0) -> np.ndarray:
+    """The part of a fitted alternative lap that leaves the main line: the longest run of samples more than 1 m
+    from it, extended by 10 m at both ends, with its ends moved onto the nearest main points (the move fades out
+    over ``blend_m``). Raises if the layouts share nothing."""
+    d = np.min(np.hypot(alt[:, None, 0] - main[None, :, 0], alt[:, None, 1] - main[None, :, 1]), axis=1)
+    off = d > 1.0
+    if off.all() or not off.any():
+        raise ValueError("the alternative layout doesn't share part of the main lap")
+    n = len(alt)
+    k0 = int(np.flatnonzero(~off)[0])  # start the scan on a shared sample so no run wraps
+    best, cur = (0, 0), None
+    for k in range(n + 1):
+        i = (k0 + k) % n
+        if k < n and off[i]:
+            cur = (k, k) if cur is None else (cur[0], k)
+        elif cur is not None:
+            if cur[1] - cur[0] > best[1] - best[0]:
+                best = cur
+            cur = None
+    ext = int(round(10.0 / step))
+    idx = [(k0 + k) % n for k in range(best[0] - ext, best[1] + ext + 1)]
+    b = alt[idx].copy()
+    s = arc(b)
+    for end, w in ((0, np.clip(1.0 - s / blend_m, 0.0, 1.0)), (-1, np.clip(1.0 - (s[-1] - s) / blend_m, 0.0, 1.0))):
+        j = int(np.argmin(np.hypot(*(main - b[end]).T)))
+        b += (main[j] - b[end])[None, :] * w[:, None]
+    return resample_open(b, step)
+
+
+def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = None, log=print) -> tuple[dict, dict]:
     """The TrackSpec and a report dict (lengths, heights, grades, camber, data checks)."""
+    cell = float(cell or recipe.get("terrainCellM", 6.0))
     osm = fetch_osm(recipe["bbox"], cache)
     ll, marks = stitch(osm, recipe["lap"])
     bng = np.array([to_bng(a, b) for a, b in ll])
@@ -417,17 +569,11 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float = 6.0, log=p
     margin = float(recipe.get("terrainMarginM", 400.0))
     lo, hi = bng.min(0) - margin, bng.max(0) + margin
     log(f"Fetching the DTM over {hi[0] - lo[0]:.0f} x {hi[1] - lo[1]:.0f} m ...")
-    dtm = fetch_dtm(lo[0], lo[1], hi[0], hi[1], cache)
+    dtm = load_dtm(recipe, lo[0], lo[1], hi[0], hi[1], cache)
     width = float(recipe["widthM"])
 
-    # 1. Smooth the OSM polyline (it has corners at its nodes) and register it to the road in the DTM.
-    p = resample_closed(gauss_closed(resample_closed(bng, 1.0), 5.0), step)
-    _, nl = normals(p)
-    shift = register(dtm, p, nl, width, step)
-    p = resample_closed(gauss_closed(p + shift[:, None] * nl, 1.5), step)
-    need = (width / 2.0 + 6.0) * 1.03  # rule min-corner-radius (widthM / 2 + minInnerEdgeRadiusM), +3 %
-    p, eased = ease_corners(p, need)
-    p = resample_closed(p, step)
+    # 1. Smooth the OSM polyline and register it to the road in the DTM.
+    p, shift, eased = fit_loop(bng, dtm, width, step)
 
     # 2. Start/finish: the recipe's point; sample 0 sits on it.
     sf = recipe["startFinish"]
@@ -437,6 +583,8 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float = 6.0, log=p
         s_way = arc(g)
         t = float(sf.get("fraction", 0.5)) * s_way[-1]
         sf_pt = np.array([np.interp(t, s_way, g[:, 0]), np.interp(t, s_way, g[:, 1])])
+    elif "node" in sf:
+        sf_pt = node_bng(osm, int(sf["node"]))
     else:
         sf_pt = np.array(to_bng(sf["lat"], sf["lon"]))
     s0 = project_s(p, sf_pt)
@@ -466,21 +614,70 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float = 6.0, log=p
     grade = (np.roll(z, -5) - np.roll(z, 5)) / (10.0 * step / k_scale)  # over 20 m, centred
     g10 = (np.roll(z, -5) - z) / (5 * step / k_scale)                     # over 10 m, forward
 
-    # 5. Terrain: block means of the DTM onto a coarser grid (nodes), in the local frame.
+    # 4b. Alternative layouts sharing the base: fit each whole lap the same way, keep the part that leaves the
+    # main line (its ends moved onto it), with its own heights and camber.
+    alt_specs, alt_reports = [], []
+    for alt in recipe.get("altLayouts", []):
+        ll_a, _ = stitch(osm, alt["lap"])
+        bng_a = np.array([to_bng(x, y) for x, y in ll_a])
+        pa, shift_a, eased_a = fit_loop(bng_a, dtm, width, step)
+        br = branch_of(pa, p, step)
+        nl_b = normals_open(br)
+        ab, bb, res_b = cross_fit(dtm, br, nl_b, offs)
+        if np.isnan(ab).any():
+            raise RuntimeError(f"the DTM has gaps under layout {alt['id']}")
+        zb = gauss_open(ab, 4.0 / step)
+        bank_b = np.degrees(np.arctan(gauss_open(bb, 10.0 / step)))
+        loc_b = (br - centre) / k_scale
+        alt_specs.append({"id": alt["id"], "name": alt["name"],
+                          "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), 2),
+                                          "bankDeg": round(float(bk), 2)} for (x, y), zv, bk in zip(loc_b, zb, bank_b)]})
+        i0 = int(np.argmin(np.hypot(*(loc - loc_b[0]).T)))
+        i1 = int(np.argmin(np.hypot(*(loc - loc_b[-1]).T)))
+        Lb = float(arc(loc_b)[-1])
+        lap_z = np.concatenate([z[:i0 + 1], zb[1:-1], z[i1:]])
+        lap_xy = np.vstack([loc[:i0 + 1], loc_b[1:-1], loc[i1:]])
+        seg = np.hypot(*np.diff(np.vstack([lap_xy, lap_xy[:1]]), axis=0).T)
+        dzl = np.diff(np.concatenate([lap_z, lap_z[:1]]))
+        g_lap = dzl / np.maximum(seg, 1e-6)
+        g10_lap = (np.roll(lap_z, -5) - lap_z) / (5 * step / k_scale)
+        alt_reports.append({
+            "id": alt["id"], "name": alt["name"], "branchLengthM": round(Lb, 1),
+            "lapLengthM": round(float(s[i0] + Lb + (L - s[i1])), 1),
+            "measuredLapLengthM": alt.get("measuredLapLengthM"), "publishedLapLengthM": alt.get("publishedLapLengthM"),
+            "leavesMainAtS": round(float(s[i0]), 1), "rejoinsMainAtS": round(float(s[i1]), 1),
+            "joinGapsM": [round(float(np.hypot(*(loc[i0] - loc_b[0]))), 2), round(float(np.hypot(*(loc[i1] - loc_b[-1]))), 2)],
+            "heightMinM": round(float(lap_z.min()), 2), "heightMaxM": round(float(lap_z.max()), 2),
+            "totalClimbM": round(float(np.clip(dzl, 0, None).sum()), 1),
+            "maxUpGradePct10m": round(float(g10_lap.max()) * 100, 1), "maxDownGradePct10m": round(float(g10_lap.min()) * 100, 1),
+            "branchBankMaxDeg": round(float(np.abs(bank_b).max()), 2),
+            "branchMinRadiusM": round(float(radii_open(loc_b).min()), 2),
+            "branchCrossResidualM": round(float(res_b.mean()), 3),
+            "lapEasingMaxM": round(eased_a, 2), "registrationShiftM": [round(float(shift_a.min()), 2), round(float(shift_a.max()), 2)],
+            "maxStepGradePct": round(float(np.abs(g_lap).max()) * 100, 1),
+        })
+
+    # 5. Terrain: block means of the DTM onto a coarser grid (nodes), in the local frame. Sea (no-data) cells
+    # are seabed just below the recipe's sea level, else the mean ground.
     e0, n0 = lo
     nx, ny = int((hi[0] - lo[0]) // cell), int((hi[1] - lo[1]) // cell)
     ex = e0 + np.arange(nx + 1) * cell
     ny_ = n0 + np.arange(ny + 1) * cell
     half = int(cell // 2)
     zz = np.empty((ny + 1, nx + 1))
-    for j, yv in enumerate(ny_):
-        r0 = int(round(dtm.y1 - yv)) - half
-        rows = dtm.z[max(r0, 0):max(r0, 0) + 2 * half + 1]
-        for i, xv in enumerate(ex):
-            c0 = int(round(xv - dtm.x0)) - half
-            blk = rows[:, max(c0, 0):max(c0, 0) + 2 * half + 1]
-            zz[j, i] = np.nanmean(blk) if blk.size else np.nan
-    zz = np.where(np.isnan(zz), np.nanmean(zz), zz)
+    with np.errstate(all="ignore"):
+        import warnings  # noqa: PLC0415
+        warnings.simplefilter("ignore", RuntimeWarning)
+        for j, yv in enumerate(ny_):
+            r0 = int(round(dtm.y1 - yv)) - half
+            rows = dtm.z[max(r0, 0):max(r0, 0) + 2 * half + 1]
+            for i, xv in enumerate(ex):
+                c0 = int(round(xv - dtm.x0)) - half
+                blk = rows[:, max(c0, 0):max(c0, 0) + 2 * half + 1]
+                zz[j, i] = np.nanmean(blk) if blk.size else np.nan
+    sea = recipe.get("seaLevelODN")
+    sea_cells = int(np.isnan(zz).sum())
+    zz = np.where(np.isnan(zz), (float(sea) - 3.0) if sea is not None else np.nanmean(zz), zz)
     origin = (np.array([e0, n0]) - centre) / k_scale
 
     # 6. Woods (OSM) within the terrain grid, names and viewing spots along the line.
@@ -493,16 +690,19 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float = 6.0, log=p
         if len(w) < 3 or (w.max(0) < box_lo).any() or (w.min(0) > box_hi).any():
             continue
         wood_polys.append(w)
-    # one label per name, at the middle of its (consecutive) ways
-    groups: list[tuple[str, list[int]]] = []
+    # one label per name, at the middle of its (consecutive) ways; lapNames null drops a way's label
+    names_map = recipe.get("lapNames", {})
+    groups: list[tuple[str | None, list[int]]] = []
     for wid, _, name in marks:
-        label = recipe.get("lapNames", {}).get(str(wid), name) or str(wid)
+        label = names_map[str(wid)] if str(wid) in names_map else (name or str(wid))
         if groups and groups[-1][0] == label:
             groups[-1][1].append(wid)
         else:
             groups.append((label, [wid]))
     corners = []
     for label, wids in groups:
+        if label is None:
+            continue
         g = np.vstack([np.array([to_bng(q_["lat"], q_["lon"]) for q_ in ways[w]["geometry"]]) for w in wids])
         sg = arc(g)
         mid = np.array([np.interp(sg[-1] / 2, sg, g[:, 0]), np.interp(sg[-1] / 2, sg, g[:, 1])])
@@ -515,7 +715,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float = 6.0, log=p
     span = loc.max(0) - loc.min(0)
     W, H = float(math.ceil(span[0] + 2 * canvas_margin)), float(math.ceil(span[1] + 2 * canvas_margin))
     imported = {
-        "source": ATTRIBUTION,
+        "source": ATTRIBUTION_WALES if recipe.get("dtm") == "wales" else ATTRIBUTION,
         "datumM": datum,
         "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), 2),
                         "bankDeg": round(float(bk), 2)} for (x, y), zv, bk in zip(loc, z, bank)],
@@ -526,6 +726,14 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float = 6.0, log=p
         "corners": corners,
         "viewingSpots": spots,
     }
+    if alt_specs:
+        imported["mainLayoutName"] = recipe.get("mainLayoutName", "Main")
+        imported["altLayouts"] = alt_specs
+    if sea is not None:
+        imported["seaLevelM"] = round(float(sea) - datum, 2)
+    if recipe.get("horizon") and recipe.get("dtm") == "wales":
+        log("Horizon profile from the DTM overview ...")
+        imported["horizon"] = horizon_profile(recipe, p[0], float(z[0]) + 1.5, cache, float(sea or 0.0))
     o = recipe["options"]
     spec = {
         "meta": {"name": recipe["name"], "slug": recipe["slug"], "description": recipe["trackDescription"][:500]},
@@ -541,6 +749,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float = 6.0, log=p
     rms = float(np.sqrt(np.mean((z - z_raw_centre) ** 2)))
     report = {
         "lapLengthM": round(L, 1), "publishedLapLengthM": recipe.get("publishedLapLengthM"),
+        "measuredLapLengthM": recipe.get("measuredLapLengthM"),
         "osmPolylineLengthM": round(closed_length(bng) / k_scale, 1), "clockwise": clockwise,
         "frame": {"centreE": float(centre[0]), "centreN": float(centre[1]), "scale": k_scale},
         "gridScaleFactor": round(k_scale, 6), "registrationShiftM": [round(float(shift.min()), 2), round(float(shift.max()), 2),
@@ -555,15 +764,18 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float = 6.0, log=p
         "maxUpAtS": round(float(s[int(np.argmax(grade))]), 1), "maxDownAtS": round(float(s[int(np.argmin(grade))]), 1),
         "bankMaxDeg": round(float(np.abs(bank).max()), 2), "bankP95Deg": round(float(np.percentile(np.abs(bank), 95)), 2),
         "bankMeanDeg": round(float(np.abs(bank).mean()), 2), "datumM": datum,
-        "terrainGrid": [nx + 1, ny + 1], "woods": len(wood_polys), "corners": corners,
+        "terrainGrid": [nx + 1, ny + 1], "terrainCellM": cell, "seaCells": sea_cells, "woods": len(wood_polys),
+        "corners": corners,
     }
+    if alt_reports:
+        report["mainLayoutName"] = recipe.get("mainLayoutName", "Main")
+        report["altLayouts"] = alt_reports
     for c in corners:
         i = int(round(c["sM"] / (L / n))) % n
         c_rep = {"zM": round(float(z[i]), 1), "gradePct": round(float(grade[i]) * 100, 1), "bankDeg": round(float(bank[i]), 1)}
         report.setdefault("atCorners", {})[c["name"]] = c_rep
     m0 = next((c for c in corners if c["name"] == "The Mountain"), None)
     if m0:
-        # the climb after the Mountain way's midpoint region: from the dip before it to the crest after it
         # the steepest climb within 150 m of the named way's middle, back to the dip before it (where the
         # road stops falling) and on to the crest after it (where it stops climbing)
         i0 = int(round(m0["sM"] / (L / n)))
@@ -586,10 +798,15 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float = 6.0, log=p
     return spec, report
 
 
+def radii_open(p: np.ndarray, k: int = 3) -> np.ndarray:
+    r = radii(p, k)
+    return r[k:-k] if len(r) > 2 * k + 1 else r
+
+
 def verify(spec: dict, report: dict, recipe: dict, cache: Path) -> dict:
     """Build the TrackModel (needs trackgen_geom, e.g. geom's venv) and compare it with the source data:
-    lap length against the published one, road heights (centreline and both cambered edges) against the DTM,
-    camber, and the model's rule verdict."""
+    lap length against the published one, road heights (centreline and both cambered edges, on every route)
+    against the DTM, camber, each layout's lap, and the model's rule verdict."""
     from trackgen_geom import build_track_model  # noqa: PLC0415 - optional dependency
 
     result = build_track_model(spec)
@@ -598,31 +815,43 @@ def verify(spec: dict, report: dict, recipe: dict, cache: Path) -> dict:
     fr = report["frame"]
     datum = spec["sketch"]["imported"]["datumM"]
     margin = float(recipe.get("terrainMarginM", 400.0))
-    main = result.model.route("main")
-    c = np.array([[q.x, q.y, q.z] for q in main.samples])
-    left, right = np.array(main.left_edge), np.array(main.right_edge)
-    lo = (np.vstack([c[:, :2]]).min(0) * fr["scale"] + [fr["centreE"], fr["centreN"]]) - margin
-    hi = (np.vstack([c[:, :2]]).max(0) * fr["scale"] + [fr["centreE"], fr["centreN"]]) + margin
-    dtm = fetch_dtm(lo[0], lo[1], hi[0], hi[1], cache)
+    routes = result.model.routes
+    allc = np.vstack([np.array([[q.x, q.y] for q in r.samples]) for r in routes])
+    lo = allc.min(0) * fr["scale"] + [fr["centreE"], fr["centreN"]] - min(margin, 100.0)
+    hi = allc.max(0) * fr["scale"] + [fr["centreE"], fr["centreN"]] + min(margin, 100.0)
+    dtm = load_dtm(recipe, lo[0], lo[1], hi[0], hi[1], cache)
 
-    def dz(p: np.ndarray, inset: float = 0.0) -> np.ndarray:
+    def dz(p: np.ndarray) -> np.ndarray:
         e = p[:, 0] * fr["scale"] + fr["centreE"]
         n = p[:, 1] * fr["scale"] + fr["centreN"]
         return p[:, 2] + datum - dtm.sample(e, n)
 
-    # the edges are compared 10 % inside the road (the DTM's verge kerbs and ditches start at the edge)
-    li = c + (left - c) * 0.8
-    ri = c + (right - c) * 0.8
-    pub = recipe.get("publishedLapLengthM")
     rms = lambda v: round(float(np.sqrt(np.nanmean(v ** 2))), 3)  # noqa: E731
+    per_route = {}
+    for r in routes:
+        c = np.array([[q.x, q.y, q.z] for q in r.samples])
+        left, right = np.array(r.left_edge), np.array(r.right_edge)
+        # the edges are compared 10 % inside the road (the DTM's verge kerbs and ditches start at the edge)
+        li, ri = c + (left - c) * 0.8, c + (right - c) * 0.8
+        per_route[r.id] = {"rmsCentreVsDtmM": rms(dz(c)), "rmsInnerEdgesVsDtmM": rms(np.concatenate([dz(li), dz(ri)])),
+                           "maxAbsCentreVsDtmM": round(float(np.nanmax(np.abs(dz(c)))), 3), "lengthM": round(r.length_m, 1)}
+    pub = recipe.get("publishedLapLengthM")
+    meas = recipe.get("measuredLapLengthM")
+    layouts = []
+    for lay in result.model.layouts:
+        want = meas if lay.id == "main" else next((a.get("measuredLapLengthM") for a in recipe.get("altLayouts", [])
+                                                   if a["id"] == lay.id), None)
+        layouts.append({"id": lay.id, "name": lay.name, "lapLengthM": round(lay.lap_length_m, 1), "measuredLapLengthM": want,
+                        "vsMeasuredPct": round(100 * (lay.lap_length_m - want) / want, 2) if want else None})
+    main = per_route["main"]
     return {
         "built": True, "valid": result.valid,
         "violations": [f"{v.rule_id}: {v.message}" for v in result.rule_result.violations],
         "warnings": [w.code for w in result.warnings],
         "lapLengthM": round(result.model.lap_length_m, 1),
         "lapVsPublishedPct": round(100 * (result.model.lap_length_m - pub) / pub, 2) if pub else None,
-        "rmsCentreVsDtmM": rms(dz(c)), "rmsInnerEdgesVsDtmM": rms(np.concatenate([dz(li), dz(ri)])),
-        "maxAbsCentreVsDtmM": round(float(np.nanmax(np.abs(dz(c)))), 3),
+        "rmsCentreVsDtmM": main["rmsCentreVsDtmM"], "rmsInnerEdgesVsDtmM": main["rmsInnerEdgesVsDtmM"],
+        "maxAbsCentreVsDtmM": main["maxAbsCentreVsDtmM"], "routes": per_route, "layouts": layouts,
         "maxBankDeg": result.facts["maxBankDeg"], "maxGradePct10m": result.facts["maxGradePct"],
         "gridMaxGradePct": result.facts["gridMaxGradePct"], "minCornerRadiusM": result.facts["minCornerRadiusM"],
         "heightRangeM": result.facts["heightRangeM"], "maxAbsCoordinateM": result.facts["maxAbsCoordinateM"],

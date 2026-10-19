@@ -185,8 +185,15 @@ class Planner:
         polys = [np.array([[q["x"], q["y"]] for q in w["points"]]) for w in
                  ((getattr(geo, "imported", None) or {}).get("woodland") or [])]
         self.woods = WoodMask(polys, self.frame) if polys else None
+        # the sea (an imported track's seaLevelM, in environments with a sea): nothing but shore rocks below it
+        imp = getattr(geo, "imported", None) or {}
+        self.sea = float(imp["seaLevelM"]) if (self.e.get("sea") and imp.get("seaLevelM") is not None) else None
         self.main = geo.main
         self._nogo()
+
+    def dry(self, x: float, y: float, above: float = 0.8) -> bool:
+        """Land at least ``above`` metres over the sea (always true without a sea)."""
+        return self.sea is None or float(self.geo.ground(np.array([[x, y]]))[0]) >= self.sea + above
 
     # ------------------------------------------------------------------------------------- woods
     def wood_cover(self, pts: np.ndarray) -> np.ndarray:
@@ -281,6 +288,8 @@ class Planner:
         if self.in_nogo([x, y], rr, exempt)[0]:
             return False
         if not self.occ.free(x, y, rr):
+            return False
+        if category != "shore" and not self.dry(x, y):
             return False
         if occupy:
             self.occ.add(x, y, rr)
@@ -661,6 +670,127 @@ class Planner:
         pts = self._grid(60.0 if int(fol["groundPropCap"]) <= 160 else 45.0)
         self._scatter(pts, gp, "groundProps", max(18.0, self.edge_min + 2.0), int(fol["groundPropCap"]), r_scale=1.0)
 
+    # ------------------------------------------------------------------------------------ coastal extras
+    def stone_walls(self) -> None:
+        """Stone field walls (environments.json "stoneWalls") along the borders of a seeded field-parcel grid, in
+        the open ground away from the road, on dry land; a share of each border run is left out (gates, gaps)."""
+        sw = self.e.get("stoneWalls")
+        if not sw:
+            return
+        parcels = Parcels(seed_for(self.slug, "walls"))
+        x0, x1, y0, y1 = self.bounds
+        ca, sa = math.cos(parcels.a), math.sin(parcels.a)
+        ax, ay = np.array([ca, sa]), np.array([-sa, ca])  # parcel u and v directions in the world
+        corners = np.array([[x0, y0], [x1, y0], [x0, y1], [x1, y1]])
+        u, v = parcels.local(corners)
+        cap, keep, min_road = int(sw.get("cap", 500)), float(sw.get("keep", 0.6)), float(sw.get("minRoadM", 40.0))
+        n = 0
+        lines = []
+        for axis, (lo, hi), (olo, ohi), step_len, other_len, dir_ in (
+                (0, (math.floor(u.min()), math.ceil(u.max())), (v.min(), v.max()), parcels.w, parcels.h, ay),
+                (1, (math.floor(v.min()), math.ceil(v.max())), (u.min(), u.max()), parcels.h, parcels.w, ax)):
+            for k in range(int(lo), int(hi) + 1):
+                for m in range(int(math.floor(olo)), int(math.ceil(ohi))):
+                    if self.rng.random() > keep:
+                        continue
+                    lines.append((axis, k, m))
+        for axis, k, m in lines:
+            # a border segment between two parcel corners, in world coordinates
+            if axis == 0:
+                a_loc, b_loc = (k, m), (k, m + 1)
+            else:
+                a_loc, b_loc = (m, k), (m + 1, k)
+
+            def world(uv):
+                uu = uv[0] * parcels.w - parcels.o[0]
+                vv = uv[1] * parcels.h - parcels.o[1]
+                return ax * uu + ay * vv
+            pa, pb = world(a_loc), world(b_loc)
+            seg = pb - pa
+            L = float(np.linalg.norm(seg))
+            t = seg / max(L, 1e-9)
+            pos = 2.0
+            while pos < L - 2.0 and n < cap:
+                a = self.pick(sw["assets"])
+                w = float(envs.asset_info(a).get("width", 3.4))
+                c = pa + t * (pos + w / 2.0)
+                if self.try_place(a, "walls", c[0], c[1], yaw_to(t), min_road, r=0.9, margin=0.0):
+                    n += 1
+                pos += w * 0.97
+        self.sc.info["stoneWalls"] = n
+
+    def shore(self) -> None:
+        """Rocks along the shoreline and a few cliff faces where the ground drops into the sea (environments.json
+        "shore"; needs the sea level of an imported track)."""
+        sh = self.e.get("shore")
+        if not sh or self.sea is None:
+            return
+        lo, hi = (float(v) for v in sh.get("band", (-1.0, 3.5)))
+        pts = self._grid(7.0)
+        z = self.geo.ground(pts)
+        band = (z > self.sea + lo) & (z < self.sea + hi)
+        d = self.field.dist(pts)
+        sel = band & (d > self.edge_min + 10.0)
+        cand = pts[sel]
+        nr = 0
+        for k in self.rng.permutation(len(cand)):
+            if nr >= int(sh.get("rockCap", 200)):
+                break
+            if self.rng.random() < 0.5:
+                continue
+            a = self.pick(sh["rocks"])
+            s = float(self.rng.uniform(0.8, 2.2))
+            if self.try_place(a, "shore", cand[k, 0], cand[k, 1], float(self.rng.uniform(0, 2 * math.pi)),
+                              self.edge_min + 10.0, r=envs.asset_info(a)["r"] * 0.6, scale=s, margin=0.0):
+                nr += 1
+        # cliffs: where the ground falls steeply into the sea, facing the water
+        nc = 0
+        cliffs = sh.get("cliffs", [])
+        if cliffs:
+            pts = self._grid(24.0)
+            z = self.geo.ground(pts)
+            e = 6.0
+            gx = (self.geo.ground(pts + [e, 0]) - self.geo.ground(pts - [e, 0])) / (2 * e)
+            gy = (self.geo.ground(pts + [0, e]) - self.geo.ground(pts - [0, e])) / (2 * e)
+            slope = np.hypot(gx, gy)
+            d = self.field.dist(pts)
+            sel = (z > self.sea - 1.0) & (z < self.sea + 6.0) & (slope > 0.12) & (d > 60.0)
+            for k in self.rng.permutation(int(sel.sum())):
+                if nc >= int(sh.get("cliffCap", 20)):
+                    break
+                p = pts[sel][k]
+                g = np.array([gx[sel][k], gy[sel][k]])
+                down = -g / max(float(np.linalg.norm(g)), 1e-9)  # towards the sea
+                a = self.pick(cliffs)
+                if self.try_place(a, "shore", p[0], p[1], self.face_yaw(a, down, np.array([-down[1], down[0]])),
+                                  60.0, r=envs.asset_info(a)["r"] * 0.7, margin=0.0):
+                    nc += 1
+        self.sc.info["shore"] = {"rocks": nr, "cliffs": nc}
+
+    def gorse(self) -> None:
+        """Low gorse clumps (stock bushes, scaled down) scattered in the open grass (environments.json "gorse")."""
+        g = self.e.get("gorse")
+        if not g:
+            return
+        centres = self._grid(55.0)
+        d = self.field.dist(centres)
+        centres = centres[(d > self.edge_min + 10.0) & (d < float(g.get("maxRoadM", 300.0)))]
+        n = 0
+        lo, hi = (float(v) for v in g.get("scale", (0.5, 0.8)))
+        for c in centres[self.rng.permutation(len(centres))[:int(g.get("clusters", 60))]]:
+            k = int(self.rng.integers(*[int(v) for v in g.get("perCluster", (3, 8))]))
+            ang = self.rng.uniform(0, 2 * math.pi, k)
+            rad = np.sqrt(self.rng.random(k)) * float(g.get("radiusM", 8.0))
+            for q in c + np.stack([np.cos(ang) * rad, np.sin(ang) * rad], axis=1):
+                if n >= int(g.get("cap", 400)):
+                    break
+                a = self.pick(g["assets"])
+                s = float(self.rng.uniform(lo, hi))
+                if self.try_place(a, "bushes", q[0], q[1], float(self.rng.uniform(0, 2 * math.pi)), self.edge_min + 8.0,
+                                  r=envs.asset_info(a)["r"] * s * 0.7, scale=s, margin=0.0):
+                    n += 1
+        self.sc.info["gorse"] = n
+
     def buildings(self) -> None:
         e = self.e
         name = self.env_name
@@ -669,19 +799,21 @@ class Planner:
             return
         x0, x1, y0, y1 = self.bounds
         cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-        if name == "farmland":
+        if name == "farmland" or e.get("farmsteads"):
+            fs = e.get("farmsteads", {})
             sites = self._grid(140.0)
             d = self.field.dist(sites)
-            sites = sites[d > 70.0]
+            sites = sites[d > float(fs.get("minRoadM", 70.0))]
             n = 0
             for c in sites[self.rng.permutation(len(sites))]:
-                if n >= 2:
+                if n >= int(fs.get("count", 2)):
                     break
                 toward = np.array([cx - c[0], cy - c[1]])
                 toward /= max(np.linalg.norm(toward), 1e-6)
                 tang = np.array([-toward[1], toward[0]])
-                plan = [("building_barn1", 0, 0), ("prop_house01", 22, 6), ("prop_silo8", -12, -4),
-                        ("prop_silo8", -16, -4), ("prop_building_storage_b", 4, -22)]
+                plan = [tuple(p) for p in fs.get("plan", [])] or [
+                    ("building_barn1", 0, 0), ("prop_house01", 22, 6), ("prop_silo8", -12, -4),
+                    ("prop_silo8", -16, -4), ("prop_building_storage_b", 4, -22)]
                 ok = 0
                 for a, du, dv in plan:
                     q = c + tang * du + toward * dv
@@ -773,6 +905,9 @@ class Planner:
         self.paddock(paddock_side)
         self.lights()
         self.buildings()
+        self.stone_walls()
+        self.shore()
+        self.gorse()
         self.foliage()
         self._heights()
         self.sc.info.update({"corners": len(corners), "straights": len(straights), "edgeMinM": self.edge_min,

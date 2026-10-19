@@ -328,8 +328,54 @@ class LayoutBuilder:
                                     float(main.h[i]) + math.pi / 2.0, scale=(1.0, 2.25, 0.75)))
         return line_s, (back_s - 10.0) % main.length
 
+    # ------------------------------------------------------------------- imported multi-layout tracks
+    def lap_checkpoints(self, layout: Layout, r: Route, first_s: float) -> None:
+        """Checkpoints of an imported track's layout along its own closed route: the first one past the pole,
+        then evenly spaced (about as far apart as the main route's), the start/finish line last. The first
+        and the one nearest half way are split points."""
+        main_cps = [c for c in self.model["checkpoints"] if c["route"] == self.geo.main.id]
+        spacing = self.geo.main.length / max(len(main_cps), 1)
+        L = r.length
+        n = max(3, int(round((L - first_s) / spacing)))
+        pos = [first_s + k * (L - first_s - 40.0) / n for k in range(n)] + [L]
+        mid = min(range(1, n), key=lambda k: abs(pos[k] - L / 2.0)) if n > 2 else None
+        names = []
+        for k, s in enumerate(pos):
+            name = f"#checkpoint{k + 1:02d}" + ("_split" if k in (0, mid) else "")
+            layout.meshes.append(self._checkpoint_mesh(name, r, r.index_at(s % L), 1))
+            names.append({"name": name, "route": r.id, "s": round(s % L, 2), "lapPos": round(s, 2)})
+        layout.info["checkpoints"] = names
+
+    def _build_imported(self, defs: list[dict]) -> list[Layout]:
+        """One layout per TrackModel ``layouts`` entry (imported tracks with alternative layouts): the main
+        layout drives the main route only (no alternative-route strips), each alternative one its own closed
+        route (main up to the branch, the branch, main after it). All share the start/finish line and grid."""
+        out = []
+        saved = (self.main, self.alts, self.joins)
+        for d in defs:
+            is_main = d["id"] == "main"
+            lay = Layout("forward" if is_main else d["id"], f"{self.slug}_race" if is_main else f"{self.slug}_{d['id']}",
+                         False)
+            r = saved[0] if is_main else composite_route(self.model, d)
+            self.main, self.alts, self.joins = r, [], []
+            line_s, first_s = self.startpoints(lay, 1)
+            i_line = r.index_at(line_s)
+            lay.info.update({"title": d["name"], "lapLengthM": round(r.length, 1), "lineS": round(line_s, 3)})
+            self.ai_meshes(lay, i_line, 1)
+            self.lap_checkpoints(lay, r, first_s)
+            lay.empties.append(Empty(f"#xref {self.slug}_base.scne", (0.0, 0.0, 0.0), 0.0, "vis = true|col = true",
+                                     display="PLAIN_AXES", size=5.0, xdir=f"data/track/{self.slug}"))
+            if self.warnings:
+                lay.info.setdefault("warnings", []).extend(self.warnings)
+                self.warnings = []
+            out.append(lay)
+        self.main, self.alts, self.joins = saved
+        return out
+
     # ------------------------------------------------------------------------------------- layouts
     def build(self) -> list[Layout]:
+        if self.model.get("layouts"):
+            return self._build_imported(self.model["layouts"])
         layouts = [Layout("forward", f"{self.slug}_race", False)]
         if self.model.get("reverse"):
             layouts.append(Layout("reverse", f"{self.slug}_race_reverse", True))
@@ -347,6 +393,35 @@ class LayoutBuilder:
                 lay.info.setdefault("warnings", []).extend(self.warnings)
                 self.warnings = []
         return layouts
+
+
+def composite_route(model: dict, d: dict) -> Route:
+    """The closed route an imported track's alternative layout drives (TrackModel ``layouts[].sections``: main up
+    to the branch, the branch, main after it), as a builder Route with s from its start/finish line."""
+    by_id = {r["id"]: r for r in model["routes"]}
+    smp, left, right = [], [], []
+    for sec in d["sections"]:
+        src = by_id[sec["route"]]
+        lo, hi = float(sec["fromS"]) - 1e-3, float(sec["toS"]) + 1e-3
+        for k, q in enumerate(src["samples"]):
+            if not lo <= float(q["s"]) <= hi:
+                continue
+            if smp and math.hypot(q["x"] - smp[-1]["x"], q["y"] - smp[-1]["y"]) < 0.05:
+                continue  # the shared junction vertex
+            smp.append(dict(q))
+            left.append(src["leftEdge"][k])
+            right.append(src["rightEdge"][k])
+    if math.hypot(smp[-1]["x"] - smp[0]["x"], smp[-1]["y"] - smp[0]["y"]) < 0.05:
+        smp, left, right = smp[:-1], left[:-1], right[:-1]
+    s = 0.0
+    for k, q in enumerate(smp):
+        if k:
+            s += math.hypot(q["x"] - smp[k - 1]["x"], q["y"] - smp[k - 1]["y"])
+        q["s"] = s
+    length = s + math.hypot(smp[0]["x"] - smp[-1]["x"], smp[0]["y"] - smp[-1]["y"])
+    main = by_id["main"]
+    return Route(0, {"id": d["id"], "aiIndex": 0, "closed": True, "samples": smp, "leftEdge": left,
+                     "rightEdge": right, "lengthM": length, "widthM": main["widthM"]})
 
 
 def strip_end_lines(layouts: list[Layout]) -> list[np.ndarray]:

@@ -614,6 +614,35 @@ def test_imported_track_ignores_drawn_elements() -> None:
     assert "imported-no-drawn-routes" in violations(result)
 
 
+def test_imported_alt_layout_shares_the_base_as_a_branch() -> None:
+    """An imported alternative layout is an open branch route snapped to the main centreline; the model lists
+    every layout with its lap (main up to the branch, the branch, main after it)."""
+    spec = imported_vector("imported-alt-layouts-valid")
+    result = build_track_model(spec)
+    assert result.valid, [v.message for v in result.rule_result.violations]
+    m = result.model
+    main, br = m.route("main"), m.route("short")
+    assert (br.ai_index, br.closed) == (-1, False)
+    assert br.start_join.route == "main" and br.start_join.s < br.end_join.s
+    first, last = br.samples[0], br.samples[-1]
+    for q, j in ((first, br.start_join), (last, br.end_join)):
+        mq = main.samples[j.sample_index]
+        assert (q.x, q.y, q.z) == pytest.approx((mq.x, mq.y, mq.z))
+    assert [lay.id for lay in m.layouts] == ["main", "short"]
+    assert (m.layouts[0].name, m.layouts[0].lap_length_m) == ("Long", m.lap_length_m)
+    short = m.layouts[1]
+    assert short.lap_length_m == pytest.approx(br.start_join.s + br.length_m + (m.lap_length_m - br.end_join.s))
+    assert [s["route"] for s in short.sections] == ["main", "short", "main"]
+    assert result.facts["altRoutes"]["short"] == {"startGapM": 0.0, "endGapM": 0.0}
+    # drawn and single-layout imported tracks keep the model format without "layouts"
+    assert "layouts" not in build_track_model(imported_vector()).model.to_dict()
+    # a branch that would bypass the start/finish line is left out
+    alt = spec["sketch"]["imported"]["altLayouts"][0]
+    alt["centreline"] = alt["centreline"][::-1]
+    bad = build_track_model(spec)
+    assert "imported-layout-unsupported" in [w.code for w in bad.warnings] and bad.model.layouts == []
+
+
 def test_steep_imported_road_fails_the_imported_grade_rule() -> None:
     spec = imported_vector()
     for k, p in enumerate(spec["sketch"]["imported"]["centreline"]):

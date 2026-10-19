@@ -117,6 +117,16 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
     elif env_name == "farmland" and planner.parcels is not None:
         fld = planner.parcels.is_field(pts).reshape(n, n) & (planner.parcels.border(pts).reshape(n, n) > 3.0)
         b = fld * smooth01((d - 40.0) / 10.0)
+    elif env_name == "coastal":
+        # grey rock on the foreshore (just above the sea) and on steep outcrops, patchy at its upper edge
+        b = smooth01((n_big - 0.78) / 0.08) * 0.5 * smooth01((d - 25.0) / 15.0)
+        if planner.sea is not None:
+            zg = geo.ground(pts).reshape(n, n)
+            gy_, gx_ = np.gradient(zg, px)
+            steep = smooth01((np.hypot(gx_, gy_) - 0.35) / 0.25)
+            shore = smooth01((planner.sea + 3.0 + (n_fine - 0.5) * 2.5 - zg) / 1.5)
+            b = np.maximum(b, np.maximum(shore, steep * smooth01((planner.sea + 14.0 - zg) / 4.0)))
+            b = b * smooth01((d - 8.0) / 6.0)
     elif env_name == "sandpit":
         b = smooth01((n_big - 0.5) / 0.12) * smooth01((d - 25.0) / 15.0)
     elif env_name == "gravel_pit":
@@ -198,6 +208,11 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
     grass = np.maximum(grass, 0.35 * smooth01((dj - lo) / 3.0) * smooth01((n_mid - 0.55) / 0.1) * (1 - r) * (1 - b))
     bushes = band * smooth01((n_mid - 0.66) / 0.08) * (1 - r) * 0.6
     flowers = band * smooth01((n_fine - 0.72) / 0.1) * (1 - r) * 0.6
+    if env_name == "coastal":
+        # windswept: no grass blades on the rock, sparser flowers (the yellow gorse is placed as bushes)
+        grass = grass * (1 - b)
+        bushes = bushes * (1 - b) * 0.6
+        flowers = flowers * (1 - b) * 0.5
     clutter = np.stack([bushes, grass, flowers], axis=2)
     # keep within the stock clutter budget (config.CLUTTER_MAX_*): thin the whole mask evenly
     ha, local = clutter_density(clutter, size)

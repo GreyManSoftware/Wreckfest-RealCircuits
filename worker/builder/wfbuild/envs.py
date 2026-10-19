@@ -67,6 +67,11 @@ def allowed_assets(name: str | None) -> set[str]:
     for k in ("trees", "parkTrees", "bushes", "ground_props", "buildings", "cornerMarkers", "saplings"):
         out.update(e.get(k, []))
     out.update(e.get("foliage", {}).get("groups", []))
+    # coastal extras: gorse clumps, shore rocks and cliffs, stone field walls, farmstead plans
+    out.update(e.get("gorse", {}).get("assets", []))
+    out.update(e.get("shore", {}).get("rocks", []) + e.get("shore", {}).get("cliffs", []))
+    out.update(e.get("stoneWalls", {}).get("assets", []))
+    out.update(a for a, _u, _v in e.get("farmsteads", {}).get("plan", []))
     for row in e.get("barriers", {}).values():
         out.update(row)
     out.add(e["crowdFence"])

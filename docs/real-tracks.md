@@ -32,14 +32,29 @@ start/finish point, the width, the viewing spots and the build options. The impo
    10 % inside both cambered edges, camber, the rule verdict).
 
 Other circuits: write a recipe (find the way ids with Overpass, e.g.
-`way["highway"="raceway"](bbox); out geom;`), run the importer, check the report, then build. England only for
-heights as written (the EA DTM); elsewhere swap `fetch_dtm` for another open DTM.
+`way["highway"="raceway"](bbox); out geom;`), run the importer, check the report, then build. Heights: England
+(EA DTM, the default) or Wales (`"dtm": "wales"`: the Welsh Government / NRW 1 m DTM COG read by range requests);
+elsewhere add another open DTM to `load_dtm`.
+
+Recipe extras (RealAnglesey, `tools/real_tracks/anglesey.json`):
+
+- `altLayouts`: further layouts sharing the base, each with its own `lap` of ways (`[way, from_node, to_node]`
+  takes part of a way), `measuredLapLengthM` and `publishedLapLengthM`. Each lap is fitted like the main one and
+  the part that leaves the main line becomes `sketch.imported.altLayouts[]` (ends moved onto the main line);
+  `mainLayoutName` names the main layout. `--verify` reports each layout's lap and every route's fit to the DTM.
+- `startFinish: {"node": id}`: an OSM node on the lap.
+- `lapNames`: `null` drops an unnamed way's label.
+- `seaLevelODN`: no-data (sea) cells become seabed 3 m below it and the spec gets `seaLevelM`; the `coastal`
+  environment floods below it.
+- `horizon`: the distant skyline (3-45 km, 32 m DTM overview) for a painted `#horizon` texture (Wales only).
+- `terrainCellM`: heightfield cell (default 6 m; 10 m for a wide coastal margin).
 
 ## Data sources and attribution
 
 | Data | Source | Licence | Attribution (in the spec's `sketch.imported.source`) |
 |---|---|---|---|
 | Layout (raceway ways), woodland polygons | OpenStreetMap via the Overpass API | ODbL 1.0 | © OpenStreetMap contributors |
+| Heights, camber, terrain (Wales) | Welsh Government / NRW LIDAR composite DTM, 1 m (COG on DataMapWales) | Open Government Licence v3.0 | Contains Natural Resources Wales information © Natural Resources Wales and database right |
 | Heights, camber, terrain | Environment Agency LIDAR Composite DTM, 1 m (bare earth; WCS `environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs`) | Open Government Licence v3.0 | © Environment Agency copyright and/or database right 2022 |
 
 The committed sample (`geom/tests/samples/realcadwell.json`) is derived data (a 2 m centreline, a 6 m grid and
@@ -68,3 +83,39 @@ Crowd banks at the Mountain, the Hairpin and Hall Bends. Renders: `.local\render
 
 Unverified: the start/finish position (estimated from the pit lane), the width (not published; one value for the
 whole lap), and how the camber and the Mountain's crest drive in game.
+
+## RealAnglesey (Anglesey Circuit / Trac Môn, International + Coastal, 2026-10-19)
+
+One base scene with two layouts (`realanglesey_race` = International, `realanglesey_coastal` = Coastal). Data
+phase, sources and the environment brief: `docs/real-tracks/anglesey.md`. Recipe `tools/real_tracks/anglesey.json`,
+sample `geom/tests/samples/realanglesey.json`, report `.local\realanglesey\report.json`.
+
+| | International | Coastal |
+|---|---|---|
+| Lap (built TrackModel) | 3,286.8 m (−0.28 % vs 3,296 m measured; −2.8 % vs the published 3,380 m) | 2,463.8 m (−0.33 % vs 2,472 m; −1.2 % vs 2,494 m) |
+| Shared with the other layout | start/finish to the Corkscrew (s 0–2,171 m) and the Bus Stop to the line | branch 137.2 m from the Corkscrew (s 2,170.6) to the Bus Stop (s 3,130.8) |
+| Height | 11.1–29.8 m ODN (range 18.8 m), climb 31.7 m per lap | same range, climb 26.5 m |
+| Steepest (10 m) | +8.1 % (to Rocket), −8.2 % (into the Corkscrew) | −9.7 % (Corkscrew link) |
+| Camber | up to 5.7° (the Banking, into the corner), p95 3.9° | branch up to 3.4° |
+| Fit to the DTM | centre RMS 0.013 m (max 0.06 m), inner edges 0.015 m | branch centre RMS 0.025 m, edges 0.037 m |
+| Rules | valid: maxGradePct 9.8, maxBankDeg 5.7, grid 3.0 % (≤ 4), min radius 13.6 m | |
+
+Width 12 m (OSM `width` on three ways), clockwise, start/finish at OSM node "Start/Finish". Environment
+`coastal`: sea plane at 0 m ODN (`seaLevelM` −11 relative to the 11 m datum) over the ground below it, rocks and a
+cliff face on the shore, stone field walls, gorse clumps, three farmsteads, light concrete barrier rows (stock prop_barrier8_dirty, about 2,500 vertices each, so the base stays within the stock vertex budget: 6.97 M of 10 M with every subscene), crowds at
+the Corkscrew, the Rocket and the Banking, and a `#horizon` painted from the DTM skyline (Snowdonia 90–140°, the
+Llŷn hills to the south, open sea to the south-west). The terrain heightfield is 10 m cells over the circuit
+± 1 km (coarse, so the far ground carries the real coast).
+
+Game data checked for the sea: Wreckfest 1 has no sea material. The only water is the animated
+`water2#saw33#texture_animation` (levels/crm `water2_c5`, a cartoon pool caustic) and fields13's mud-puddle
+`#blend` (`ground_water_fields13_c`); neither reads as sea, so the sea is a generated blue-grey texture on a flat
+`#noshadow` plane. Stone walls: stock `prop_stone_wall_01/02` (3.4 × 1.6 × 1.6 m) exist and are used.
+
+Unverified in game: the sea plane and the painted horizon, the second layout's checkpoints and AI, how 12 m
+and the Banking's camber drive. Not installed yet (waiting for confirmation that RealCadwell loads and for the
+imported-track direction fix; rebuild after that lands).
+
+Zip `E:\WreckfestMods\realanglesey.zip` (two events, RealAnglesey International and RealAnglesey Coastal; 3,896
+subscenes, 6.97 M vertices with every subscene, within the stock limits). Renders:
+`.local\renders\realanglesey-{oblique,horizon,driver,driver-corkscrew,driver-banking,driver-rocket,driver-school}.png`.

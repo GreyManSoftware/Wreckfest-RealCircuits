@@ -26,6 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 from wfbuild import config as C
 from wfbuild import envs
+from wfbuild.layout import composite_route
 
 WF = os.environ.get("WRECKFEST_DIR", "/wreckfest")
 failures: list[str] = []
@@ -467,9 +468,16 @@ def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manife
     cd = r.get("CustomData", "")
     check(("otherway = true" in cd) == rev, f"{name}: otherway = true only on the reverse layout", repr(cd))
     # the racing strip (inside the road) lies on the road surface, across its camber too
-    rm = next(rt for rt in model["routes"] if rt["aiIndex"] == 0)
-    zs = to_scene(np.array([[q["x"], q["y"], q["z"]] for q in rm["samples"]]), manifest)
-    le, ri = to_scene(np.array(rm["leftEdge"]), manifest), to_scene(np.array(rm["rightEdge"]), manifest)
+    multi = model.get("layouts") or []
+    lay_def = next((d for d in multi if d["id"] == ("main" if lay["key"] == "forward" else lay["key"])), None)
+    if lay_def is not None and lay_def["id"] != "main":
+        # an imported alternative layout drives its own closed route (main, branch, main)
+        cr = composite_route(model, lay_def)
+        zs, le, ri = (to_scene(a, manifest) for a in (cr.p, cr.left, cr.right))
+    else:
+        rm = next(rt for rt in model["routes"] if rt["aiIndex"] == 0)
+        zs = to_scene(np.array([[q["x"], q["y"], q["z"]] for q in rm["samples"]]), manifest)
+        le, ri = to_scene(np.array(rm["leftEdge"]), manifest), to_scene(np.array(rm["rightEdge"]), manifest)
     worst = 0.0
     n = len(zs)
     for v in world_verts(c):
@@ -484,8 +492,14 @@ def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manife
         worst = max(worst, abs(float(v[2]) - (R[2] + t * (L[2] - R[2]))))
     check(worst < 0.05, f"{name}: #ai_race_main lies on the (cambered) road surface", f"max |dz| {worst:.3f} m")
     main_lines = set(strip_lines(r))
+    if multi:
+        alts = [o for o in obs if re.match(r"^#ai_(route|safe|race)_alt\d+$", o)]
+        check(not alts, f"{name}: an imported layout has no alternative-route strips", ", ".join(alts))
+        if lay_def is not None and lay_def["id"] != "main":
+            check(abs(cr.length - float(lay_def["lapLengthM"])) < 1.0, f"{name}: layout route length matches the model",
+                  f"{cr.length:.1f} vs {lay_def['lapLengthM']:.1f} m")
     for rt in model["routes"]:
-        if rt["aiIndex"] == 0:
+        if rt["aiIndex"] == 0 or multi:
             continue
         sfx = f"alt{-rt['aiIndex']}"
         okn = all(f"#ai_{k}_{sfx}" in obs for k in ("route", "safe", "race"))
@@ -544,7 +558,10 @@ def main() -> None:
     spec, model, manifest = (load_json(p) for p in (spec_path, os.path.join(out, "model.json"),
                                                      os.path.join(out, "manifest.json")))
     slug = model["slug"]
-    want = ["forward"] + (["reverse"] if model["reverse"] else [])
+    if model.get("layouts"):  # imported track with alternative layouts: one layout each, main first
+        want = ["forward"] + [d["id"] for d in model["layouts"] if d["id"] != "main"]
+    else:
+        want = ["forward"] + (["reverse"] if model["reverse"] else [])
     check([lay["key"] for lay in manifest["layouts"]] == want, "manifest: layouts", ", ".join(want))
     check_base(out, slug, model, spec, manifest)
     for lay in manifest["layouts"]:

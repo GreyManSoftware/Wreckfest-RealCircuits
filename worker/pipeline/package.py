@@ -58,6 +58,12 @@ def _layout_for_tcat(name: str, slug: str, layouts: list[dict]) -> str | None:
     return by_key.get(alias) if alias else None
 
 
+def layout_title(name: str, lay: dict) -> str:
+    """Event title: the track name, the layout's own name when it has one (imported multi-layout tracks, e.g.
+    "RealAnglesey Coastal"), and "Reverse" for the reverse layout."""
+    return name + (f" {lay['title']}" if lay.get("title") else "") + (" Reverse" if lay["reverse"] else "")
+
+
 def _sha(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -127,7 +133,7 @@ def package(spec: dict, manifest: dict, preview_svg: str, project: str, sizes: d
     f.save(p("data", "property", "event", slug, f"{slug}.envi"))
     events = []
     for lay in layouts:
-        title = name + (" Reverse" if lay["reverse"] else "")
+        title = layout_title(name, lay)
         scne = f"data/track/{slug}/{lay['name']}.scne"
         f = bw.BagWrite()
         f.evse_file(title=title, desc=desc, state=EVENT_STATE_FINAL, gamemode=GAMEMODE_RACING, scne=scne,
@@ -147,7 +153,7 @@ def package(spec: dict, manifest: dict, preview_svg: str, project: str, sizes: d
     jobs = []  # (relpath without extension, image, alpha)
     for lay in layouts:
         lsub = ("Reverse  |  " if lay["reverse"] else "") + sub
-        title = name + (" Reverse" if lay["reverse"] else "")
+        title = layout_title(name, lay)
         base = f"data/track/{slug}/menu/event_{lay['name']}"
         jobs.append((f"{base}_loading_1920x1200_raw", images.card(1920, 1200, pv, title, lsub), False))
         jobs.append((f"{base}_results_812x162_raw", images.card(812, 162, pv, title, lsub), True))

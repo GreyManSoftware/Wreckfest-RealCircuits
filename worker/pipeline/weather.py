@@ -19,6 +19,7 @@ PRESET_FAMILIES: dict[str, tuple[str, ...]] = {
     "industrial": ("urban/urban06", "urban/urban07", "urban/urban09"),
     "sandpit": ("sandpit/sandpit3", "sandpit/sandpit1", "sandpit/sandpit2"),
     "parkland": ("fields/fields13", "forest/forest11", "fields/fields14"),
+    "coastal": ("fields/fields14", "fields/fields13", "fields/gravel1"),
 }
 
 # slot -> file suffixes to try in each family, best first

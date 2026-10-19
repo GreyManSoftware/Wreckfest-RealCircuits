@@ -185,9 +185,11 @@ bgeometry logs `Surface Settings does not exists: decal ()` and `... noshadow ()
   - crowds of standing spectators behind fences on the outside of the sharpest corners, after jump landings and beside bridges;
   - tyre stacks or straw bales on corner apexes; ad fences and big boards on straights; stadium lights by the start;
   - clustered foliage (shared noise, coverage per environment; an imported track's real woods instead), single park trees in parkland, saplings for sandpit, rocks, sand piles and logs; farmsteads (farmland), container yards and a city-building skyline (industrial);
+  - coastal: gorse clumps (stock bushes, scaled down), stone field walls along a seeded parcel grid, a few farmsteads, rocks and cliff faces along the shore, nothing on ground under the sea, no tree cards;
   - only assets listed for the environment; no-go zones: the road and run-off (nothing but the gantry within wall offset + 1 m of an edge), the grid sector, bridge decks and ramps, jump landings;
   - about 1,000-4,000 subscenes per track (stock bases have 900-6,000).
-- **Backdrop** (`wfbuild/backdrop.py`): a far-ground ring from the terrain edge to past the horizon with gentle hills (at most ~15 m, like stock), a `#horizon` cylinder 900 m beyond the terrain edge (closer where the ±2000 m limit leaves less room; computed after the placement shift) and `#xtree` card strips (two layers for forest). No collision.
+- **Backdrop** (`wfbuild/backdrop.py`): a far-ground ring from the terrain edge to past the horizon with gentle hills (at most ~15 m, like stock), a `#horizon` cylinder 900 m beyond the terrain edge (closer where the ±2000 m limit leaves less room; computed after the placement shift) and `#xtree` card strips (two layers for forest). No collision. With an imported `seaLevelM` (coastal) a flat `backdrop_sea#lofi` plane with a generated sea texture covers the terrain and far ground at sea level and the far ground stays seabed beyond the real ground; with an imported `horizon` profile the `#horizon` ring is centred on the drivers' eye and carries a generated skyline texture (`<slug>_horizon_c5`, one repeat, u = azimuth).
+- **Imported multi-layout tracks:** the TrackModel's `layouts` (e.g. RealAnglesey International and Coastal) each become a layout scene (`<slug>_race` for the main one, `<slug>_<id>`) sharing the base: the main one drives the main route only, an alternative one a closed route made of main, branch, main (`layout.composite_route`), with its own evenly spaced checkpoints; all share the start/finish line and grid. The events are titled with the layout name.
 - **Reverse layout:** the same geometry driven backwards. The grid uses the forward first-sector stretch facing the other way: the forward back row becomes the pole row, the line moves 4 m behind the new back row, and checkpoint 01 is 10 m past the pole. The other checkpoints run in reverse order. The AI meshes keep forward order with `otherway = true`.
 - **Checkpoints and alternative routes:** a main checkpoint inside an alternative route's bypassed section moves to 20 m after the rejoin, so both ways pass every main checkpoint and no proxy checkpoints are needed.
 - **AI sectors:** ~16 m (8 samples), with forced lines at the junction vertices. Lines are shortened on the inside of tight corners. Any line whose sector wouldn't be a convex, upward-facing quad is dropped. The strip starts on the start line and runs 12 m past it, like the example.
@@ -363,7 +365,7 @@ Shipped besides the scenes: the five generated maps as `data/track/<slug>/textur
 
 The schema's weathers are time-of-day slots. `pipeline/weather.py` maps them per environment preset to stock `.weat` files (listed from the mounted `data/property/weather/`), checking that each exists; a slot falls back to the nearest time of day (morning → sunrise, evening → sunset) or to another family. Paths below are under `data/property/weather/`:
 
-`parkland` uses fields13, then forest11, then fields14 (its slots match farmland's where fields13 has them).
+`parkland` uses fields13, then forest11, then fields14 (its slots match farmland's where fields13 has them). `coastal` uses fields14, then fields13, then gravel1.
 
 | Slot | gravel_pit | farmland | forest | industrial | sandpit |
 |---|---|---|---|---|---|
