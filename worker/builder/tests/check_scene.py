@@ -160,9 +160,16 @@ def check_maps(out: str, model: dict, spec: dict, manifest: dict) -> None:
     j, i = px(pts)
     band = clutter[j, i, 1][(d > 8.0) & (d < 35.0)]
     far = clutter[j, i, 1][d > 100.0]
-    check(len(band) > 20 and float(np.mean(band)) >= 110.0 and (not len(far) or float(np.mean(far)) < 40.0),
-          "maps: clutter grass (G) forms a strong band beside the road and fades out far from it",
-          f"band mean {np.mean(band) if len(band) else 0:.0f}, far {np.mean(far) if len(far) else 0:.0f}")
+    fb = float(np.mean(far)) if len(far) else 0.0
+    check(len(band) > 20 and float(np.mean(band)) >= max(20.0, 3.0 * fb),
+          "maps: clutter grass (G) forms a band beside the road and fades out far from it",
+          f"band mean {np.mean(band) if len(band) else 0:.0f}, far {fb:.0f}")
+    # the whole mask within the stock clutter budget (more crashed the game: "Out of vertex buffer memory")
+    from wfbuild.maps import clutter_density
+    ha, local = clutter_density(clutter[:, :, :3] / 255.0, size)
+    check(ha <= C.CLUTTER_MAX_HA + 0.05 and local <= C.CLUTTER_MAX_LOCAL + 0.005,
+          "maps: clutter mask within the stock budget",
+          f"{ha:.1f} ha at full density (max {C.CLUTTER_MAX_HA}), 400 m window max {local:.3f} (max {C.CLUTTER_MAX_LOCAL})")
     sw = geo.surface_switches()
     if sw:
         before, inside = [], []
