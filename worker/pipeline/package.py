@@ -87,6 +87,16 @@ def package(spec: dict, manifest: dict, preview_svg: str, project: str, sizes: d
     src_track = os.path.join(project, *track_rel)
     for scene in sizes:
         shutil.copyfile(os.path.join(src_track, f"{scene}.scne"), p(*track_rel, f"{scene}.scne"))
+    # Generated blend/colour/clutter maps (bimage'd by the pipeline); the materials reference them by mod path
+    tex_dir = os.path.join(src_track, "textures")
+    if os.path.isdir(tex_dir):
+        for name in sorted(os.listdir(tex_dir)):
+            if name.endswith(".bmap"):
+                shutil.copyfile(os.path.join(tex_dir, name), p(*track_rel, "textures", name))
+    # The scenery placement manifest (for the web preview), beside the zip
+    scenery = os.path.join(work, "scenes", "scenery.json")
+    if os.path.isfile(scenery):
+        shutil.copyfile(scenery, os.path.join(out_dir, "scenery.json"))
 
     # .tcat uploads beside their layout .scne
     tcat_report = {}

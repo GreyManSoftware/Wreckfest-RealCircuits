@@ -25,9 +25,83 @@ from mathutils.bvhtree import BVHTree
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 from wfbuild import config as C
+from wfbuild import envs
 
 WF = os.environ.get("WRECKFEST_DIR", "/wreckfest")
 failures: list[str] = []
+ENGINE_TAGS = {"blend", "decal", "noshadow", "lofi", "horizon", "xtree"}  # shader / render tags used here
+GRID_EXEMPT = {"gantry", "flags", "staff", "grandstand"}
+
+
+def no_collision(name: str) -> bool:
+    return name == "#static_cube_map" or name == "track_edges" or name.startswith("backdrop_")
+
+
+def known_tag(t: str) -> bool:
+    return (t in C.VALID_SURFACES or t in ENGINE_TAGS or (t.startswith("priority") and t[8:].isdigit())
+            or os.path.isfile(os.path.join(WF, "data/scene/surface", t + ".suse")))
+
+
+def texture_ok(p: str, out: str) -> bool:
+    """A Blender image path resolves: a stock .bmap in the install, or a generated map under OUT/mod."""
+    low = p.replace("\\", "/")
+    if "/data/" not in low.lower():
+        return False
+    rel = low[low.lower().index("/data/") + 1:]
+    if rel.startswith("data/track/"):
+        return os.path.isfile(os.path.join(out, "mod", rel)) and rel.endswith(".tga")
+    return os.path.isfile(os.path.join(WF, rel[:-4] + ".bmap"))
+
+
+def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: int) -> None:
+    """scenery.json: matches the props in the base scene, assets fit the environment, and nothing stands on a
+    road, run-off, the grid sector, a bridge or a jump landing (recomputed here from the TrackModel)."""
+    from wfbuild.dressing import Planner
+    from wfbuild.fields import exact_edge_distance
+    from wfbuild.geometry import TrackGeometry
+
+    sc = load_json(os.path.join(out, "scenery.json"))
+    P = sc["placements"]
+    check(len(P) == n_props and sc["total"] == n_props, "scenery: placements match the base scene's prop subscenes",
+          f"{len(P)} placements, {n_props} subscenes")
+    geo = TrackGeometry(model, spec)
+    pl = Planner(geo)
+    bad_env = sorted({p["asset"] for p in P} - pl.allowed)
+    check(not bad_env, f"scenery: only assets allowed for {pl.env_name}", ", ".join(bad_env))
+    if not P:
+        return
+    xy = np.array([p["position"][:2] for p in P])
+    cats = [p["category"] for p in P]
+    d = exact_edge_distance(geo, xy)
+    on_road = [f"{p['asset']} {d[k]:.1f} m" for k, p in enumerate(P)
+               if p["category"] != "gantry" and d[k] < pl.edge_min - 1.3]
+    check(not on_road, "scenery: nothing but the gantry within the road/run-off clearance",
+          f"clearance {pl.edge_min - 1.0:.1f} m; {on_road[:3]}")
+    ex = np.array([c in GRID_EXEMPT for c in cats])
+    hit = pl.in_nogo(xy, 0.0, False) & ~ex
+    hit |= pl.in_nogo(xy, 0.0, True) & ex
+    check(not hit.any(), "scenery: no-go zones (grid sector, bridge decks/ramps, jump landings) are clear",
+          ", ".join(f"{P[k]['asset']}" for k in np.nonzero(hit)[0][:3]))
+    x0, x1, y0, y1 = geo.extent
+    outside = [P[k]["asset"] for k in range(len(P)) if not (x0 <= xy[k, 0] <= x1 and y0 <= xy[k, 1] <= y1)]
+    check(not outside, "scenery: every placement on the terrain", ", ".join(outside[:3]))
+    gantry = [p for p in P if p["category"] == "gantry"]
+    sp = [k for k, c in enumerate(cats) if c == "spectators"]
+    if sp:
+        # standing spectators face the road with local +Y: the nearest road point lies within 60 deg of +Y
+        roads = geo.index.xy
+        bad = 0
+        for k in sp:
+            j = int(np.argmin(np.hypot(*(roads - xy[k]).T)))
+            to = roads[j] - xy[k]
+            yaw = P[k]["yaw"]
+            fy = np.array([-math.sin(yaw), math.cos(yaw)])
+            if np.dot(fy, to) / max(np.linalg.norm(to), 1e-9) < 0.5:
+                bad += 1
+        check(bad <= max(2, len(sp) // 20), "scenery: standing spectators face the road (local +Y)",
+              f"{bad} of {len(sp)} facing away")
+    check(len(gantry) <= 1, "scenery: at most one start/finish gantry", f"{len(gantry)}")
+    print(f"INFO scenery: {sc['total']} placements {sc['counts']}")
 
 
 def check(ok: bool, what: str, detail: str = "") -> bool:
@@ -96,34 +170,80 @@ def check_base(out: str, slug: str, model: dict, spec: dict, manifest: dict) -> 
     for c in bridges:
         check(f"bridge_{c['id']}_deck" in obs and f"bridge_{c['id']}_barriers" in obs,
               f"base: bridge {c['id']} deck and barriers exist")
-    # collision: every solid/drivable mesh has the String property CustomData containing col = true
-    bad = [o.name for o in meshes if o.name != "#static_cube_map"
+    # collision: every solid/drivable mesh has the String property CustomData containing col = true; the edge
+    # decal and the backdrop have none
+    nocol = [o for o in meshes if no_collision(o.name)]
+    bad = [o.name for o in meshes if not no_collision(o.name)
            and not (isinstance(o.get("CustomData"), str) and "col = true" in o["CustomData"])]
-    check(not bad, "base: every mesh has CustomData 'col = true' (String)", ", ".join(bad[:5]))
-    # materials
+    check(not bad, "base: every solid mesh has CustomData 'col = true' (String)", ", ".join(bad[:5]))
+    check(not [o.name for o in nocol if "col = true" in str(o.get("CustomData", ""))],
+          "base: edge decal and backdrop have no collision", f"{len(nocol)} objects")
+    # materials: name#tag#... with a valid surface on solid meshes and only known tags
     bad_mats, missing_tex = [], []
     for o in meshes:
         for m in o.data.materials:
-            parts = m.name.split("#")
-            if o.name != "#static_cube_map" and (len(parts) < 2 or parts[1] not in C.VALID_SURFACES):
+            tags = m.name.split("#")[1:]
+            unknown = [t for t in tags if not known_tag(t)]
+            if unknown or (not no_collision(o.name) and not any(t in C.VALID_SURFACES for t in tags)):
                 bad_mats.append(m.name)
             if m.node_tree:
                 for nd in m.node_tree.nodes:
-                    if nd.type == "TEX_IMAGE" and nd.image:
-                        p = nd.image.filepath
-                        rel = p[p.lower().index("/data/") + 1:] if "/data/" in p.lower() else p
-                        bm = os.path.join(WF, rel[:-4] + ".bmap")
-                        if not (rel.startswith("data/") and os.path.isfile(bm)):
-                            missing_tex.append(p)
-    check(not bad_mats, "base: materials are name#surface with a valid surface", ", ".join(sorted(set(bad_mats))))
-    check(not missing_tex, "base: textures reference existing stock game textures", ", ".join(sorted(set(missing_tex))))
-    # props
+                    if nd.type == "TEX_IMAGE" and nd.image and not texture_ok(nd.image.filepath, out):
+                        missing_tex.append(nd.image.filepath)
+    check(not bad_mats, "base: materials are name#tags with a valid surface on solid meshes and known tags",
+          ", ".join(sorted(set(bad_mats))))
+    check(not missing_tex, "base: textures resolve (stock .bmap, or a generated map in the mod)",
+          ", ".join(sorted(set(missing_tex))[:5]))
+    # #blend materials: 12-slot layout (stock), maps on UV2
+    env = envs.env_name(opts.get("environment"))
+    blends = {m.name: m for o in meshes for m in o.data.materials if "#blend" in m.name}
+    slots_ok = []
+    for name, m in blends.items():
+        g = next((n for n in m.node_tree.nodes if n.type == "GROUP" and "#" in n.node_tree.name), None)
+        linked = [k for k, s in enumerate(g.inputs) if s.is_linked] if g else []
+        uv2 = set()
+        for k in (6, 8, 9):
+            if g and g.inputs[k].is_linked:
+                img = g.inputs[k].links[0].from_node
+                mp = img.inputs["Vector"].links[0].from_node if img.inputs["Vector"].is_linked else None
+                uvn = mp.inputs["Vector"].links[0].from_node if mp and mp.inputs["Vector"].is_linked else None
+                if uvn is not None and "2" in uvn.uv_map:
+                    uv2.add(k)
+        slots_ok.append(set(range(10)) <= set(linked) and uv2 == {6, 8, 9})
+    check(len(blends) >= 3 and all(slots_ok), "base: road/verge/terrain use stock-layout #blend materials "
+          "(slots 0-9, blend/macro/colour maps on UV2)", f"{sorted(blends)}")
+    # UVs: Wreckfest stores them as int16 / 2048 -> every UV within +-16; UV2 (maps) within 0..1
+    worst_uv, uv2_bad, uv2_missing = 0.0, [], []
+    for o in meshes:
+        layers = o.data.uv_layers
+        for k, lay in enumerate(layers):
+            if not len(lay.data):
+                continue
+            uv = np.empty(len(lay.data) * 2)
+            lay.data.foreach_get("uv", uv)
+            worst_uv = max(worst_uv, float(np.abs(uv).max()))
+            if k == 1 and (uv.min() < -1e-4 or uv.max() > 1 + 1e-4):
+                uv2_bad.append(o.name)
+        if any("#blend" in m.name for m in o.data.materials) and len(layers) < 2:
+            uv2_missing.append(o.name)
+    check(worst_uv < 16.0, "base: every UV within +-16 (int16 / 2048 storage)", f"max |uv| {worst_uv:.2f}")
+    check(not uv2_bad and not uv2_missing, "base: #blend meshes have UV2 within 0..1",
+          f"outside {uv2_bad[:3]}, missing {uv2_missing[:3]}")
+    # backdrop: far ground, horizon, cards (per environment)
+    e = envs.env(env)
+    want_cards = bool(e.get("treeCards")) or bool(e.get("skylineCards"))
+    cards = [n for n in obs if n.startswith("backdrop_cards_")]
+    check("backdrop_ground#lofi" in obs and "backdrop_horizon#lofi" in obs and (bool(cards) == want_cards),
+          "base: backdrop far ground, #horizon and background cards (per environment)", f"{len(cards)} card strips")
+    # props: stock subscenes allowed for this environment, existing in the game
     props = [o for o in obs.values() if o.name.startswith("#xref ")]
     names = sorted({re.sub(r"\.\d+$", "", o.name)[len("#xref ob/"):-len(".scne")] for o in props})
-    allowed = set(C.PROPS[opts.get("environment", "gravel_pit")])
-    check(len(props) > 0 and set(names) <= allowed, "base: props are preset stock subscenes", f"{len(props)} props, {names}")
+    allowed = envs.allowed_assets(env)
+    check(len(props) > 0 and set(names) <= allowed, f"base: props are stock subscenes allowed for {env}",
+          f"{len(props)} props, {len(names)} kinds; not allowed: {sorted(set(names) - allowed)}")
     missing = [n for n in names if not os.path.isfile(os.path.join(WF, "data/art/objects", n + ".scne"))]
     check(not missing, "base: every prop exists in the game data", ", ".join(missing))
+    check_scenery(out, model, spec, manifest, len(props))
     # bounds
     worst = max(float(np.abs(world_verts(o)[:, :2]).max()) for o in meshes if len(o.data.vertices))
     check(worst <= C.LIMIT_M, "base: all vertices within +-2000 m", f"max |x|,|y| = {worst:.1f} m")
