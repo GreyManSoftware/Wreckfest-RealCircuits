@@ -9,6 +9,7 @@ internal FastAPI geometry service and the Blender worker, and runs without Blend
 py -m venv .venv
 $env:PIP_CACHE_DIR = 'E:\Source\wreckfest\.local\pip-cache'
 .\.venv\Scripts\python -m pip install -e ".[service,test]"
+.\.venv\Scripts\python -m pip install -e ..\worker\builder   # wfbuild: the scenery planner behind POST /scenery
 .\.venv\Scripts\python -m pytest            # writes previews to tests\output\ (gitignored)
 .\.venv\Scripts\python -m uvicorn trackgen_geom.service:app --port 8000   # see "Service" below
 ```
@@ -174,6 +175,15 @@ doesn't call it: it installs this package and calls `build_track_model` directly
 | `POST /validate` | `{"spec": TrackSpec}` | `{version, valid, facts, ruleResult, warnings, errors}` |
 | `POST /preview` | `{"spec": TrackSpec}` | `/validate` plus `svg` (top-down), `elevationSvg` and `modelSummary` |
 | `POST /model` | `{"spec": TrackSpec}` | `/validate` plus `model` (the full TrackModel) and `terrain` (below). The API proxies it for the editor's 3D view. |
+| `POST /scenery` | `{"spec": TrackSpec}` | `{version, scenery}`: the builder's scenery plan (below). Not part of `/model` because it takes 0.3-3 s. |
+
+- **`scenery`** (`trackgen_geom.scenery.plan_scenery`): the worker's own planner, `wfbuild.dressing`, run on the
+  model, so it is the same `trackgen-scenery/1` manifest a build writes to `scenery.json`
+  (`worker/docs/scenery-manifest.md`), in TrackModel coordinates (identity `transform`), plus `warnings`.
+  `wfbuild` comes from `worker/builder` as the `trackgen-wfbuild` package (`worker/builder/pyproject.toml`, numpy
+  only, with `environments.json`); the Dockerfile gets it through the `wfbuild` build context
+  (`docker build --build-context wfbuild=worker/builder geom`; Compose passes it). Without it `/scenery` is 503
+  `scenery-unavailable`. The build and the plan share `GEOM_COMPUTE_TIMEOUT_S`.
 
 - **`terrain`** (`trackgen_geom.terrain.terrain_grid`): `{originX, originY, cellM, nx, ny, z}`, heights on a
   regular grid over the road bounds plus the terrain margin (`z[j*(nx+1)+i]` at `originX+i*cellM`,

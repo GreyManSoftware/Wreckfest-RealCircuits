@@ -1,0 +1,22 @@
+# Packaging for the builder's pure-numpy modules, so the geometry service can import the scenery planner
+# (wfbuild.dressing) without copying it. The worker runs wfbuild from source inside Blender and does not use
+# this file. `bscene.py` (the only bpy module) ships too but is never imported outside Blender.
+#   pip install -e worker/builder        # local geom venv (see geom/README.md)
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "trackgen-wfbuild"
+dynamic = ["version"]
+description = "Wreckfest Track Generator builder modules (pure numpy part: geometry, scenery planner)."
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.24"]
+
+[tool.hatch.version]
+path = "wfbuild/__init__.py"
+pattern = 'BUILDER_VERSION = "(?P<version>[^"]+)"'
+
+[tool.hatch.build.targets.wheel]
+packages = ["wfbuild"]
+# environments.json lives inside the package directory, so it is included with it.

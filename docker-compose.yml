@@ -39,6 +39,9 @@ services:
   geom:
     build:
       context: geom
+      # The builder's pure-numpy scenery planner (worker/builder/wfbuild) for POST /scenery; see geom/Dockerfile.
+      additional_contexts:
+        wfbuild: worker/builder
     image: trackgen-geom:dev
     # Internal service: the api reaches it as http://geom:8000. The localhost-only port is for running the API
     # outside Compose (`dotnet run`, where GEOM_URL defaults to http://localhost:8000); it is never exposed beyond
