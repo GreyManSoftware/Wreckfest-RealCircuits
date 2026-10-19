@@ -466,7 +466,8 @@ def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manife
     worst = 0.0
     n = len(zs)
     for v in world_verts(c):
-        k = int(np.argmin(np.hypot(*(zs[:, :2] - v[:2]).T)))
+        # nearest sample, ignoring the other level at a bridge (the strip passes over or under it)
+        k = int(np.argmin(np.hypot(*(zs[:, :2] - v[:2]).T) + 100.0 * (np.abs(zs[:, 2] - v[2]) > 3.0)))
         j = min(((k - 1) % n, (k + 1) % n), key=lambda q: float(np.hypot(*(zs[q, :2] - v[:2]))))
         seg = zs[j, :2] - zs[k, :2]
         f = float(np.clip(np.dot(v[:2] - zs[k, :2], seg) / max(float(np.dot(seg, seg)), 1e-9), 0.0, 1.0))
