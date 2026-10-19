@@ -103,7 +103,9 @@
       "crossing-annotation-matches"
     ],
     "disabled": [],
-    "hidden": [],
+    "hidden": [
+      "elevation=imported"
+    ],
     "flags": [],
     "deferred": []
   }

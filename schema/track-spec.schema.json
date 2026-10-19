@@ -219,6 +219,113 @@
         }
       }
     },
+    "ImportedPoint": {
+      "title": "Imported centreline point",
+      "description": "A point of an imported centreline in metres: x east, y north, z up (relative to datumM), and the road's cross-slope.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z", "bankDeg"],
+      "properties": {
+        "x": { "type": "number", "minimum": -2000, "maximum": 2000 },
+        "y": { "type": "number", "minimum": -2000, "maximum": 2000 },
+        "z": { "type": "number", "minimum": -200, "maximum": 500 },
+        "bankDeg": {
+          "title": "Camber (degrees)",
+          "description": "Cross-slope: positive raises the driver's left edge above the right one.",
+          "type": "number",
+          "minimum": -30,
+          "maximum": 30
+        }
+      }
+    },
+    "MetrePoint": {
+      "title": "Point (metres)",
+      "description": "A point in the imported track's frame: metres, x east, y north.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    },
+    "Heightfield": {
+      "title": "Heightfield",
+      "description": "Ground heights at the nodes of a regular grid, in the imported track's frame and datum: z[j * (nx + 1) + i] is at x = originX + i * cellM, y = originY + j * cellM.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["originX", "originY", "cellM", "nx", "ny", "z"],
+      "properties": {
+        "originX": { "type": "number" },
+        "originY": { "type": "number" },
+        "cellM": { "type": "number", "minimum": 1, "maximum": 50 },
+        "nx": { "description": "Cells along x (nx + 1 nodes).", "type": "integer", "minimum": 1, "maximum": 1000 },
+        "ny": { "description": "Cells along y (ny + 1 nodes).", "type": "integer", "minimum": 1, "maximum": 1000 },
+        "z": { "type": "array", "minItems": 4, "maxItems": 250000, "items": { "type": "number" } }
+      }
+    },
+    "WoodlandArea": {
+      "title": "Woodland area",
+      "description": "A woodland polygon (metres, imported frame): the builder plants its trees inside it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["points"],
+      "properties": {
+        "points": { "type": "array", "minItems": 3, "maxItems": 2000, "items": { "$ref": "#/$defs/MetrePoint" } }
+      }
+    },
+    "NamedSpot": {
+      "title": "Named spot",
+      "description": "A named place along the imported centreline.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sM"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "sM": {
+          "description": "Distance along the centreline from point 0 (the start/finish line), metres.",
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "ImportedTrack": {
+      "title": "Imported track",
+      "description": "A real-world track: the exact centreline (closed, in driving order, point 0 on the start/finish line) with per-point heights and camber, plus optionally the surrounding terrain, woodland and named places. It replaces the drawn main loop, and the lap length is the centreline's.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "centreline"],
+      "properties": {
+        "source": { "title": "Source", "description": "Data sources and attribution.", "type": "string", "maxLength": 1000 },
+        "datumM": { "description": "Height above sea level of z = 0 (informational).", "type": "number" },
+        "centreline": {
+          "description": "Closed centreline, points about 1-10 m apart; don't repeat the first point.",
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/ImportedPoint" }
+        },
+        "terrain": {
+          "$ref": "#/$defs/Heightfield",
+          "description": "The surrounding ground. Without it the ground away from the road is level at the mean road height."
+        },
+        "woodland": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/WoodlandArea" }, "default": [] },
+        "corners": {
+          "description": "Corner and section names (labels).",
+          "type": "array",
+          "maxItems": 60,
+          "items": { "$ref": "#/$defs/NamedSpot" },
+          "default": []
+        },
+        "viewingSpots": {
+          "description": "Where spectators gather.",
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/NamedSpot" },
+          "default": []
+        }
+      }
+    },
     "Sketch": {
       "title": "Sketch",
       "description": "The drawn layout, in canvas coordinates. The geometry service turns it into a spline scaled to the lap length.",
@@ -256,6 +363,10 @@
           "maxItems": 40,
           "items": { "$ref": "#/$defs/ElevationMarker" },
           "default": []
+        },
+        "imported": {
+          "$ref": "#/$defs/ImportedTrack",
+          "description": "A real-world track (tools/import_real_track.py). Replaces the drawn main loop; use elevation \"imported\"."
         }
       }
     },
@@ -272,15 +383,15 @@
     },
     "Elevation": {
       "title": "Elevation",
-      "description": "flat, gentle and hilly are seeded terrain presets (height markers add bumps on top); custom is flat ground shaped only by the height markers.",
+      "description": "flat, gentle and hilly are seeded terrain presets (height markers add bumps on top); custom is flat ground shaped only by the height markers; imported takes the road heights, camber and terrain from sketch.imported (real tracks).",
       "type": "string",
-      "enum": ["flat", "gentle", "hilly", "custom"]
+      "enum": ["flat", "gentle", "hilly", "custom", "imported"]
     },
     "Environment": {
       "title": "Environment",
-      "description": "Environment preset (stock textures and props).",
+      "description": "Environment preset (stock textures and props). parkland: lush grass, deciduous woods and grass banks.",
       "type": "string",
-      "enum": ["gravel_pit", "farmland", "forest", "industrial", "sandpit"]
+      "enum": ["gravel_pit", "farmland", "forest", "industrial", "sandpit", "parkland"]
     },
     "Weather": {
       "title": "Weather",
@@ -493,12 +604,22 @@
           "additionalProperties": { "$ref": "#/$defs/ElevationMarkerFacts" }
         },
         "gridMaxGradePct": {
-          "description": "Steepest grade (%) of the marker-defined height profile within the grid area (custom: the whole profile; presets: the markers' bumps).",
+          "description": "Steepest grade (%) of the marker-defined height profile within the grid area (custom: the whole profile; presets: the markers' bumps; imported: the road).",
           "type": "number",
           "minimum": 0
         },
         "heightRangeM": {
           "description": "Highest minus lowest road surface height over all routes.",
+          "type": "number",
+          "minimum": 0
+        },
+        "maxGradePct": {
+          "description": "Steepest road grade (%) over 10 m of any route (jumps and bridge ramps included).",
+          "type": "number",
+          "minimum": 0
+        },
+        "maxBankDeg": {
+          "description": "Largest road cross-slope (camber or banking), degrees.",
           "type": "number",
           "minimum": 0
         }

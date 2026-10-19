@@ -12,16 +12,119 @@
     "elevationMaxGradePct": 12,
     "elevationGridMaxGradePct": 3,
     "bridgeRampMaxGradePct": 18,
-    "flatCrossingMaxStepM": 0.5
+    "flatCrossingMaxStepM": 0.5,
+    "importedMaxGradePct": 25,
+    "importedMaxBankDeg": 10,
+    "importedGridMaxGradePct": 4
   },
   "rules": [
     {
       "id": "main-loop-required",
       "title": "Main loop required",
-      "description": "A track needs a closed main loop.",
+      "description": "A track needs a closed main loop (or an imported centreline).",
       "evaluatedBy": "engine",
-      "when": { "not": { "exists": { "var": "sketch.mainLoop" } } },
+      "when": {
+        "and": [
+          { "not": { "exists": { "var": "sketch.mainLoop" } } },
+          { "not": { "exists": { "var": "sketch.imported" } } }
+        ]
+      },
       "effect": { "type": "error", "path": "/sketch/mainLoop", "message": "Draw the main loop first." }
+    },
+    {
+      "id": "imported-no-drawn-routes",
+      "title": "Imported tracks aren't drawn on",
+      "description": "An imported track uses its own centreline: no drawn main loop, start/finish, alternative routes, crossings or height markers (jumps are allowed).",
+      "evaluatedBy": "engine",
+      "when": {
+        "and": [
+          { "exists": { "var": "sketch.imported" } },
+          {
+            "or": [
+              { "exists": { "var": "sketch.mainLoop" } },
+              { "exists": { "var": "sketch.startFinish" } },
+              { ">": [{ "len": { "var": "sketch.altRoutes" } }, 0] },
+              { ">": [{ "len": { "var": "sketch.crossings" } }, 0] },
+              { ">": [{ "len": { "var": "sketch.elevationMarkers" } }, 0] }
+            ]
+          }
+        ]
+      },
+      "effect": {
+        "type": "error",
+        "path": "/sketch/imported",
+        "message": "An imported track uses its own centreline: remove the drawn main loop, start/finish, alternative routes, crossings and height markers."
+      }
+    },
+    {
+      "id": "imported-elevation",
+      "title": "Imported tracks keep their real heights",
+      "description": "With an imported centreline the heights, camber and terrain come from the survey data.",
+      "evaluatedBy": "engine",
+      "when": { "exists": { "var": "sketch.imported" } },
+      "effect": {
+        "type": "disable",
+        "option": "elevation",
+        "values": ["flat", "gentle", "hilly", "custom"],
+        "reason": "An imported track's heights and camber come from its survey data (elevation \"imported\")."
+      }
+    },
+    {
+      "id": "elevation-imported-requires-import",
+      "title": "Imported elevation needs an imported track",
+      "evaluatedBy": "engine",
+      "when": { "not": { "exists": { "var": "sketch.imported" } } },
+      "effect": {
+        "type": "hide",
+        "option": "elevation",
+        "values": ["imported"],
+        "reason": "Imported elevation is only for tracks imported from real-world data."
+      }
+    },
+    {
+      "id": "imported-max-grade",
+      "title": "Imported road isn't too steep",
+      "description": "Real tracks keep their real gradients, up to importedMaxGradePct over any 10 m (the drawn-track limits don't apply).",
+      "evaluatedBy": "geometry",
+      "when": { "exists": { "var": "sketch.imported" } },
+      "requiresEach": ["facts.maxGradePct"],
+      "effect": {
+        "type": "require",
+        "assert": { "<=": [{ "var": "facts.maxGradePct" }, { "var": "constants.importedMaxGradePct" }] },
+        "severity": "error",
+        "path": "/sketch/imported/centreline",
+        "message": "The imported road climbs at up to {facts.maxGradePct}% (max {constants.importedMaxGradePct}%)."
+      }
+    },
+    {
+      "id": "imported-max-bank",
+      "title": "Imported camber is drivable",
+      "description": "The largest cross-slope of an imported road is at most importedMaxBankDeg.",
+      "evaluatedBy": "geometry",
+      "when": { "exists": { "var": "sketch.imported" } },
+      "requiresEach": ["facts.maxBankDeg"],
+      "effect": {
+        "type": "require",
+        "assert": { "<=": [{ "var": "facts.maxBankDeg" }, { "var": "constants.importedMaxBankDeg" }] },
+        "severity": "error",
+        "path": "/sketch/imported/centreline",
+        "message": "The imported road is cambered at up to {facts.maxBankDeg} degrees (max {constants.importedMaxBankDeg})."
+      }
+    },
+    {
+      "id": "imported-grid-level",
+      "title": "Imported grid isn't too steep",
+      "description": "On an imported track the road over the grid area may be at most importedGridMaxGradePct steep.",
+      "evaluatedBy": "geometry",
+      "when": { "exists": { "var": "sketch.imported" } },
+      "requiresEach": ["facts.gridMaxGradePct"],
+      "effect": {
+        "type": "require",
+        "assert": { "<=": [{ "var": "facts.gridMaxGradePct" }, { "var": "constants.importedGridMaxGradePct" }] },
+        "severity": "error",
+        "path": "/sketch/imported/centreline/0",
+        "message": "The grid is on a {facts.gridMaxGradePct}% grade (max {constants.importedGridMaxGradePct}%); start the centreline on a flatter stretch."
+      }
     },
     {
       "id": "alt-route-requires-main-loop",
@@ -397,20 +500,25 @@
     {
       "id": "elevation-marker-grade",
       "title": "Height markers aren't too steep",
-      "description": "The sustained grade between a height marker and its neighbouring markers (or the anchors where its bump meets the terrain) must be at most elevationMaxGradePct. Heights are never changed to fit.",
+      "description": "The sustained grade between a height marker and its neighbouring markers (or the anchors where its bump meets the terrain) must be at most elevationMaxGradePct. Heights are never changed to fit. Markers on imported tracks are ignored (imported-no-drawn-routes).",
       "evaluatedBy": "geometry",
       "forEach": { "path": "sketch.elevationMarkers", "as": "marker" },
       "let": { "f": { "get": [{ "var": "facts.elevationMarkers" }, { "var": "$marker.id" }] } },
       "when": {
-        "or": [
-          { "not": { "exists": { "var": "$marker.route" } } },
-          { "==": [{ "var": "$marker.route" }, "main"] },
+        "and": [
+          { "not": { "exists": { "var": "sketch.imported" } } },
           {
-            "any": {
-              "over": { "var": "sketch.altRoutes" },
-              "as": "r",
-              "where": { "==": [{ "var": "$r.id" }, { "var": "$marker.route" }] }
-            }
+            "or": [
+              { "not": { "exists": { "var": "$marker.route" } } },
+              { "==": [{ "var": "$marker.route" }, "main"] },
+              {
+                "any": {
+                  "over": { "var": "sketch.altRoutes" },
+                  "as": "r",
+                  "where": { "==": [{ "var": "$r.id" }, { "var": "$marker.route" }] }
+                }
+              }
+            ]
           }
         ]
       },
@@ -430,15 +538,20 @@
       "forEach": { "path": "sketch.elevationMarkers", "as": "marker" },
       "let": { "f": { "get": [{ "var": "facts.elevationMarkers" }, { "var": "$marker.id" }] } },
       "when": {
-        "or": [
-          { "not": { "exists": { "var": "$marker.route" } } },
-          { "==": [{ "var": "$marker.route" }, "main"] },
+        "and": [
+          { "not": { "exists": { "var": "sketch.imported" } } },
           {
-            "any": {
-              "over": { "var": "sketch.altRoutes" },
-              "as": "r",
-              "where": { "==": [{ "var": "$r.id" }, { "var": "$marker.route" }] }
-            }
+            "or": [
+              { "not": { "exists": { "var": "$marker.route" } } },
+              { "==": [{ "var": "$marker.route" }, "main"] },
+              {
+                "any": {
+                  "over": { "var": "sketch.altRoutes" },
+                  "as": "r",
+                  "where": { "==": [{ "var": "$r.id" }, { "var": "$marker.route" }] }
+                }
+              }
+            ]
           }
         ]
       },
@@ -560,7 +673,7 @@
       "title": "Sand only in sandy presets",
       "description": "Provisional: sand surfaces are only offered in the sandpit and gravel pit presets.",
       "evaluatedBy": "engine",
-      "when": { "in": [{ "var": "options.environment" }, ["farmland", "forest", "industrial"]] },
+      "when": { "in": [{ "var": "options.environment" }, ["farmland", "forest", "industrial", "parkland"]] },
       "effect": {
         "type": "disable",
         "option": "surface",

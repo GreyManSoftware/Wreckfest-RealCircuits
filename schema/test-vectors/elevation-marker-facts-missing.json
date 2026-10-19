@@ -90,7 +90,9 @@
     "errors": [],
     "warnings": [],
     "disabled": [],
-    "hidden": [],
+    "hidden": [
+      "elevation=imported"
+    ],
     "flags": [],
     "deferred": [
       "elevation-marker-grade",

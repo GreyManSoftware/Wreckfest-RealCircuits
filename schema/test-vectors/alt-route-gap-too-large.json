@@ -108,7 +108,9 @@
     ],
     "warnings": [],
     "disabled": [],
-    "hidden": [],
+    "hidden": [
+      "elevation=imported"
+    ],
     "flags": [],
     "deferred": [
       "bridge-ramp-length",

@@ -128,7 +128,9 @@
     ],
     "warnings": [],
     "disabled": [],
-    "hidden": [],
+    "hidden": [
+      "elevation=imported"
+    ],
     "flags": [],
     "deferred": []
   }
