@@ -425,6 +425,18 @@ def cameras(stock: bool, man, target: str, objs) -> dict:
     # (far ground, background cards and the #horizon ring show, as they do in game from a crest)
     views = {"oblique": ((c[0] - 0.55 * R, c[1] - 0.75 * R, c[2] + 0.42 * R), (c[0], c[1] + 0.35 * R, c[2]), 30.0),
              "horizon": horizon_camera(c, R)}
+    # keep the horizon camera 12 m above any ground within 150 m (real ground can rise above the terrain's middle)
+    loc, look, lens = views["horizon"]
+    near = []
+    for o in objs:
+        if o.type == "MESH" and (o.name.startswith("terrain") or o.name.startswith("backdrop_ground")):
+            v = np.array([o.matrix_world @ vv.co for vv in o.data.vertices])
+            if len(v):
+                near.append(v[np.hypot(v[:, 0] - loc[0], v[:, 1] - loc[1]) < 150.0, 2])
+    top = max((float(z.max()) for z in near if len(z)), default=-1e9)
+    if top + 12.0 > loc[2]:
+        dz = top + 12.0 - loc[2]
+        views["horizon"] = ((loc[0], loc[1], loc[2] + dz), (look[0], look[1], look[2] + dz), lens)
     if stock:
         sp = next((o for o in objs if o.name.startswith("#startpoint01")), None)
         out = dict(views)
@@ -447,8 +459,21 @@ def cameras(stock: bool, man, target: str, objs) -> dict:
     h = pole["heading"] + math.radians(rot)
     fwd = np.array([math.cos(h), math.sin(h), 0.0])
     p = tp(pole["position"])
-    return {**views,
-            "driver": (tuple(p - fwd * 7 + np.array([0, 0, 2.2])), tuple(p + fwd * 60 + np.array([0, 0, 0.5])), 24.0)}
+    out = {**views,
+           "driver": (tuple(p - fwd * 7 + np.array([0, 0, 2.2])), tuple(p + fwd * 60 + np.array([0, 0, 0.5])), 24.0)}
+    # extra driver views along the main route: RENDER_DRIVER_AT="mountain=2580,hallbends=2900" (name=metres from
+    # the start line), 2.2 m above the road centre looking at the road 60 m ahead
+    main = next(r for r in model["routes"] if r["aiIndex"] == 0)
+    smp = main["samples"]
+    s_all = np.array([q["s"] for q in smp])
+    for item in filter(None, os.environ.get("RENDER_DRIVER_AT", "").split(",")):
+        name, _, s_txt = item.partition("=")
+        s0 = float(s_txt) % main["lengthM"]
+        i = int(np.argmin(np.abs(s_all - s0)))
+        j = int(np.argmin(np.abs(s_all - (s0 + 60.0) % main["lengthM"])))
+        a, b = tp([smp[i]["x"], smp[i]["y"], smp[i]["z"]]), tp([smp[j]["x"], smp[j]["y"], smp[j]["z"]])
+        out[f"driver-{name.strip()}"] = (tuple(a + np.array([0, 0, 2.2])), tuple(b + np.array([0, 0, 0.8])), 24.0)
+    return out
 
 
 def main() -> None:

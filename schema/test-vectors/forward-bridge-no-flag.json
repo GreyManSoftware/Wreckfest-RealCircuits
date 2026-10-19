@@ -92,7 +92,9 @@
     "errors": [],
     "warnings": [],
     "disabled": [],
-    "hidden": [],
+    "hidden": [
+      "elevation=imported"
+    ],
     "flags": [],
     "deferred": [
       "alt-route-joins-main-loop",

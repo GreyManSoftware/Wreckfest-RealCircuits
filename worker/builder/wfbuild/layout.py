@@ -93,7 +93,8 @@ class LayoutBuilder:
         hl, hr = self._halfwidths(r, i, kind)
         c = r.p[i]
         n = np.append(r.nl[i], 0.0)
-        return c + n * hl, c - n * hr
+        up = np.array([0.0, 0.0, float(r.slope[i])])  # follow the camber (imported tracks)
+        return c + n * hl + up * hl, c - n * hr - up * hr
 
     @staticmethod
     def _quad_ok(a: tuple[np.ndarray, np.ndarray], b: tuple[np.ndarray, np.ndarray]) -> bool:
@@ -229,7 +230,8 @@ class LayoutBuilder:
         n = np.append(r.nl[i], 0.0)
         mesh = Mesh(name, "", kind="checkpoint")
         mesh.origin = tuple(c)
-        a, b = c + n * hl, c - n * hr
+        up = np.array([0.0, 0.0, float(r.slope[i])])  # the plane's foot follows the camber
+        a, b = c + n * hl + up * hl, c - n * hr - up * hr
         lo, hi = -C.CHECKPOINT_BELOW, C.CHECKPOINT_ABOVE
         ids = (mesh.vert(a + (0, 0, lo)), mesh.vert(b + (0, 0, lo)), mesh.vert(b + (0, 0, hi)), mesh.vert(a + (0, 0, hi)))
         fwd = np.append(r.tangent[i] * direction, 0.0)

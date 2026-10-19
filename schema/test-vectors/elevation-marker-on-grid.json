@@ -98,7 +98,9 @@
       "elevation-marker-on-feature"
     ],
     "disabled": [],
-    "hidden": [],
+    "hidden": [
+      "elevation=imported"
+    ],
     "flags": [],
     "deferred": []
   }

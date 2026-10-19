@@ -83,7 +83,10 @@ ELEVATION_LEVELS: Mapping[str, ElevationLevel] = {
     "gentle": ElevationLevel(3.0, 250.0, 600.0, 0.04),
     "hilly": ElevationLevel(10.0, 180.0, 450.0, 0.09),
     "custom": ElevationLevel(0.0, 1.0, 1.0, 0.0),  # flat ground; the height markers shape the road
+    "imported": ElevationLevel(0.0, 1.0, 1.0, 0.0),  # the road is the imported centreline's z (real tracks)
 }
+GRADE_BASELINE_M = 10.0  # fact maxGradePct: steepest height change over this distance along a route
+IMPORTED_LAP_TOLERANCE = 0.02  # warn when options.lapLengthKm differs from an imported centreline by more
 NOISE_COMPONENTS = 6
 
 # --- Height markers --------------------------------------------------------------------------

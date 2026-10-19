@@ -75,7 +75,9 @@
     "errors": [],
     "warnings": [],
     "disabled": [],
-    "hidden": [],
+    "hidden": [
+      "elevation=imported"
+    ],
     "flags": [],
     "deferred": [
       "crossing-annotation-matches",

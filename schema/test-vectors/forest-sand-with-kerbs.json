@@ -74,6 +74,7 @@
       "surface=sand"
     ],
     "hidden": [
+      "elevation=imported",
       "kerbs=true"
     ],
     "flags": [],

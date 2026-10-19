@@ -1,0 +1,31 @@
+{
+  "description": "Recipe for tools/import_real_track.py: the Cadwell Park full circuit (Louth, Lincolnshire, UK).",
+  "slug": "realcadwell",
+  "name": "RealCadwell",
+  "trackDescription": "Cadwell Park full circuit (3.48 km) from OpenStreetMap, with heights, camber and terrain from the Environment Agency LIDAR Composite DTM (1 m). Wooded parkland in the Lincolnshire Wolds.",
+  "bbox": [53.300, -0.085, 53.320, -0.045],
+  "terrainMarginM": 400,
+  "lap": [
+    396423020, 396423009, 396423011, 396423007, 396423014, 396423015, 396423008,
+    396423016, 396423013, 396423019, 396423018, 396423012, 396423017, 396423006
+  ],
+  "lapNames": {
+    "396423020": "Start/finish straight",
+    "396423019": "Woodland"
+  },
+  "startFinish": { "alongWay": 117976650, "fraction": 0.5, "note": "Estimated: level with the middle of the pit lane on the pit straight." },
+  "publishedLapLengthM": 3477,
+  "widthM": 9.5,
+  "clockwise": true,
+  "viewingSpots": ["The Mountain", "The Hairpin", "Hall Bends"],
+  "options": {
+    "surface": "tarmac",
+    "kerbs": true,
+    "walls": "tyres",
+    "environment": "parkland",
+    "gridSize": 16,
+    "weathers": ["morning", "midday", "afternoon"],
+    "reverseLayout": false,
+    "defaultLaps": 5
+  }
+}

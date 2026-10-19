@@ -42,22 +42,24 @@ class Walls(StrEnum):
 
 
 class Elevation(StrEnum):
-    """flat, gentle and hilly are seeded terrain presets (height markers add bumps on top); custom is flat ground shaped only by the height markers."""
+    """flat, gentle and hilly are seeded terrain presets (height markers add bumps on top); custom is flat ground shaped only by the height markers; imported takes the road heights, camber and terrain from sketch.imported (real tracks)."""
 
     FLAT = "flat"
     GENTLE = "gentle"
     HILLY = "hilly"
     CUSTOM = "custom"
+    IMPORTED = "imported"
 
 
 class Environment(StrEnum):
-    """Environment preset (stock textures and props)."""
+    """Environment preset (stock textures and props). parkland: lush grass, deciduous woods and grass banks."""
 
     GRAVEL_PIT = "gravel_pit"
     FARMLAND = "farmland"
     FOREST = "forest"
     INDUSTRIAL = "industrial"
     SANDPIT = "sandpit"
+    PARKLAND = "parkland"
 
 
 class Weather(StrEnum):
@@ -372,6 +374,167 @@ class ElevationMarker:
 
 
 @dataclass(kw_only=True)
+class ImportedPoint:
+    """A point of an imported centreline in metres: x east, y north, z up (relative to datumM), and the road's cross-slope."""
+
+    x: float
+    y: float
+    z: float
+    bank_deg: float
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> ImportedPoint:
+        return cls(
+            x=float(data["x"]),
+            y=float(data["y"]),
+            z=float(data["z"]),
+            bank_deg=float(data["bankDeg"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["x"] = self.x
+        out["y"] = self.y
+        out["z"] = self.z
+        out["bankDeg"] = self.bank_deg
+        return out
+
+
+@dataclass(kw_only=True)
+class MetrePoint:
+    """A point in the imported track's frame: metres, x east, y north."""
+
+    x: float
+    y: float
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> MetrePoint:
+        return cls(
+            x=float(data["x"]),
+            y=float(data["y"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["x"] = self.x
+        out["y"] = self.y
+        return out
+
+
+@dataclass(kw_only=True)
+class Heightfield:
+    """Ground heights at the nodes of a regular grid, in the imported track's frame and datum: z[j * (nx + 1) + i] is at x = originX + i * cellM, y = originY + j * cellM."""
+
+    origin_x: float
+    origin_y: float
+    cell_m: float
+    nx: int
+    ny: int
+    z: list[float]
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Heightfield:
+        return cls(
+            origin_x=float(data["originX"]),
+            origin_y=float(data["originY"]),
+            cell_m=float(data["cellM"]),
+            nx=int(data["nx"]),
+            ny=int(data["ny"]),
+            z=[float(v0) for v0 in data["z"]],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["originX"] = self.origin_x
+        out["originY"] = self.origin_y
+        out["cellM"] = self.cell_m
+        out["nx"] = self.nx
+        out["ny"] = self.ny
+        out["z"] = [v0 for v0 in self.z]
+        return out
+
+
+@dataclass(kw_only=True)
+class WoodlandArea:
+    """A woodland polygon (metres, imported frame): the builder plants its trees inside it."""
+
+    points: list[MetrePoint]
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> WoodlandArea:
+        return cls(
+            points=[MetrePoint.from_dict(v0) for v0 in data["points"]],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["points"] = [v0.to_dict() for v0 in self.points]
+        return out
+
+
+@dataclass(kw_only=True)
+class NamedSpot:
+    """A named place along the imported centreline."""
+
+    name: str
+    s_m: float
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> NamedSpot:
+        return cls(
+            name=str(data["name"]),
+            s_m=float(data["sM"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["name"] = self.name
+        out["sM"] = self.s_m
+        return out
+
+
+@dataclass(kw_only=True)
+class ImportedTrack:
+    """A real-world track: the exact centreline (closed, in driving order, point 0 on the start/finish line) with per-point heights and camber, plus optionally the surrounding terrain, woodland and named places. It replaces the drawn main loop, and the lap length is the centreline's."""
+
+    source: str
+    datum_m: float | None = None
+    centreline: list[ImportedPoint]
+    terrain: Heightfield | None = None
+    woodland: list[WoodlandArea] | None = None
+    corners: list[NamedSpot] | None = None
+    viewing_spots: list[NamedSpot] | None = None
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> ImportedTrack:
+        return cls(
+            source=str(data["source"]),
+            datum_m=None if data.get("datumM") is None else float(data["datumM"]),
+            centreline=[ImportedPoint.from_dict(v0) for v0 in data["centreline"]],
+            terrain=None if data.get("terrain") is None else Heightfield.from_dict(data["terrain"]),
+            woodland=None if data.get("woodland") is None else [WoodlandArea.from_dict(v0) for v0 in data["woodland"]],
+            corners=None if data.get("corners") is None else [NamedSpot.from_dict(v0) for v0 in data["corners"]],
+            viewing_spots=None if data.get("viewingSpots") is None else [NamedSpot.from_dict(v0) for v0 in data["viewingSpots"]],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["source"] = self.source
+        if self.datum_m is not None:
+            out["datumM"] = self.datum_m
+        out["centreline"] = [v0.to_dict() for v0 in self.centreline]
+        if self.terrain is not None:
+            out["terrain"] = self.terrain.to_dict()
+        if self.woodland is not None:
+            out["woodland"] = [v0.to_dict() for v0 in self.woodland]
+        if self.corners is not None:
+            out["corners"] = [v0.to_dict() for v0 in self.corners]
+        if self.viewing_spots is not None:
+            out["viewingSpots"] = [v0.to_dict() for v0 in self.viewing_spots]
+        return out
+
+
+@dataclass(kw_only=True)
 class Sketch:
     """The drawn layout, in canvas coordinates. The geometry service turns it into a spline scaled to the lap length."""
 
@@ -382,6 +545,7 @@ class Sketch:
     crossings: list[Crossing] | None = None
     jumps: list[Jump] | None = None
     elevation_markers: list[ElevationMarker] | None = None
+    imported: ImportedTrack | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Sketch:
@@ -393,6 +557,7 @@ class Sketch:
             crossings=None if data.get("crossings") is None else [Crossing.from_dict(v0) for v0 in data["crossings"]],
             jumps=None if data.get("jumps") is None else [Jump.from_dict(v0) for v0 in data["jumps"]],
             elevation_markers=None if data.get("elevationMarkers") is None else [ElevationMarker.from_dict(v0) for v0 in data["elevationMarkers"]],
+            imported=None if data.get("imported") is None else ImportedTrack.from_dict(data["imported"]),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -410,6 +575,8 @@ class Sketch:
             out["jumps"] = [v0.to_dict() for v0 in self.jumps]
         if self.elevation_markers is not None:
             out["elevationMarkers"] = [v0.to_dict() for v0 in self.elevation_markers]
+        if self.imported is not None:
+            out["imported"] = self.imported.to_dict()
         return out
 
 
@@ -597,6 +764,8 @@ class GeometryFacts:
     elevation_markers: dict[str, ElevationMarkerFacts] | None = None
     grid_max_grade_pct: float | None = None
     height_range_m: float | None = None
+    max_grade_pct: float | None = None
+    max_bank_deg: float | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> GeometryFacts:
@@ -611,6 +780,8 @@ class GeometryFacts:
             elevation_markers=None if data.get("elevationMarkers") is None else {k0: ElevationMarkerFacts.from_dict(v0) for k0, v0 in data["elevationMarkers"].items()},
             grid_max_grade_pct=None if data.get("gridMaxGradePct") is None else float(data["gridMaxGradePct"]),
             height_range_m=None if data.get("heightRangeM") is None else float(data["heightRangeM"]),
+            max_grade_pct=None if data.get("maxGradePct") is None else float(data["maxGradePct"]),
+            max_bank_deg=None if data.get("maxBankDeg") is None else float(data["maxBankDeg"]),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -635,6 +806,10 @@ class GeometryFacts:
             out["gridMaxGradePct"] = self.grid_max_grade_pct
         if self.height_range_m is not None:
             out["heightRangeM"] = self.height_range_m
+        if self.max_grade_pct is not None:
+            out["maxGradePct"] = self.max_grade_pct
+        if self.max_bank_deg is not None:
+            out["maxBankDeg"] = self.max_bank_deg
         return out
 
 
@@ -652,11 +827,16 @@ __all__ = [
     "ElevationMarkerFacts",
     "Environment",
     "GeometryFacts",
+    "Heightfield",
+    "ImportedPoint",
+    "ImportedTrack",
     "Jump",
     "JumpSize",
     "MainLoop",
     "MarkerFeature",
     "Meta",
+    "MetrePoint",
+    "NamedSpot",
     "Options",
     "Point",
     "Sketch",
@@ -666,4 +846,5 @@ __all__ = [
     "UnannotatedCrossing",
     "Walls",
     "Weather",
+    "WoodlandArea",
 ]

@@ -24,6 +24,7 @@ from . import config as C
 from . import envs
 from .fields import DistanceField
 from .noise import Noise2D, seed_for
+from .woods import WoodMask
 
 FORMAT = "trackgen-scenery/1"
 
@@ -180,8 +181,28 @@ class Planner:
         cov = float(self.e.get("treeDensity", 0.1))
         self.tree_thr = float(np.quantile(self.tree_noise.g, 1.0 - min(max(cov, 0.0), 1.0))) if cov > 0 else 2.0
         self.parcels = Parcels(seed_for(self.slug, "parcels")) if self.e.get("fields") else None
+        # an imported track's real woods (OSM polygons) replace the seeded tree clusters
+        polys = [np.array([[q["x"], q["y"]] for q in w["points"]]) for w in
+                 ((getattr(geo, "imported", None) or {}).get("woodland") or [])]
+        self.woods = WoodMask(polys, self.frame) if polys else None
         self.main = geo.main
         self._nogo()
+
+    # ------------------------------------------------------------------------------------- woods
+    def wood_cover(self, pts: np.ndarray) -> np.ndarray:
+        """~0 in the open, 0.5 on a wood's edge, ~1 inside: the imported woods, else the seeded tree clusters."""
+        if self.woods is not None:
+            return self.woods.at(pts)
+        return np.clip(0.5 + (self.tree_noise.at(pts) - self.tree_thr) / 0.24, 0.0, 1.0)
+
+    def canopy_grid(self, n: int) -> np.ndarray:
+        """How deep inside the trees each map pixel is (0 at a wood's edge, 1 well inside), for maps.py."""
+        if self.woods is not None:
+            g = self.woods.grid(n)
+            return np.clip((g - 0.5) / 0.4, 0.0, 1.0) ** 0.8
+        t = self.tree_noise.grid(n)
+        u = np.clip((t - self.tree_thr) / 0.12, 0.0, 1.0)
+        return u * u * (3 - 2 * u)
 
     # ------------------------------------------------------------------------------------- no-go zones
     def _nogo(self) -> None:
@@ -445,6 +466,14 @@ class Planner:
     def viewing_spots(self, corners) -> None:
         g = self.geo
         spots: list[tuple[object, int, int, float]] = []
+        # an imported track's named viewing spots first (e.g. Cadwell's Mountain, Hairpin, Hall Bends): banks of
+        # spectators on both sides, the longer one on the outside of the bend
+        named = (getattr(g, "imported", None) or {}).get("viewingSpots") or []
+        for spot in named:
+            i = self.main.index_at(float(spot["sM"]) % self.main.length)
+            out = -1 if self.main.curvature[i] > 0 else 1
+            spots.append((self.main, i, out, 50.0))
+            spots.append((self.main, i, -out, 34.0))
         for i, side, k in corners:
             spots.append((self.main, i, side, 30.0 + min(20.0, k * 2000.0)))
         for j in g.model.get("jumps", []):
@@ -459,7 +488,8 @@ class Planner:
                 k = u.index_at((b.s_under + off) % u.length if u.closed else min(max(b.s_under + off, 0.0), u.length))
                 spots.insert(0, (u, k, 1 if off > 0 else -1, 24.0))
             del i
-        n_max = int(min(14, max(4, round(self.main.length / 260.0)))) + len(g.bridges) * 2 + len(g.model.get("jumps", [])) * 2
+        n_max = (int(min(14, max(4, round(self.main.length / 260.0)))) + len(g.bridges) * 2
+                 + len(g.model.get("jumps", [])) * 2 + 2 * len(named))
         done = 0
         for r, i, side, length in spots:
             if done >= n_max:
@@ -573,11 +603,17 @@ class Planner:
         pts = self._grid(spacing)
         if len(pts):
             nz = self.tree_noise.at(pts)
-            sel = nz > self.tree_thr
+            sel = nz > self.tree_thr if self.woods is None else self.woods.at(pts) > 0.45
             if self.parcels is not None:  # farmland: hedgerows along the field borders, no trees inside fields
                 border = self.parcels.border(pts) < 4.0
                 sel = (sel & ~self.parcels.is_field(pts)) | (border & (self.rng.random(len(pts)) < 0.55))
             self._scatter(pts[sel], trees, "trees", min_tree, cap)
+        # parkland: single deciduous trees standing in the open grass
+        park = e.get("parkTrees", [])
+        if park:
+            pts = self._grid(34.0)
+            sel = (self.wood_cover(pts) < 0.2) & (self.rng.random(len(pts)) < 0.45)
+            self._scatter(pts[sel], park, "trees", min_tree, int(fol.get("parkTreeCap", 120)), scale_jitter=0.25)
         # a ragged tree belt along the terrain edge (as stock bases have), so the edge of the generated ground
         # doesn't read as a line against the far ground; industrial gets its skyline buildings there instead
         belt = int(fol.get("edgeBelt", 0 if name == "industrial" else 700))
@@ -594,16 +630,16 @@ class Planner:
         if len(pts) and bushes:
             d = self.field.dist(pts)
             band = (d > self.edge_min + 8.0) & (d < min_tree + 15.0)
-            nz = self.tree_noise.at(pts)
-            sel = band & (nz > self.tree_thr - 0.08) & (self.rng.random(len(pts)) < 0.5)
+            near_wood = (self.woods.at(pts) > 0.17) if self.woods is not None else (self.tree_noise.at(pts) > self.tree_thr - 0.08)
+            sel = band & near_wood & (self.rng.random(len(pts)) < 0.5)
             self._scatter(pts[sel], bushes, "bushes", self.edge_min + 8.0, int(fol["bushCap"]))
         # stock foliage groups (grass and bush clumps, e.g. sandpit03's foliage_group12/10) in the open ground
         groups = list(fol.get("groups", []))
         if groups and int(fol.get("groupCap", 0)) > 0:
             pts = self._grid(26.0)
             d = self.field.dist(pts)
-            nz = self.tree_noise.at(pts)
-            sel = (d > self.edge_min + 6.0) & (d < 150.0) & (nz < self.tree_thr + 0.05) & (self.rng.random(len(pts)) < 0.6)
+            open_ = (self.woods.at(pts) < 0.7) if self.woods is not None else (self.tree_noise.at(pts) < self.tree_thr + 0.05)
+            sel = (d > self.edge_min + 6.0) & (d < 150.0) & open_ & (self.rng.random(len(pts)) < 0.6)
             self._scatter(pts[sel], groups, "bushes", self.edge_min + 6.0, int(fol["groupCap"]), r_scale=0.6)
         # saplings (sandpit): clusters in the open sand
         sap = e.get("saplings", [])

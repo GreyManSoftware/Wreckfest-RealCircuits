@@ -71,6 +71,7 @@
       "surface=tarmac"
     ],
     "hidden": [
+      "elevation=imported",
       "kerbs=true"
     ],
     "flags": [],

@@ -300,11 +300,12 @@ async def preview(request: Request) -> JSONResponse:
 @app.post("/model")
 async def model(request: Request) -> JSONResponse:
     """``/validate`` plus the full TrackModel and a coarse ``terrain`` grid (the web editor's 3D view)."""
-    result = _checked(await _build(await _read_spec(request)))
+    spec = await _read_spec(request)
+    result = _checked(await _build(spec))
     assert result.model is not None
     model_dict = result.model.to_dict()
     loop = asyncio.get_running_loop()
-    grid = await loop.run_in_executor(_executor, terrain_grid, model_dict)
+    grid = await loop.run_in_executor(_executor, terrain_grid, model_dict, spec)
     return JSONResponse({**_body(result), "model": model_dict, "terrain": grid})
 
 

@@ -459,6 +459,23 @@ def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manife
           f"{name}: AI meshes are open strips with identical topology", f"{nf} sectors")
     cd = r.get("CustomData", "")
     check(("otherway = true" in cd) == rev, f"{name}: otherway = true only on the reverse layout", repr(cd))
+    # the racing strip (inside the road) lies on the road surface, across its camber too
+    rm = next(rt for rt in model["routes"] if rt["aiIndex"] == 0)
+    zs = to_scene(np.array([[q["x"], q["y"], q["z"]] for q in rm["samples"]]), manifest)
+    le, ri = to_scene(np.array(rm["leftEdge"]), manifest), to_scene(np.array(rm["rightEdge"]), manifest)
+    worst = 0.0
+    n = len(zs)
+    for v in world_verts(c):
+        # nearest sample, ignoring the other level at a bridge (the strip passes over or under it)
+        k = int(np.argmin(np.hypot(*(zs[:, :2] - v[:2]).T) + 100.0 * (np.abs(zs[:, 2] - v[2]) > 3.0)))
+        j = min(((k - 1) % n, (k + 1) % n), key=lambda q: float(np.hypot(*(zs[q, :2] - v[:2]))))
+        seg = zs[j, :2] - zs[k, :2]
+        f = float(np.clip(np.dot(v[:2] - zs[k, :2], seg) / max(float(np.dot(seg, seg)), 1e-9), 0.0, 1.0))
+        L, R = le[k] + (le[j] - le[k]) * f, ri[k] + (ri[j] - ri[k]) * f
+        across = (L - R)[:2]
+        t = float(np.dot(v[:2] - R[:2], across) / max(float(np.dot(across, across)), 1e-9))
+        worst = max(worst, abs(float(v[2]) - (R[2] + t * (L[2] - R[2]))))
+    check(worst < 0.05, f"{name}: #ai_race_main lies on the (cambered) road surface", f"max |dz| {worst:.3f} m")
     main_lines = set(strip_lines(r))
     for rt in model["routes"]:
         if rt["aiIndex"] == 0:

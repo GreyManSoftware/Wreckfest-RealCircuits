@@ -105,6 +105,8 @@ class Route:
         self.length = float(d["lengthM"])
         self.width = float(d["widthM"])
         self.nl = np.stack([-np.sin(self.h), np.cos(self.h)], axis=1)
+        # camber: rise of the surface per metre towards the left edge (imported tracks; 0 for drawn ones)
+        self.slope = (self.left[:, 2] - self.right[:, 2]) / np.maximum(self.w, 1e-6)
         self.tangent = np.stack([np.cos(self.h), np.sin(self.h)], axis=1)
         self.segs = self.n if self.closed else self.n - 1
         self.m = max(1, round(float(np.median(self.w)) / C.ROAD_CELL_M))
@@ -235,6 +237,8 @@ class SampleIndex:
         self.xy = np.concatenate([r.p[:, :2] for r in routes])
         self.z = np.concatenate([r.p[:, 2] for r in routes])
         self.hw = np.concatenate([r.w / 2.0 for r in routes])
+        self.nl = np.concatenate([r.nl for r in routes])
+        self.slope = np.concatenate([r.slope for r in routes])
         self.ri = np.concatenate([np.full(r.n, r.index) for r in routes])
         self.si = np.concatenate([np.arange(r.n) for r in routes])
         self.s = np.concatenate([r.s for r in routes])
@@ -267,17 +271,25 @@ class SampleIndex:
 class TerrainField:
     """Terrain height: the natural ground, pulled to just below the road near it.
 
-    ``ground`` is trackgen_geom's seeded height field (the same one the road heights came from) when
-    available. Near a road the terrain follows the lowest nearby road height minus TERRAIN_SINK, then
-    blends to the ground over TERRAIN_BLEND. Samples on bridge structures don't pull the terrain up.
+    ``ground`` is trackgen_geom's seeded height field (the same one the road heights came from) or, for an
+    imported track, its real heightfield. Near a road the terrain follows the lowest nearby road surface minus
+    TERRAIN_SINK, then blends to the ground over TERRAIN_BLEND. The road surface is taken across its camber:
+    the height at the point's offset from the centreline (clamped to the edges), so the ground meets the low
+    edge of a cambered road and never pokes through it. Samples on bridge structures don't pull the terrain
+    up. ``berm`` raises the outer edge of the terrain (off for real ground, which continues into the backdrop).
     """
 
-    def __init__(self, index: SampleIndex, ground, influence: np.ndarray, extent: tuple[float, float, float, float]):
+    def __init__(self, index: SampleIndex, ground, influence: np.ndarray, extent: tuple[float, float, float, float],
+                 berm: float = C.BERM_H):
         self.ground = ground
         sel = influence
         self.xy = index.xy[sel]
         self.z = index.z[sel]
         self.hw = index.hw[sel]
+        self.nl = index.nl[sel]
+        self.slope = index.slope[sel]
+        self.cambered = bool(np.any(np.abs(self.slope) > 1e-9))
+        self.berm = berm
         self.extent = extent  # min_x, max_x, min_y, max_y of the terrain
 
     def __call__(self, pts: np.ndarray) -> np.ndarray:
@@ -293,7 +305,12 @@ class TerrainField:
             k = np.argmin(e, axis=1)
             e_min = e[np.arange(len(p)), k]
             band = e <= (e_min[:, None] + near_band)
-            zr = np.where(band, self.z[None, :], np.inf).min(1) - C.TERRAIN_SINK
+            zs = self.z[None, :]
+            if self.cambered:
+                lat = ((p[:, None, 0] - self.xy[None, :, 0]) * self.nl[None, :, 0]
+                       + (p[:, None, 1] - self.xy[None, :, 1]) * self.nl[None, :, 1])
+                zs = zs + np.clip(lat, -self.hw[None, :], self.hw[None, :]) * self.slope[None, :]
+            zr = np.where(band, zs, np.inf).min(1) - C.TERRAIN_SINK
             t = smoothstep((e_min - C.TERRAIN_CORE) / C.TERRAIN_BLEND)
             gz = g[a:a + 1024]
             zz = zr * (1.0 - t) + gz * t
@@ -302,12 +319,32 @@ class TerrainField:
             out[a:a + 1024] = zz
         x0, x1, y0, y1 = self.extent
         edge = np.minimum.reduce([pts[:, 0] - x0, x1 - pts[:, 0], pts[:, 1] - y0, y1 - pts[:, 1]])
-        out += C.BERM_H * smoothstep((C.BERM_W - edge) / C.BERM_W)
+        if self.berm:
+            out += self.berm * smoothstep((C.BERM_W - edge) / C.BERM_W)
         return out
 
 
-def make_ground(model: dict, routes: list[Route], warnings: list[str]):
-    """The natural ground height function (x, y) -> z, from trackgen_geom when importable."""
+def make_ground(model: dict, routes: list[Route], warnings: list[str], spec: dict | None = None):
+    """The natural ground height function (x, y) -> z: an imported track's real heightfield, otherwise
+    trackgen_geom's seeded field when importable."""
+    imported = ((spec or {}).get("sketch") or {}).get("imported")
+    if imported:
+        zmean = float(np.mean(np.concatenate([r.p[:, 2] for r in routes])))
+        if imported.get("terrain"):
+            try:
+                from trackgen_geom.heightfield import Heightfield
+                hf = Heightfield(imported["terrain"])
+
+                def ground(xy: np.ndarray) -> np.ndarray:
+                    return hf.height(np.asarray(xy, dtype=np.float64))
+
+                ground.extent = hf.extent  # the real ground's coverage (the backdrop continues it)
+                return ground
+            except ImportError as e:  # pragma: no cover - the worker and geom images both have trackgen_geom
+                warnings.append(f"ground-fallback: trackgen_geom unavailable ({e}); level ground at the mean road height")
+        else:
+            warnings.append("ground-flat: the imported track has no terrain; level ground at the mean road height")
+        return lambda xy: np.full(len(xy), zmean)
     try:
         from trackgen_geom import elevation as el
         terrain = el.Terrain(model["slug"], model["elevation"])
@@ -360,7 +397,9 @@ class TrackGeometry:
         self.by_id = {r.id: r for r in self.routes}
         self.main = next(r for r in self.routes if r.is_main)
         self.index = SampleIndex(self.routes)
-        self.ground = make_ground(model, self.routes, self.warnings)
+        self.imported = (spec.get("sketch") or {}).get("imported")
+        self.real_ground = bool(self.imported and self.imported.get("terrain"))
+        self.ground = make_ground(model, self.routes, self.warnings, spec)
         walls = self.options.get("walls", "tyres")
         self.walls = walls if walls in ("concrete", "tyres") else "none"
         self.qkeep = {r.index: np.ones(r.segs, dtype=bool) for r in self.routes}
@@ -379,7 +418,8 @@ class TrackGeometry:
         self.extent = (max(b["minX"] - margin, -lim), min(b["maxX"] + margin, lim),
                        max(b["minY"] - margin, -lim), min(b["maxY"] + margin, lim))
         influence = ~np.concatenate([self.structure[r.index] for r in self.routes])
-        self.terrain = TerrainField(self.index, self.ground, influence, self.extent)
+        self.terrain = TerrainField(self.index, self.ground, influence, self.extent,
+                                    berm=0.0 if self.real_ground else C.BERM_H)
 
     # ----------------------------------------------------------------- topology: junctions, crossings
     def _mouth(self, alt: Route, target: Route, join_sample: int, from_start: bool) -> int | None:

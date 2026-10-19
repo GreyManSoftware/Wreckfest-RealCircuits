@@ -92,10 +92,13 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
     r = np.maximum(r, zones * 0.85)
     r = np.maximum(r, smooth01((n_big - 0.72) / 0.08) * 0.6 * smooth01((d - 30) / 20))  # odd dirt patches
     b = np.zeros_like(d)
-    trees = planner.tree_noise.grid(n)
-    # how deep inside a tree cluster: 0 at its edge, 1 well inside (the planner places trees where noise > thr)
-    canopy = smooth01((trees - planner.tree_thr) / 0.12)
-    if env_name == "forest":
+    # how deep inside the trees: 0 at a wood's edge, 1 well inside (the planner's seeded clusters, or an imported
+    # track's real woods)
+    canopy = planner.canopy_grid(n)
+    if env_name == "parkland":
+        # lush grass in the open; forest floor only well inside the woods, ragged at its edge
+        b = smooth01((canopy - 0.35 + (n_fine - 0.5) * 0.5) / 0.3) * smooth01((d - 12.0) / 8.0)
+    elif env_name == "forest":
         # forest floor only under the dense cluster cores (stock forest11 is mostly grass, mean blend G ~ 70%);
         # broken up by fine noise so the edge isn't a contour line
         b = smooth01((canopy - 0.55 + (n_fine - 0.5) * 0.5) / 0.3) * smooth01((d - 16.0) / 10.0)
