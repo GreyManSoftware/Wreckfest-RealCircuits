@@ -864,6 +864,10 @@ class TrackGeometry:
             if r.is_main and slots:
                 d = r.signed_s(r.s, 0.0)
                 grid = (d >= -25.0) & (d <= max(float(q["s"]) for q in slots) + 15.0)
+            for b in self.bridges:  # under a bridge the wall stays inside the pillars
+                if b.under is r:
+                    reach = (b.over.width / 2.0 + C.BRIDGE_STRUCT_EXTRA) / max(math.sin(math.radians(b.angle_deg)), 0.3)
+                    grid = grid | (r.s_dist(r.s, b.s_under) <= reach + 20.0)
             for side in (1, -1):
                 # the inside of a tight corner (a set-back line would fold there), and the grid sector
                 near = (r.curvature * side > 1.0 / C.WALL_CORNER_RADIUS) | grid

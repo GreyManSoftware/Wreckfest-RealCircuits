@@ -73,6 +73,16 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
     xy = np.array([p["position"][:2] for p in P])
     cats = [p["category"] for p in P]
     d = exact_edge_distance(geo, xy)
+    # barriers run under bridge decks and their ramps: measure them against the roads that aren't elevated bridge
+    # structure, and where that is too close, against the roads that don't pass > 3 m overhead
+    sel = np.concatenate([geo.svalid[r.index] & ~geo.structure[r.index] for r in geo.routes])
+    rxy, rz, rhw = geo.index.xy[sel], geo.index.z[sel], geo.index.hw[sel]
+    for k, p in enumerate(P):
+        if p["category"] == "barriers":
+            dd = np.hypot(*(rxy - xy[k]).T) - rhw
+            if dd.min() < C.WALL_OFFSET - 1.0:
+                dd[rz - p["position"][2] > 3.0] = np.inf
+            d[k] = float(dd.min())
     # the barrier row stands on the wall line and the corner markers in front of it; everything else behind
     lanes = {"gantry": (-np.inf, np.inf), "barriers": (C.WALL_OFFSET - 1.0, C.WALL_SETBACK + 2.0),
              "cornerMarkers": (C.SHOULDER_W, np.inf)}
