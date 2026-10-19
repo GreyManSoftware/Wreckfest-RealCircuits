@@ -32,14 +32,29 @@ start/finish point, the width, the viewing spots and the build options. The impo
    10 % inside both cambered edges, camber, the rule verdict).
 
 Other circuits: write a recipe (find the way ids with Overpass, e.g.
-`way["highway"="raceway"](bbox); out geom;`), run the importer, check the report, then build. England only for
-heights as written (the EA DTM); elsewhere swap `fetch_dtm` for another open DTM.
+`way["highway"="raceway"](bbox); out geom;`), run the importer, check the report, then build. Heights: England
+(EA DTM, the default) or Wales (`"dtm": "wales"`: the Welsh Government / NRW 1 m DTM COG read by range requests);
+elsewhere add another open DTM to `load_dtm`.
+
+Recipe extras (RealAnglesey, `tools/real_tracks/anglesey.json`):
+
+- `altLayouts`: further layouts sharing the base, each with its own `lap` of ways (`[way, from_node, to_node]`
+  takes part of a way), `measuredLapLengthM` and `publishedLapLengthM`. Each lap is fitted like the main one and
+  the part that leaves the main line becomes `sketch.imported.altLayouts[]` (ends moved onto the main line);
+  `mainLayoutName` names the main layout. `--verify` reports each layout's lap and every route's fit to the DTM.
+- `startFinish: {"node": id}`: an OSM node on the lap.
+- `lapNames`: `null` drops an unnamed way's label.
+- `seaLevelODN`: no-data (sea) cells become seabed 3 m below it and the spec gets `seaLevelM`; the `coastal`
+  environment floods below it.
+- `horizon`: the distant skyline (3-45 km, 32 m DTM overview) for a painted `#horizon` texture (Wales only).
+- `terrainCellM`: heightfield cell (default 6 m; 10 m for a wide coastal margin).
 
 ## Data sources and attribution
 
 | Data | Source | Licence | Attribution (in the spec's `sketch.imported.source`) |
 |---|---|---|---|
 | Layout (raceway ways), woodland polygons | OpenStreetMap via the Overpass API | ODbL 1.0 | © OpenStreetMap contributors |
+| Heights, camber, terrain (Wales) | Welsh Government / NRW LIDAR composite DTM, 1 m (COG on DataMapWales) | Open Government Licence v3.0 | Contains Natural Resources Wales information © Natural Resources Wales and database right |
 | Heights, camber, terrain | Environment Agency LIDAR Composite DTM, 1 m (bare earth; WCS `environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs`) | Open Government Licence v3.0 | © Environment Agency copyright and/or database right 2022 |
 
 The committed sample (`geom/tests/samples/realcadwell.json`) is derived data (a 2 m centreline, a 6 m grid and

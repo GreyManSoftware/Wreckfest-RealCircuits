@@ -51,6 +51,9 @@ The same slug always gives the same file (seeded by the slug).
   (since 2026-10-19, additive) `barriers`: the visible containment, a row of stock barrier props (`face: "-y"`,
   `width` along local X, `depth`) standing on the wall line. Readers that don't know a category should draw it as
   a generic prop; the format name is unchanged. `bushes` may also hold stock foliage groups (`foliage_group10/12/23`).
+  Also additive (coastal environment): `walls` (stone field walls, `face: "x"`, local Y along the wall) and
+  `shore` (rocks and cliff faces along the shoreline of an imported track with a sea level; the only category
+  allowed below the sea).
 
 ## Rules the planner follows (and `tests/check_scene.py` re-checks)
 

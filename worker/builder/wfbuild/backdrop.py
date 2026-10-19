@@ -68,6 +68,13 @@ class Backdrop:
         self.rng = np.random.default_rng(seed_for(self.slug, "backdrop"))
         # an imported track's real ground continues into the far ground as far as its heightfield reaches
         self.real_extent = getattr(geo.ground, "extent", None) if getattr(geo, "real_ground", False) else None
+        imp = getattr(geo, "imported", None) or {}
+        # the sea (coastal: an imported track's seaLevelM): a flat sea plane, and seabed beyond the real ground
+        self.sea = float(imp["seaLevelM"]) if (self.e.get("sea") and imp.get("seaLevelM") is not None) else None
+        # a horizon painted from the imported skyline profile (e.g. Snowdonia), centred on the drivers' eye level
+        self.profile = imp.get("horizon") if self.e.get("horizonFromProfile") else None
+        self.eye_z = float(geo.main.p[0, 2]) + 1.5
+        self.generated: dict[str, str] = {}
 
     def point(self, k: int, off: float) -> np.ndarray:
         return self.c + self.u[k] * (self.d_rect[k] + off)
@@ -92,8 +99,11 @@ class Backdrop:
             x0, x1, y0, y1 = self.real_extent
             inside = min(p[0] - x0, x1 - p[0], p[1] - y0, y1 - p[1])
             w = smooth(inside / C.REAL_GROUND_FADE)
+            zr = float(self.geo.ground(p[None, :])[0])  # outside the grid: its nearest edge value
             if w > 0:
-                z = float(self.geo.ground(p[None, :])[0]) * w + z * (1 - w)
+                z = zr * w + z * (1 - w)
+            if self.sea is not None and zr < self.sea:
+                z = min(z, zr)  # the sea floor runs on beyond the real ground (no hills out of the sea)
         return z
 
     def ground_at(self, k: float, t: float) -> float:
@@ -134,23 +144,113 @@ class Backdrop:
         step = self.n // n
         ks = list(range(0, self.n, step))
         bottom, top = [], []
+        # A painted skyline profile is centred on the drivers' eye level, so a texel row is an elevation angle
+        # (v = (60 + HORIZON_SCALE_M * tan(elevation)) / 127) and one repeat spans the whole circle.
+        mid = self.eye_z if self.profile else self.base_z
         for k in ks:
             off = float(self.h_off[k])
             dist = float(self.d_rect[k] + off)
             scale = max(dist / C.HORIZON_SCALE_M, 0.25)
             p = self.point(k, off)
-            bottom.append(m.vert((p[0], p[1], self.base_z - 60.0 * scale)))
-            top.append(m.vert((p[0], p[1], self.base_z + 67.0 * scale)))
-        rep = C.HORIZON_REPEATS
+            bottom.append(m.vert((p[0], p[1], mid - 60.0 * scale)))
+            top.append(m.vert((p[0], p[1], mid + 67.0 * scale)))
+        rep = 1 if self.profile else C.HORIZON_REPEATS
         for a in range(len(ks)):
             b = (a + 1) % len(ks)
             u0 = a / len(ks) * rep
             u1 = (a + 1) / len(ks) * rep
+            if self.profile:
+                # u = azimuth / 360 (clockwise from +y, north): the rays turn anticlockwise from +x
+                th0, th1 = 2 * math.pi * ks[a] / self.n, 2 * math.pi * (ks[a] + step) / self.n
+                u0, u1 = 0.25 - th0 / (2 * math.pi), 0.25 - th1 / (2 * math.pi)
             ids = (bottom[a], bottom[b], top[b], top[a])
             mid = self.u[ks[a]]
             m.oriented_face(ids, "horizon", np.array([-mid[0], -mid[1], 0.0]),
                             [(u0, 0.0), (u1, 0.0), (u1, 1.0), (u0, 1.0)])
         return m
+
+    def sea_plane(self) -> Mesh | None:
+        """A flat sea at the imported sea level over the terrain and the far ground, out to the far ground's
+        outer ring (no collision; the ground above the sea pokes through it). UV1 in metres / tile (|uv| < 16)."""
+        if self.sea is None:
+            return None
+        m = Mesh("backdrop_sea#lofi", "", kind="backdrop")
+        tile = float(self.e["sea"].get("tileM", 160.0))
+        c = m.vert((self.c[0], self.c[1], self.sea))
+        ring = []
+        for k in range(self.n):
+            p = self.point(k, min(1.06 * self.h_off[k], self.room[k]))
+            ring.append(m.vert((p[0], p[1], self.sea)))
+        for k in range(self.n):
+            ids = (c, ring[k], ring[(k + 1) % self.n])
+            m.oriented_face(ids, "sea", np.array([0.0, 0.0, 1.0]),
+                            [((m.verts[i][0] - self.c[0]) / tile, (m.verts[i][1] - self.c[1]) / tile) for i in ids])
+        return m
+
+    def textures(self, root: str) -> dict[str, str]:
+        """Generated backdrop textures (TGA under <root>/data/track/<slug>/textures, bimage'd by the pipeline like
+        the maps): the painted skyline ``<slug>_horizon_c5`` from the imported horizon profile and the sea
+        ``<slug>_sea_c``. Returns {"horizon"|"sea": data path without extension}."""
+        from . import maps  # noqa: PLC0415 - avoids a cycle at import time
+
+        out_dir = f"{root}/data/track/{self.slug}/textures"
+        rel = lambda name: f"data/track/{self.slug}/textures/{self.slug}_{name}"  # noqa: E731
+        if self.profile:
+            hp = self.e["horizonFromProfile"]
+            W, H = 4096, 256
+            step = float(self.profile["stepDeg"])
+            elev = np.array(self.profile["elevationDeg"], dtype=np.float64)
+            sea = np.array(self.profile["sea"], dtype=bool)
+            az = np.arange(W) / W * 360.0
+            k = az / step
+            k0 = np.floor(k).astype(int) % len(elev)
+            f = k - np.floor(k)
+            e = elev[k0] * (1 - f) + elev[(k0 + 1) % len(elev)] * f
+            ridge = periodic_noise(seed_for(self.slug, "skyline"), W, 160) * 0.05
+            e = e + ridge * np.clip(e / 0.8, 0.0, 1.0)  # a little crag on the mountains, none on the sea line
+            is_sea = sea[k0] & sea[(k0 + 1) % len(sea)]
+            v_of = lambda deg: (60.0 + C.HORIZON_SCALE_M * np.tan(np.radians(deg))) / 127.0  # noqa: E731
+            vt = v_of(e)
+            v = (np.arange(H) + 0.5) / H
+            V = v[:, None]
+            rgb = np.zeros((H, W, 3))
+            alpha = (V <= vt[None, :]).astype(np.float64) * 255.0
+            land = np.array(hp["land"], dtype=np.float64)
+            mount = np.array(hp["mountain"], dtype=np.float64)
+            seac = np.array(hp["sea"], dtype=np.float64)
+            from_deg = float(hp.get("mountainFromDeg", 0.45))
+            # elevation of each texel row; mountains above from_deg, nearer land below, the sea below the sea line
+            e_row = np.degrees(np.arctan((V * 127.0 - 60.0) / C.HORIZON_SCALE_M))
+            mshare = np.clip((e_row - from_deg * 0.6) / (from_deg * 0.8), 0.0, 1.0) * (e[None, :] > from_deg)
+            col = land[None, None, :] * (1 - mshare[:, :, None]) + mount[None, None, :] * mshare[:, :, None]
+            # lighter towards the ridge tops (haze, sunlit slopes), darker low down
+            shade = 0.85 + 0.25 * np.clip((V - 0.45) / np.maximum(vt[None, :] - 0.45, 1e-3), 0.0, 1.0)
+            col = col * shade[:, :, None]
+            sea_line = v_of(0.0)
+            below_sea = (V <= sea_line) & is_sea[None, :]
+            col = np.where(below_sea[:, :, None], seac[None, None, :] * (0.9 + 0.2 * V[:, :, None] / sea_line), col)
+            rgb[:] = col
+            alpha = np.where(is_sea[None, :], np.where(V <= sea_line, 255.0, 0.0), alpha)
+            maps.write_tga(f"{out_dir}/{self.slug}_horizon_c5.tga", rgb, alpha)
+            self.generated["horizon"] = rel("horizon_c5")
+        if self.sea is not None:
+            # seamless (integer-frequency) ripples and swell, so the tile repeats without seams
+            n = 256
+            rng = np.random.default_rng(seed_for(self.slug, "sea"))
+            t = np.arange(n) / n * 2 * math.pi
+            gx, gy = np.meshgrid(t, t)
+            nz = np.zeros((n, n))
+            for _ in range(24):
+                fx, fy = (int(v) for v in rng.integers(-9, 10, 2))
+                if fx == 0 and fy == 0:
+                    continue
+                nz += rng.normal() / math.hypot(fx, fy) * np.cos(fx * gx + fy * gy + rng.uniform(0, 2 * math.pi))
+            nz /= max(float(np.abs(nz).max()), 1e-9)
+            base = np.array(self.e["sea"]["colour"], dtype=np.float64)
+            rgb = base[None, None, :] * (1.0 + 0.1 * nz[:, :, None])
+            maps.write_tga(f"{out_dir}/{self.slug}_sea_c.tga", rgb)
+            self.generated["sea"] = rel("sea_c")
+        return dict(self.generated)
 
     def cards(self) -> tuple[list[Mesh], int]:
         """Background tree (or city skyline) cards: bands of 8 m quads on the far-ground hills just in front of
@@ -245,6 +345,9 @@ class Backdrop:
 
     def build(self) -> tuple[list[Mesh], dict]:
         meshes = [self.far_ground(), self.horizon()]
+        sea = self.sea_plane()
+        if sea is not None:
+            meshes.append(sea)
         cards, n_tex = self.cards()
         meshes += cards
         dist = self.d_rect + self.h_off
@@ -258,5 +361,10 @@ class Backdrop:
             "cardTextures": [envs.stem(c) for c in list(self.e.get("treeCards", [])) + list(self.e.get("skylineCards", []))],
             "baseZ": round(self.base_z, 2),
         }
+        if self.sea is not None:
+            info["seaLevelM"] = self.sea
+        if self.profile:
+            info["horizonTexture"] = "generated from the imported horizon profile"
+            info["horizonMidZ"] = round(self.eye_z, 2)
         self.n_textures = n_tex
         return meshes, info

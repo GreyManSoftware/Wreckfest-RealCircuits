@@ -185,7 +185,8 @@ def main() -> None:
         if m.kind in C.BLEND_KINDS:
             m.set_map_uv(fr)
     base_meshes += backdrop_meshes
-    specs = materials.build(geo.options.get("environment"), slug, map_info, bd.n_textures)
+    generated = bd.textures(mod_root)
+    specs = materials.build(geo.options.get("environment"), slug, map_info, bd.n_textures, generated)
     props = [Empty(f"#xref ob/{p.asset}.scne", (p.x, p.y, p.z), p.yaw, display="PLAIN_AXES", size=1.0,
                    scale=(p.scale, p.scale, p.scale)) for p in scenery.placements]
     transform_info = {"rotateDeg": rot, "shift": [0.0, round(shift, 4), 0.0],

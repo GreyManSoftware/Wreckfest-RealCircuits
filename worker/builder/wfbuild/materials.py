@@ -28,8 +28,10 @@ def _layers(layers: list[dict], uv_tile: float) -> list[tuple]:
     return out
 
 
-def build(env_name: str | None, slug: str, maps: dict, n_cards: int) -> dict[str, dict]:
-    """Material specs keyed like the builder's mesh material keys."""
+def build(env_name: str | None, slug: str, maps: dict, n_cards: int, generated: dict | None = None) -> dict[str, dict]:
+    """Material specs keyed like the builder's mesh material keys. ``generated`` holds the backdrop's own
+    textures (data paths without extension): "horizon" (a painted skyline) and "sea"."""
+    generated = generated or {}
     name = envs.env_name(env_name)
     e = envs.env(name)
     mp = {k: v + TGA for k, v in maps["paths"].items()}
@@ -71,9 +73,14 @@ def build(env_name: str | None, slug: str, maps: dict, n_cards: int) -> dict[str
                                            (7, _t(td["ao"]), 1, (1.0, 1.0)), (8, _t(td["n"]), 1, (1.0, 1.0)),
                                            (9, _t(td["s"]), 1, (1.0, 1.0))]}
     h = e["horizon"]
+    hc = generated["horizon"] + TGA if generated.get("horizon") else _t(h["c"])
     specs["horizon"] = {"name": f"horizon_{name}#horizon",
-                        "slots": [(1, _t(h["c"]), 1, (1.0, 1.0)), (6, _t(h["c"]), 1, (1.0, 1.0)),
+                        "slots": [(1, hc, 1, (1.0, 1.0)), (6, hc, 1, (1.0, 1.0)),
                                   (7, _t(h["fog"]), 1, (1.0, 1.0))]}
+    if generated.get("sea"):
+        specs["sea"] = {"name": f"sea_{name}#noshadow",
+                        "slots": [(1, generated["sea"] + TGA, 1, (1.0, 1.0)),
+                                  (9, "data/art/textures/default_zero_spec_s" + TGA, 1, (1.0, 1.0))]}
     specs["far_ground"] = {"name": f"far_ground_{name}#noshadow",
                            "slots": [(1, _t(e["farGround"]), 1, (1.0, 1.0)),
                                      (9, "data/art/textures/default_zero_spec_s" + TGA, 1, (1.0, 1.0))]}
