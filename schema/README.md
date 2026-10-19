@@ -23,11 +23,16 @@ TrackSpec
 │  ├─ altRoutes[≤20]  { id (≠ "main"), points[2–10000], start?, end? }; attachment = { point? , param? } (at least one)
 │  ├─ crossings[≤50]  { id, position, type: bridge|flat, over?: { route, param? } }
 │  ├─ jumps[≤50]      { id, position, size: small|medium|large, route? = "main", bidirectional? = false }
-│  └─ elevationMarkers[≤40]  { id, position, route? = "main", heightM (−30…+40) }
+│  ├─ elevationMarkers[≤40]  { id, position, route? = "main", heightM (−30…+40) }
+│  └─ imported?    a real-world track (replaces mainLoop; tools/import_real_track.py)
+│     ├─ source (attribution) · datumM? (height above sea level of z = 0)
+│     ├─ centreline[16–10000] { x, y, z, bankDeg }  metres, x east, y north; closed; point 0 on the start line
+│     ├─ terrain?   { originX, originY, cellM, nx, ny, z[(nx+1)(ny+1) ≤ 250000] }  ground heights (nodes)
+│     ├─ woodland[≤500] { points[3–2000] {x, y} } · corners[≤60], viewingSpots[≤20] { name, sM }
 └─ options   all required (the schema has the UI defaults)
    lapLengthKm 0.8–5 (1.5) · widthM 8–20 (12) · surface tarmac|gravel|mixed|sand (mixed) · kerbs (true)
-   walls concrete|tyres|none (tyres) · elevation flat|gentle|hilly|custom (gentle)
-   environment gravel_pit|farmland|forest|industrial|sandpit (gravel_pit) · gridSize 8–24 (16)
+   walls concrete|tyres|none (tyres) · elevation flat|gentle|hilly|custom|imported (gentle)
+   environment gravel_pit|farmland|forest|industrial|sandpit|parkland (gravel_pit) · gridSize 8–24 (16)
    weathers ≥1 unique of sunrise|morning|midday|noon|afternoon|evening|sunset (["midday"])
    reverseLayout (false) · defaultLaps 1–20 (5)
 ```
@@ -58,6 +63,18 @@ a preset (`flat`, `gentle`, `hilly`) `heightM` is an **additive bump** on the pr
 over max(80 m, |heightM| / 8%) either side. Heights are never changed to satisfy a rule; the rules report the
 problem instead (see `geom/README.md` for the details).
 
+**Imported tracks** (`sketch.imported`) are real circuits: an exact centreline with per-point heights and camber,
+plus optionally the surrounding ground (a heightfield), woodland polygons and named places. The geometry core uses
+the centreline as given (no smoothing, scaling or corner easing; the lap length is its length, `lapLengthKm` is
+informational), `z` is the road and `bankDeg` tilts the cross-section (positive raises the driver's left edge).
+Canvas units are its metres with the canvas centre at the origin, so the editor can draw it (read-only). An
+imported track has no drawn main loop, start/finish, alternative routes, crossings or height markers
+(`imported-no-drawn-routes`); jumps are allowed. Its elevation must be `imported` (`imported-elevation`), which
+drawn tracks can't select (`elevation-imported-requires-import`, hidden). Real gradients are allowed up to
+`importedMaxGradePct` (25%) over 10 m and camber up to `importedMaxBankDeg` (10°); the grid area up to
+`importedGridMaxGradePct` (4%). The drawn-track limits (12% markers, 3% grid) don't apply. Data sources and the
+importer: `docs/real-tracks.md`.
+
 ### Geometry facts
 
 `GeometryFacts` (also in `$defs`) holds measurements that only the geometry core (`trackgen_geom`) can compute. All
@@ -78,6 +95,8 @@ all of them.
 | `elevationMarkers[id]` | Markers on a built route: `sM` (distance along the route), `gradePct` (the steeper sustained grade to its neighbouring markers, or to the anchors where a preset bump meets the terrain), `feature` (`grid` or `bridge` when it sits on the grid area or a bridge ramp; absent otherwise). |
 | `gridMaxGradePct` | Steepest grade of the marker profile over the grid area (custom: the road; presets: the markers' bumps, as the preset terrain isn't the user's doing). |
 | `heightRangeM` | Highest minus lowest road height over all routes (informational; the ±2000 m bounds are horizontal only). |
+| `maxGradePct` | Steepest road grade over any 10 m of any route (jumps and ramps included; rule `imported-max-grade` reads it for imported tracks). |
+| `maxBankDeg` | Largest road cross-slope in degrees (0 for drawn tracks). |
 
 ## Rules
 
@@ -169,7 +188,10 @@ Result shape (field case differs per language): `schemaValid`, `valid`, `schemaE
 
 | Id | By | Effect |
 |---|---|---|
-| `main-loop-required` | engine | error when there is no main loop |
+| `main-loop-required` | engine | error when there is no main loop (and no imported centreline) |
+| `imported-no-drawn-routes` | engine | error: an imported track has no drawn main loop, start/finish, alt routes, crossings or height markers |
+| `imported-elevation` | engine | disables `elevation` flat/gentle/hilly/custom for an imported track |
+| `elevation-imported-requires-import` | engine | hides `elevation=imported` unless the track is imported |
 | `alt-route-requires-main-loop` | engine | error when there are alternative routes but no main loop |
 | `alt-route-ids-unique` | engine | no two alternative routes share an id (`count` quantifier) |
 | `crossing-ids-unique` | engine | no two crossings share an id |
@@ -189,15 +211,18 @@ Result shape (field case differs per language): `schemaValid`, `valid`, `schemaE
 | `crossing-annotation-matches` | geometry | **warning** for each annotation in `unmatchedCrossingAnnotations`: it is ignored by the build, which is harmless, so the track stays valid |
 | `flat-crossing-jump-clearance` | geometry | flat crossing ≥ `flatCrossingJumpClearanceM` (30 m) from a jump on either branch; passes when `nearestJumpM` is absent (deferred only when the crossing has no facts entry); skips unmatched annotations |
 | `bridge-ramp-length` | geometry | bridge has ≥ `bridgeRampMinLengthM` (50 m) for its ramps; skips unmatched annotations |
-| `elevation-marker-grade` | geometry | a marker's `gradePct` ≤ `elevationMaxGradePct` (12%); markers on unknown routes are skipped (their route rule fires) |
+| `elevation-marker-grade` | geometry | a marker's `gradePct` ≤ `elevationMaxGradePct` (12%); markers on unknown routes, and on imported tracks, are skipped (their own rules fire) |
 | `elevation-marker-on-feature` | geometry | **warning** when a marker's facts have a `feature` (grid area or bridge ramp) |
 | `elevation-grid-level` | geometry | with markers: `gridMaxGradePct` ≤ `elevationGridMaxGradePct` (3%) |
 | `elevation-bridge-ramp-grade` | geometry | with markers: a bridge's `rampGradePct` ≤ `bridgeRampMaxGradePct` (18%) |
 | `elevation-flat-crossing-level` | geometry | with markers: a flat crossing's `heightStepM` ≤ `flatCrossingMaxStepM` (0.5 m) |
+| `imported-max-grade` | geometry | imported: `maxGradePct` ≤ `importedMaxGradePct` (25%) |
+| `imported-max-bank` | geometry | imported: `maxBankDeg` ≤ `importedMaxBankDeg` (10°) |
+| `imported-grid-level` | geometry | imported: `gridMaxGradePct` ≤ `importedGridMaxGradePct` (4%) |
 | `layout-within-bounds` | geometry | `maxAbsCoordinateM ≤ 2000` |
 | `min-corner-radius` | geometry | `minCornerRadiusM ≥ widthM / 2 + minInnerEdgeRadiusM` (6 m) |
 | `sandpit-no-tarmac` | engine | disables `surface=tarmac` in the sandpit (`mixed` is still offered) |
-| `sand-surface-environments` | engine | disables `surface=sand` in farmland, forest and industrial (provisional) |
+| `sand-surface-environments` | engine | disables `surface=sand` in farmland, forest, industrial and parkland (provisional) |
 | `sand-no-kerbs` | engine | hides `kerbs=true` on sand |
 
 The elevation rules only apply when there are height markers (without them the bridge climb is always the standard

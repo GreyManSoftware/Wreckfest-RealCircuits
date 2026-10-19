@@ -72,3 +72,13 @@ powershell -ExecutionPolicy Bypass -File tools\tests\Install-TrackMod.Tests.ps1
 
 - Import a recorded `.tcat` back to the site.
 - Workshop publishing (option C) always needs an explicit approval click.
+
+## import_real_track.py
+
+Turns a real circuit into a TrackSpec with `sketch.imported` (exact centreline, heights, camber, terrain, woods)
+from OpenStreetMap and the Environment Agency LIDAR DTM. Recipes live in `real_tracks/`; downloads are cached in
+`.local\<slug>\`. See [docs/real-tracks.md](../docs/real-tracks.md).
+
+```powershell
+geom\.venv\Scripts\python tools\import_real_track.py tools\real_tracks\cadwell.json --out geom\tests\samples\realcadwell.json --verify
+```

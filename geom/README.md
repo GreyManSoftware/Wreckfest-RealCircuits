@@ -53,12 +53,23 @@ Resampling is also capped at 100,000 points per call, as a backstop.
 | `centreline.py` | stroke → centreline (smoothing, B-spline, radius relaxation, scaling, orientation) |
 | `polyline.py` | numpy polyline toolkit: resampling, smoothing, subdivision, curvature, projection, intersections |
 | `elevation.py` | seeded terrain noise, height-marker profiles (PCHIP), bridge ramps, jump profiles |
+| `heightfield.py` | an imported track's real ground (`sketch.imported.terrain`), shared with the worker's terrain |
 | `model.py` | `TrackModel` dataclasses and JSON serialisation |
 | `preview.py` | top-down and elevation SVGs |
 | `constants.py` | modelling constants; rule thresholds are read from `track-rules.json` (`rule_constants()`) |
 
 ## Algorithms
 
+- **Imported (real-world) tracks** (`sketch.imported`, written by `tools/import_real_track.py`; see
+  `docs/real-tracks.md`). The centreline is used exactly as given: no low-pass, B-spline, corner easing, scaling or
+  centring. Sample 0 is its first point (the start/finish line), the driving direction is its order, the lap is
+  its length (`lapLengthKm` is informational; warning `imported-lap-length` beyond 2%). Its `z` is the road (as
+  custom elevation's marker profile, on flat preset ground), and `bankDeg` tilts the cross-section:
+  `leftEdge.z = z + w/2·tan(bank)`, `rightEdge.z = z − w/2·tan(bank)`, `Sample.banking` = bank in radians. Grid
+  slots sit on the cambered surface. Canvas units are the import's metres with the canvas centre at the origin
+  (`canvasTransform` scale 1). Drawn elements other than jumps are ignored (warning `imported-ignores-drawn`;
+  rule `imported-no-drawn-routes`). Facts `maxGradePct` (steepest |Δz| over 10 m of any route) and `maxBankDeg`
+  are reported for every track; the `imported-*` rules check them for imported ones.
 - **Centreline.** Canvas points are flipped to y-up and pre-scaled to the lap length. A Gaussian low-pass
   (σ 15 m) removes hand-drawn jitter; the result is resampled into control points every 25 m and refined by
   4 rounds of cubic B-spline (Lane-Riesenfeld) subdivision, then resampled every ~2 m and scaled so the lap
@@ -136,8 +147,8 @@ Coordinates are **metres, right-handed, Z up** (Blender's convention): **x = eas
 | `canvasTransform` | `{scale, offsetX, offsetY}` |
 | `bounds` | `minX…maxZ` of the road edges, `maxAbsRoadM`, `terrainMarginM`, `maxAbsCoordinateM`, `limitM` (2000) |
 | `routes[]` | `{id, aiIndex (0 main, −1, −2… alts), closed, lengthM, widthM, samples[], leftEdge[], rightEdge[], startJoin?, endJoin?}` |
-| `routes[].samples[]` | `{x, y, z, s, heading, banking (0), width}` every ~2 m; the main loop is closed (no repeated point), s = 0 at the start/finish |
-| `routes[].leftEdge/rightEdge` | `[x, y, z]` per sample, ±width/2 along the left normal (left = driver's left) |
+| `routes[].samples[]` | `{x, y, z, s, heading, banking, width}` every ~2 m; the main loop is closed (no repeated point), s = 0 at the start/finish. `banking`: camber in radians, positive raises the driver's left edge (0 except on imported tracks) |
+| `routes[].leftEdge/rightEdge` | `[x, y, z]` per sample, ±width/2 along the left normal (left = driver's left); `z` includes the camber |
 | `startJoin/endJoin` | `{route: "main", sampleIndex, s}`: the main-loop vertex the alt route shares exactly |
 | `crossings[]` | `{id, annotated, detected, type (bridge/flat/unannotated), position [x, y], angleDeg, branches[{route, s, param, heading, z}], overBranch, deckHalfLengthM, rampUpM, rampDownM, deckHeightM}` |
 | `jumps[]` | `{id, route, size, bidirectional, s, position, heading, heightM, startS, endS, layouts, inBase, profile[[offset, dz]]}` |
@@ -161,7 +172,9 @@ figure-8 with a bridge, loop with an alt route and jumps, hilly circuit, custom 
 `tests/output/`. `tests/test_elevation_markers.py` covers the marker profile (through every marker, monotone,
 closed loops), custom and preset elevation, alt-route joins, bridges, flat crossings and the elevation rules.
 `tests/test_service.py` covers the HTTP service and keeps the contract fixtures in
-`tests/contract/` current.
+`tests/contract/` current. The `realcadwell` sample is an imported track (Cadwell Park); imported tracks are also
+covered by the `imported-*` vectors and the "imported" tests in `test_pipeline.py`, and
+`tests/test_import_real_track.py` tests the importer's offline parts (projection, stitching, registration, easing).
 
 ## Service
 
@@ -187,9 +200,9 @@ doesn't call it: it installs this package and calls `build_track_model` directly
 
 - **`terrain`** (`trackgen_geom.terrain.terrain_grid`): `{originX, originY, cellM, nx, ny, z}`, heights on a
   regular grid over the road bounds plus the terrain margin (`z[j*(nx+1)+i]` at `originX+i*cellM`,
-  `originY+j*cellM`). A preview approximation of the worker's `TerrainField`: the same seeded ground, pulled
-  0.15 m below the road near it and blended out over 30 m, ignoring bridge decks and ramps; cells are 8 m or
-  more (at most 128 a side). Tests: `tests/test_terrain.py`.
+  `originY+j*cellM`). A preview approximation of the worker's `TerrainField`: the same seeded ground (an imported
+  track's real heightfield instead), pulled 0.15 m below the road's lower edge near it and blended out over 30 m,
+  ignoring bridge decks and ramps; cells are 8 m or more (at most 128 a side). Tests: `tests/test_terrain.py`.
 
 - **`facts`:** `$defs/GeometryFacts`, always with `crossings`, `altRoutes`, `unannotatedCrossings` and
   `unmatchedCrossingAnnotations`, even when they are empty.
