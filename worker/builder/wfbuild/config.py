@@ -57,7 +57,7 @@ CHECKPOINT_MARGIN = 4.0       # checkpoint planes extend past the blue route on 
 CHECKPOINT_BELOW = 5.0
 CHECKPOINT_ABOVE = 10.0
 STARTPOINT_LIFT = 0.3
-TEX_TILE = {"road": 8.0, "kerb": 2.4, "ground": 16.0, "wall": 4.0, "far": 64.0}
+TEX_TILE = {"road": 8.0, "kerb": 2.4, "ground": 16.0, "wall": 4.0, "far": 1000.0}
 
 # --- materials -------------------------------------------------------------------------------------
 # Single-texture materials (one Principled BSDF, texture in slot 1). The road, shoulder, terrain, edge decal
