@@ -54,7 +54,7 @@
     "kerbs": true,
     "walls": "concrete",
     "environment": "coastal",
-    "gridSize": 16,
+    "gridSize": 24,
     "weathers": ["morning", "midday", "afternoon"],
     "reverseLayout": false,
     "defaultLaps": 5

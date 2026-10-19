@@ -107,6 +107,11 @@ def check_on_road(scene: str, lay, xref, base_road: Road) -> None:
 
     sp = [(o.name, to_world(o, [(0.0, 0.0, 0.0)])[0]) for o in lay.objects if o.name.startswith("#startpoint")]
     report("start points", sp, 1.5)
+    # the whole car on the tarmac: a 2.0 x 4.5 m footprint (the empties are scaled 1 x 2.25 along local X / Y)
+    feet = [(f"{o.name} corner {k}", p) for o in lay.objects if o.name.startswith("#startpoint")
+            and o.name != "#startpointcarchange"
+            for k, p in enumerate(to_world(o, [(-1.0, -1.0, 0.0), (1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (-1.0, 1.0, 0.0)]))]
+    report("grid slot footprints (2.0 x 4.5 m)", feet, 1.5)
     cps = []
     for o in lay.objects:
         if o.name.startswith("#checkpoint") and o.tris:

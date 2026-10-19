@@ -18,12 +18,14 @@
   "widthM": 9.5,
   "clockwise": true,
   "viewingSpots": ["The Mountain", "The Hairpin", "Hall Bends"],
+  "expectedCornerOrder": ["Coppice", "Charlies", "Park Straight", "Park", "Chris Curve", "The Gooseneck", "Mansfield", "Woodland", "The Mountain", "Hall Bends", "The Hairpin", "Barn"],
+  "expectedCornerOrderNote": "Clockwise full circuit as the track guides describe it: Coppice (fast uphill left at the end of the start straight), Charlies, Park Straight, Park, Chris Curve, the Gooseneck, the steep drop to Mansfield, the Woodland chicane, the Mountain (a short steep climb), Hall Bends, the Hairpin, Barn.",
   "options": {
     "surface": "tarmac",
     "kerbs": true,
     "walls": "tyres",
     "environment": "parkland",
-    "gridSize": 16,
+    "gridSize": 24,
     "weathers": ["morning", "midday", "afternoon"],
     "reverseLayout": false,
     "defaultLaps": 5

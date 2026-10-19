@@ -126,6 +126,12 @@ def test_imported_sample_drives_the_recipes_corner_order_in_every_layout(recipe_
     xy = np.array([[q.x, q.y] for q in res.model.route("main").samples])
     if recipe.get("clockwise") is not None:
         assert (irt.signed_area(xy) < 0) == bool(recipe["clockwise"])
+    # the game races up to 24 cars and puts any without a start point beside the grid (on the grass)
+    assert spec["options"]["gridSize"] == 24 == len(res.model.grid.slots)
+    hw = float(spec["options"]["widthM"]) / 2.0
+    for sl in res.model.grid.slots:
+        lateral = float(np.min(np.hypot(*(xy - np.array(sl.position[:2])).T)))
+        assert lateral + 1.0 <= hw, (sl.name, lateral)  # a 2 m wide car fully on the tarmac
     corners = sorted(spec["sketch"]["imported"]["corners"], key=lambda c: c["sM"])
     layouts = res.model.layouts or []
     sections = [lay.sections for lay in layouts] or [[{"route": "main", "fromS": 0.0, "toS": res.model.lap_length_m}]]
