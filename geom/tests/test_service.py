@@ -104,6 +104,8 @@ def test_model(client: TestClient) -> None:
     assert body["model"]["formatVersion"] == 1
     assert body["model"]["routes"]
     assert FACT_KEYS <= set(body["facts"])
+    t = body["terrain"]
+    assert len(t["z"]) == (t["nx"] + 1) * (t["ny"] + 1)
 
 
 @pytest.mark.parametrize("endpoint", ["/validate", "/preview", "/model"])

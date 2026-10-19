@@ -173,7 +173,13 @@ doesn't call it: it installs this package and calls `build_track_model` directly
 | `GET /healthz` | – | `{"status": "ok", "version"}` |
 | `POST /validate` | `{"spec": TrackSpec}` | `{version, valid, facts, ruleResult, warnings, errors}` |
 | `POST /preview` | `{"spec": TrackSpec}` | `/validate` plus `svg` (top-down), `elevationSvg` and `modelSummary` |
-| `POST /model` | `{"spec": TrackSpec}` | `/validate` plus `model` (the full TrackModel). Internal; nothing calls it yet. |
+| `POST /model` | `{"spec": TrackSpec}` | `/validate` plus `model` (the full TrackModel) and `terrain` (below). The API proxies it for the editor's 3D view. |
+
+- **`terrain`** (`trackgen_geom.terrain.terrain_grid`): `{originX, originY, cellM, nx, ny, z}`, heights on a
+  regular grid over the road bounds plus the terrain margin (`z[j*(nx+1)+i]` at `originX+i*cellM`,
+  `originY+j*cellM`). A preview approximation of the worker's `TerrainField`: the same seeded ground, pulled
+  0.15 m below the road near it and blended out over 30 m, ignoring bridge decks and ramps; cells are 8 m or
+  more (at most 128 a side). Tests: `tests/test_terrain.py`.
 
 - **`facts`:** `$defs/GeometryFacts`, always with `crossings`, `altRoutes`, `unannotatedCrossings` and
   `unmatchedCrossingAnnotations`, even when they are empty.
