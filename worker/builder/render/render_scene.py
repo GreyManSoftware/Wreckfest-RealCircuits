@@ -249,7 +249,8 @@ def render_material(name: str, slots: list[tuple[int, str, int, tuple[float, flo
     if 6 in by and tex.get(by[6][1]) is not None:
         an = _img_node(nt, tex.get(by[6][1]), uvn(by[6][2]), by[6][3], -600, -200)
         alpha_src = an.outputs["Alpha"]
-    elif s1[1].lower().endswith(("_c5.tga", "_c5.png")) or "xtree" in tags or "foliage" in s1[1].lower():
+    elif (s1[1].lower().endswith(("_c5.tga", "_c5.png")) or "xtree" in tags or "twosided" in tags
+          or any(k in s1[1].lower() for k in ("foliage", "chainlink", "fence"))):  # alpha-tested in game
         alpha_src = tn.outputs["Alpha"]
     if "ghost" in name.lower():
         bsdf.inputs["Alpha"].default_value = 0.0
@@ -365,7 +366,8 @@ def cmd_render(root: str, target: str, prefix: str, samples: int) -> None:
     print(f"props: {len(xrefs)} instances, {len(lib)} kinds, missing {sorted(missing)}")
     # hide helpers
     for o in scene_objs:
-        if o.name.startswith("#static_cube_map") or o.name.startswith("#checkpoint") or o.name.startswith("#ai_"):
+        if (o.name.startswith("#static_cube_map") or o.name.startswith("#checkpoint") or o.name.startswith("#ai_")
+                or "vis = false" in str(o.get("CustomData", ""))):  # invisible collision walls, as in game
             o.hide_render = True
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
@@ -406,14 +408,26 @@ def cmd_render(root: str, target: str, prefix: str, samples: int) -> None:
         print("RENDERED", sc.render.filepath)
 
 
+def horizon_camera(c, R) -> tuple:
+    """Across the terrain from its south edge at 30 m, looking north just below level: the far ground, the
+    background cards and the #horizon ring, as a driver sees them on a crest."""
+    loc = (c[0], c[1] - 0.95 * R, c[2] + 30.0)
+    return (loc, (c[0], c[1] + 2.0 * R, c[2] - 0.08 * 3.0 * R), 22.0)
+
+
 def cameras(stock: bool, man, target: str, objs) -> dict:
+    # the oblique and horizon views frame the terrain (generated and stock alike), so they compare like for like
+    terr = [o for o in objs if o.type == "MESH" and o.name.startswith("terrain")]
+    pts = np.concatenate([np.array([o.matrix_world @ Vector(c) for c in o.bound_box]) for o in terr])
+    c = (pts.min(0) + pts.max(0)) / 2
+    R = float(np.linalg.norm(pts.max(0)[:2] - pts.min(0)[:2])) / 2
+    # oblique: over the south-west corner, looking past the centre so the frame's top edge sits at the horizon
+    # (far ground, background cards and the #horizon ring show, as they do in game from a crest)
+    views = {"oblique": ((c[0] - 0.55 * R, c[1] - 0.75 * R, c[2] + 0.42 * R), (c[0], c[1] + 0.35 * R, c[2]), 30.0),
+             "horizon": horizon_camera(c, R)}
     if stock:
-        terr = [o for o in objs if o.type == "MESH" and o.name.startswith("terrain")]
-        pts = np.concatenate([np.array([o.matrix_world @ Vector(c) for c in o.bound_box]) for o in terr])
-        c = (pts.min(0) + pts.max(0)) / 2
-        R = float(np.linalg.norm(pts.max(0)[:2] - pts.min(0)[:2])) / 2
         sp = next((o for o in objs if o.name.startswith("#startpoint01")), None)
-        out = {"oblique": ((c[0] - 0.55 * R, c[1] - 0.75 * R, c[2] + 0.42 * R), tuple(c), 30.0)}
+        out = dict(views)
         if sp is not None:
             m = sp.matrix_world
             fwd = (m.to_3x3() @ Vector((0, 1, 0))).normalized()
@@ -429,16 +443,11 @@ def cameras(stock: bool, man, target: str, objs) -> dict:
         cc, ss = {0: (1, 0), 90: (0, 1), 180: (-1, 0), 270: (0, -1)}[rot]
         return np.array([p[0] * cc - p[1] * ss, p[0] * ss + p[1] * cc, p[2]]) + shift
 
-    b = model["bounds"]
-    cen = tp([(b["minX"] + b["maxX"]) / 2, (b["minY"] + b["maxY"]) / 2, 0.0])
-    zs = [q["z"] for r in model["routes"] for q in r["samples"]]
-    cen[2] = float(np.median(zs))
-    R = math.hypot(b["maxX"] - b["minX"], b["maxY"] - b["minY"]) / 2 + 40
     pole = model["grid"]["slots"][0]
     h = pole["heading"] + math.radians(rot)
     fwd = np.array([math.cos(h), math.sin(h), 0.0])
     p = tp(pole["position"])
-    return {"oblique": (tuple(cen + np.array([-0.55 * R, -0.75 * R, 0.42 * R])), tuple(cen), 30.0),
+    return {**views,
             "driver": (tuple(p - fwd * 7 + np.array([0, 0, 2.2])), tuple(p + fwd * 60 + np.array([0, 0, 0.5])), 24.0)}
 
 
