@@ -110,6 +110,11 @@ corners only, green strips on fast exits, barriers only where needed). Kerb sour
 features here (Overpass: `barrier=kerb`, `kerb=*`, `area:highway=*`, `racing:kerb` none) and the 1 m DTM can't
 resolve 5 cm kerbs, so five corners use track-guide overrides (Coppice exit; Charlies exit + green; Park apex;
 the Gooseneck entry, apex, exit + green; Hall Bends entry + apex; sources in the recipe) and the rest geometry.
+Built `E:\WreckfestMods\realcadwell.zip` (6.7 MB; barriers on 27-29 % of each side, 414 barrier props instead of
+1,312; built route checked to run in checkpoint order) and installed; renders
+`.local\renders\realcadwell-v3-{driver,driver-parallel,driver-mountain,driver-gooseneck,oblique,horizon}.png`.
+RealAnglesey got the same rebuild (geometric kerbs: no OSM, LIDAR or guide data on kerbs there):
+`E:\WreckfestMods\realanglesey.zip`, renders `.local\renders\realanglesey-v2-*.png`, installed.
 
 ## RealAnglesey (Anglesey Circuit / Trac Môn, International + Coastal, 2026-10-19)
 
