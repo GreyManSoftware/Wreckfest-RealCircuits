@@ -88,6 +88,7 @@ class _Route:
         self.ai_index = ai_index
         self.z = np.zeros(len(pts))
         self.m = np.zeros(len(pts))  # height-marker profile (custom: the road; presets: the bumps)
+        self.bank = np.zeros(len(pts))  # cross-slope, radians; positive raises the left edge (imported tracks)
         self.start_join: int | None = None  # main-loop vertex index (alt routes)
         self.end_join: int | None = None
 
@@ -105,6 +106,21 @@ class _Route:
 
     def m_at(self, s: float) -> float:
         return float(pl.interp_at(self.cum, self.m, self.closed, s))
+
+    def bank_at(self, s: float) -> float:
+        return float(pl.interp_at(self.cum, self.bank, self.closed, s))
+
+    def surface_z(self, s: float, offset: float) -> float:
+        """Road surface height ``offset`` metres left of the centreline (negative: right), on the camber."""
+        return self.z_at(s) + offset * math.tan(self.bank_at(s))
+
+    def max_grade(self, baseline: float) -> float:
+        """Steepest |dz| / baseline over any ``baseline`` metres of the route."""
+        if self.length <= baseline:
+            return 0.0
+        s = self.s if self.closed else self.s[self.s <= self.length - baseline]
+        dz = pl.interp_at(self.cum, self.z, self.closed, s + baseline) - pl.interp_at(self.cum, self.z, self.closed, s)
+        return float(np.max(np.abs(dz))) / baseline if len(s) else 0.0
 
     def heading_at(self, s: float) -> float:
         h = 0.5
@@ -276,7 +292,7 @@ def build_track_model(spec: Mapping[str, Any] | Any) -> Result:
     option_result = rules.evaluate(spec)
     if not option_result.schema_valid:
         return Result(None, None, option_result, option_result, None, None, warnings)
-    if "mainLoop" not in spec["sketch"]:
+    if "mainLoop" not in spec["sketch"] and "imported" not in spec["sketch"]:
         warnings.append(GeometryWarning("main-loop-missing", "There is no main loop to build."))
         return Result(None, None, option_result, option_result, None, None, warnings)
     symmetric = any(f.flag == "symmetricBridgeRamps" for f in option_result.flags)
@@ -304,13 +320,46 @@ class _Builder:
         self.width = float(self.options["widthM"])
         self.lap = float(self.options["lapLengthKm"]) * 1000.0
         self.reverse = bool(self.options["reverseLayout"])
+        self.imported = self.sketch.get("imported")
 
     def warn(self, code: str, message: str) -> None:
         self.warnings.append(GeometryWarning(code, message))
 
     # -- routes ----------------------------------------------------------------------------------
 
+    def _imported_routes(self) -> None:
+        """An imported (real-world) track: the centreline is used exactly as given (no smoothing, scaling,
+        corner easing or centring), with its heights and camber; the lap is its length. Canvas units are its
+        metres, with the canvas centre at the origin."""
+        pts = np.array([[p["x"], p["y"]] for p in self.imported["centreline"]], dtype=np.float64)
+        z = np.array([p["z"] for p in self.imported["centreline"]], dtype=np.float64)
+        bank = np.radians([p["bankDeg"] for p in self.imported["centreline"]])
+        keep = np.hypot(*(np.roll(pts, -1, axis=0) - pts).T) > 1e-6  # drop repeats (and a repeated first point)
+        pts, z, bank = pts[keep], z[keep], bank[keep]
+        if len(pts) < 3:
+            raise GeometryError("The imported centreline needs at least three distinct points.", "main-loop-degenerate")
+        ignored = [k for k in ("mainLoop", "startFinish", "altRoutes", "crossings", "elevationMarkers") if self.sketch.get(k)]
+        if ignored:
+            self.warn("imported-ignores-drawn", f"The imported centreline is used; ignoring {', '.join(ignored)}.")
+        canvas = self.sketch["canvas"]
+        self.scale = 1.0
+        self.centre = np.array([float(canvas["width"]) / 2.0, -float(canvas["height"]) / 2.0])
+        self.main = _Route("main", pts, True, 0)
+        self.main.finalize()
+        self.main.imported_z = z
+        self.main.bank = bank
+        self.lap = self.main.length
+        want = float(self.options["lapLengthKm"]) * 1000.0
+        if abs(want - self.lap) > C.IMPORTED_LAP_TOLERANCE * self.lap:
+            self.warn("imported-lap-length", f"The imported centreline is {self.lap:.0f} m; lapLengthKm ({want:.0f} m) is ignored.")
+        self.routes = [self.main]
+        self.alt_gaps = {}
+        self.by_id = {"main": self.main}
+
     def _routes(self) -> None:
+        if self.imported:
+            self._imported_routes()
+            return
         need = self.width / 2.0 + float(self.consts["minInnerEdgeRadiusM"])
         target = need * (1.0 + C.RELAX_TARGET_MARGIN)
         raw_main = [(p["x"], p["y"]) for p in self.sketch["mainLoop"]["points"]]
@@ -487,7 +536,7 @@ class _Builder:
 
     def _crossings(self) -> None:
         detected = self._detect()
-        annotations = _unique_by_id(self.sketch.get("crossings", []), "crossing", self.warnings)
+        annotations = [] if self.imported else _unique_by_id(self.sketch.get("crossings", []), "crossing", self.warnings)
         cand = []
         for ai, ann in enumerate(annotations):
             pos = self.world(ann["position"])
@@ -608,6 +657,12 @@ class _Builder:
         custom elevation uses it as the road height; presets add it to the terrain as bumps."""
         self.custom = self.options["elevation"] == "custom"
         self.markers: list[_Marker] = []
+        if self.imported:
+            # The road heights are the imported ones; they play the part of custom elevation's marker profile
+            # (the grid grade fact reads it), on flat preset ground.
+            self.controls = {}
+            self.main.m = self.main.imported_z.copy()
+            return
         for mk in _unique_by_id(self.sketch.get("elevationMarkers", []), "elevation-marker", self.warnings):
             route = self.by_id.get(mk.get("route", "main"))
             if route is None:
@@ -816,7 +871,7 @@ class _Builder:
     # -- elevation -------------------------------------------------------------------------------
 
     def _elevation(self) -> None:
-        self.terrain = el.Terrain(self.meta["slug"], self.options["elevation"])
+        self.terrain = el.Terrain(self.meta["slug"], "imported" if self.imported else self.options["elevation"])
         self.terrain.limit_grade([(r.pts, r.s, r.closed) for r in self.routes])
         for r in self.routes:
             r.z = self.terrain.height(r.pts) + r.m
@@ -869,10 +924,13 @@ class _Builder:
             left = pole_left if i % 2 == 0 else not pole_left
             s = C.GRID_LINE_OFFSET_M + (rows - 1 - row) * spacing
             h = m.heading_at(s)
-            normal = np.array([-math.sin(h), math.cos(h)]) * (slot_w / 2.0) * (1.0 if left else -1.0)
-            p = m.at(s) + normal
+            offset = (slot_w / 2.0) * (1.0 if left else -1.0)
+            p = m.at(s) + np.array([-math.sin(h), math.cos(h)]) * offset
             slots.append(
-                GridSlot(f"#startpoint{i + 1:02d}", i, row, "left" if left else "right", s, [p[0], p[1], m.z_at(s)], h)
+                GridSlot(
+                    f"#startpoint{i + 1:02d}", i, row, "left" if left else "right", s,
+                    [p[0], p[1], m.surface_z(s, offset)], h,
+                )
             )
         p0 = m.at(0.0)
         car_change = Transform("#startpointcarchange", [p0[0], p0[1], m.z_at(0.0)], m.heading_at(0.0))
@@ -919,9 +977,13 @@ class _Builder:
             edges += [left, right]
             min_radius = min(min_radius, float(np.min(pl.radii(r.pts, r.closed, C.RADIUS_WINDOW))))
             z = r.z.tolist()
+            rise = half_w * np.tan(r.bank)  # camber: the left edge is this much above the centre, the right below
+            zl, zr = (r.z + rise).tolist(), (r.z - rise).tolist()
             samples = [
-                Sample(x, y, zz, s, h, 0.0, self.width)
-                for (x, y), zz, s, h in zip(r.pts.tolist(), z, r.s.tolist(), r.heading.tolist(), strict=True)
+                Sample(x, y, zz, s, h, b, self.width)
+                for (x, y), zz, s, h, b in zip(
+                    r.pts.tolist(), z, r.s.tolist(), r.heading.tolist(), r.bank.tolist(), strict=True
+                )
             ]
             joins = (None, None)
             if not r.closed:
@@ -934,8 +996,8 @@ class _Builder:
                     r.length,
                     self.width,
                     samples,
-                    [[x, y, zz] for (x, y), zz in zip(left.tolist(), z, strict=True)],
-                    [[x, y, zz] for (x, y), zz in zip(right.tolist(), z, strict=True)],
+                    [[x, y, zz] for (x, y), zz in zip(left.tolist(), zl, strict=True)],
+                    [[x, y, zz] for (x, y), zz in zip(right.tolist(), zr, strict=True)],
                     *joins,
                 )
             )
@@ -1062,5 +1124,9 @@ class _Builder:
             },
             "gridMaxGradePct": _round(min(100.0 * self._grid_max_grade(), C.MAX_REPORTED_GRADE_PCT)),
             "heightRangeM": _round(float(all_z.max() - all_z.min())),
+            "maxGradePct": _round(
+                min(100.0 * max(r.max_grade(C.GRADE_BASELINE_M) for r in self.routes), C.MAX_REPORTED_GRADE_PCT)
+            ),
+            "maxBankDeg": _round(math.degrees(max(float(np.max(np.abs(r.bank))) for r in self.routes))),
         }
         return model, facts

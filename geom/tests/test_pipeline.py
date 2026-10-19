@@ -88,6 +88,11 @@ def test_lap_length_is_exact(path: Path, built: dict[str, Any]) -> None:
     model = built[path.stem].model
     main = model.route("main")
     target = spec["options"]["lapLengthKm"] * 1000
+    if "imported" in spec["sketch"]:
+        # a real track keeps its own length (lapLengthKm is informational, within 2 %)
+        real = pl.length(np.array([[p["x"], p["y"]] for p in spec["sketch"]["imported"]["centreline"]]), True)
+        assert model.lap_length_m == pytest.approx(real, rel=1e-9)
+        target = real
     assert abs(pl.length(xy(main), True) - target) / target < 0.005
     assert model.lap_length_m == pytest.approx(target, rel=1e-9)
     spacing = pl.seg_lengths(xy(main), True)
@@ -498,6 +503,16 @@ def test_grid_slots_are_ahead_of_the_line(path: Path, built: dict[str, Any]) -> 
             gap = math.hypot(a.position[0] - b.position[0], a.position[1] - b.position[1])
             assert gap == pytest.approx(RULE_CONSTANTS["gridSlotWidthM"], abs=1e-6)
     assert grid.car_change.name == "#startpointcarchange"
+    # Every slot sits on the road surface, also across a cambered road (imported tracks).
+    main = model.route("main")
+    ss = np.array([q.s for q in main.samples])
+    for slot in grid.slots:
+        k = int(np.searchsorted(ss, slot.s, side="right") - 1)
+        f = (slot.s - ss[k]) / (ss[k + 1] - ss[k])
+        left = (1 - f) * np.array(main.left_edge[k]) + f * np.array(main.left_edge[k + 1])
+        right = (1 - f) * np.array(main.right_edge[k]) + f * np.array(main.right_edge[k + 1])
+        t = float(np.dot(np.array(slot.position[:2]) - right[:2], (left - right)[:2]) / np.sum((left - right)[:2] ** 2))
+        assert slot.position[2] == pytest.approx(right[2] + t * (left[2] - right[2]), abs=0.01)
     first = built[path.stem].facts["firstSectorLengthM"]
     assert first >= rows * spacing
     # Every slot is on clear road: inside the first sector and off any jump or ramp.
@@ -559,6 +574,55 @@ def test_short_first_sector_fails_the_grid_rule() -> None:
     assert "grid-first-sector-length" in violations(result)
 
 
+# --- imported (real-world) tracks --------------------------------------------------------------
+
+
+def imported_vector(name: str = "imported-valid") -> dict[str, Any]:
+    return load(TESTS.parents[1] / "schema" / "test-vectors" / f"{name}.json")["spec"]
+
+
+def test_imported_centreline_is_used_exactly_with_its_camber() -> None:
+    spec = imported_vector()
+    pts = spec["sketch"]["imported"]["centreline"]
+    result = build_track_model(spec)
+    assert result.valid, [v.message for v in result.rule_result.violations]
+    assert result.warnings == []
+    main = result.model.route("main")
+    assert len(main.samples) == len(pts)
+    assert result.model.lap_length_m == pytest.approx(pl.length(np.array([[p["x"], p["y"]] for p in pts]), True))
+    hw = result.model.width_m / 2
+    for q, p, left, right in zip(main.samples, pts, main.left_edge, main.right_edge, strict=True):
+        assert (q.x, q.y, q.z) == pytest.approx((p["x"], p["y"], p["z"]))
+        assert q.banking == pytest.approx(math.radians(p["bankDeg"]))
+        assert left[2] - q.z == pytest.approx(hw * math.tan(q.banking))
+        assert right[2] - q.z == pytest.approx(-hw * math.tan(q.banking))
+    assert main.samples[0].s == 0.0
+    f = result.facts
+    assert f["maxBankDeg"] == pytest.approx(max(abs(p["bankDeg"]) for p in pts), abs=1e-3)
+    z = np.array([p["z"] for p in pts])
+    assert f["heightRangeM"] == pytest.approx(z.max() - z.min(), abs=1e-3)
+    assert 0 < f["maxGradePct"] < 10
+    # canvas units are the import's metres with the canvas centre at the origin
+    t = result.model.canvas_transform
+    assert (t.scale, t.offset_x, t.offset_y) == (1.0, -spec["sketch"]["canvas"]["width"] / 2, spec["sketch"]["canvas"]["height"] / 2)
+
+
+def test_imported_track_ignores_drawn_elements() -> None:
+    result = build_track_model(imported_vector("imported-with-drawn-routes"))
+    assert [w.code for w in result.warnings] == ["imported-ignores-drawn"]
+    assert result.model.elevation_markers == []
+    assert "imported-no-drawn-routes" in violations(result)
+
+
+def test_steep_imported_road_fails_the_imported_grade_rule() -> None:
+    spec = imported_vector()
+    for k, p in enumerate(spec["sketch"]["imported"]["centreline"]):
+        p["z"] = 8.0 if 10 <= k < 20 else 0.0  # an 8 m step over one 7 m span
+    result = build_track_model(spec)
+    assert result.facts["maxGradePct"] > 25
+    assert "imported-max-grade" in violations(result)
+
+
 # --- facts, determinism, vectors ---------------------------------------------------------------
 
 
@@ -601,7 +665,7 @@ def test_vectors_build_with_non_deferred_geometry_rules(path: Path) -> None:
     if not vector["expect"]["schemaValid"]:
         pytest.skip("schema-invalid vector")
     result = build_track_model(vector["spec"])
-    if "mainLoop" not in vector["spec"]["sketch"]:
+    if "mainLoop" not in vector["spec"]["sketch"] and "imported" not in vector["spec"]["sketch"]:
         assert result.model is None
         return
     assert result.model is not None

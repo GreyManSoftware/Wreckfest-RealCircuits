@@ -9,16 +9,18 @@ import numpy as np
 import pytest
 
 from trackgen_geom import build_track_model
+from trackgen_geom.heightfield import Heightfield
 from trackgen_geom.terrain import MAX_CELLS, SINK_M, terrain_grid
 
 SAMPLES = Path(__file__).parent / "samples"
 
 
 def _grid(name: str) -> tuple[dict, dict]:
-    result = build_track_model(json.loads((SAMPLES / f"{name}.json").read_text(encoding="utf-8")))
+    spec = json.loads((SAMPLES / f"{name}.json").read_text(encoding="utf-8"))
+    result = build_track_model(spec)
     assert result.model is not None
     model = result.model.to_dict()
-    return model, terrain_grid(model)
+    return model, terrain_grid(model, spec)
 
 
 def _at(t: dict, x: float, y: float) -> float:
@@ -30,7 +32,7 @@ def _at(t: dict, x: float, y: float) -> float:
     return float((1 - u) * (1 - v) * z[j, i] + u * (1 - v) * z[j, i + 1] + (1 - u) * v * z[j + 1, i] + u * v * z[j + 1, i + 1])
 
 
-@pytest.mark.parametrize("name", ["hilly_circuit", "hill_markers", "figure8_bridge"])
+@pytest.mark.parametrize("name", ["hilly_circuit", "hill_markers", "figure8_bridge", "realcadwell"])
 def test_grid_covers_the_track_and_follows_the_road(name: str) -> None:
     model, t = _grid(name)
     b = model["bounds"]
@@ -62,3 +64,21 @@ def test_ground_stays_under_a_bridge_deck() -> None:
 
 def test_deterministic() -> None:
     assert _grid("hilly_circuit")[1] == _grid("hilly_circuit")[1]
+
+
+def test_imported_track_uses_its_real_ground() -> None:
+    """Away from the road the preview ground is the imported heightfield, not the seeded field."""
+    spec = json.loads((SAMPLES / "realcadwell.json").read_text(encoding="utf-8"))
+    hf = Heightfield(spec["sketch"]["imported"]["terrain"])
+    model, t = _grid("realcadwell")
+    b = model["bounds"]
+    x, y = b["minX"] - 50.0, b["minY"] - 50.0  # a corner of the grid, far from the road
+    assert _at(t, x, y) == pytest.approx(float(hf.height(np.array([[x, y]]))[0]), abs=0.05)
+
+
+def test_heightfield_is_bilinear_and_clamped() -> None:
+    hf = Heightfield({"originX": 0, "originY": 0, "cellM": 10, "nx": 2, "ny": 1, "z": [0, 10, 20, 2, 12, 22]})
+    z = hf.height(np.array([[5.0, 0.0], [10.0, 5.0], [-50.0, 0.0], [99.0, 99.0]]))
+    assert z.tolist() == pytest.approx([5.0, 11.0, 0.0, 22.0])
+    with pytest.raises(ValueError):
+        Heightfield({"originX": 0, "originY": 0, "cellM": 10, "nx": 2, "ny": 1, "z": [0, 1, 2]})

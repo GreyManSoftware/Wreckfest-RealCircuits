@@ -16,13 +16,25 @@
     },
     "elevationMarkers": {},
     "gridMaxGradePct": 0.0,
-    "heightRangeM": 5.746
+    "heightRangeM": 5.746,
+    "maxGradePct": 16.686,
+    "maxBankDeg": 0.0
   },
   "ruleResult": {
     "schemaValid": true,
     "schemaErrors": [],
     "violations": [],
-    "disabled": [],
+    "disabled": [
+      {
+        "ruleId": "elevation-imported-requires-import",
+        "option": "elevation",
+        "values": [
+          "imported"
+        ],
+        "hidden": true,
+        "reason": "Imported elevation is only for tracks imported from real-world data."
+      }
+    ],
     "flags": [],
     "deferred": [],
     "valid": true

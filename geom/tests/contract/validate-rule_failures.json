@@ -19,7 +19,9 @@
     "altRoutes": {},
     "elevationMarkers": {},
     "gridMaxGradePct": 0.0,
-    "heightRangeM": 7.97
+    "heightRangeM": 7.97,
+    "maxGradePct": 18.501,
+    "maxBankDeg": 0.0
   },
   "ruleResult": {
     "schemaValid": true,
@@ -39,6 +41,15 @@
       }
     ],
     "disabled": [
+      {
+        "ruleId": "elevation-imported-requires-import",
+        "option": "elevation",
+        "values": [
+          "imported"
+        ],
+        "hidden": true,
+        "reason": "Imported elevation is only for tracks imported from real-world data."
+      },
       {
         "ruleId": "sandpit-no-tarmac",
         "option": "surface",

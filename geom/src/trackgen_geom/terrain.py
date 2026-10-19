@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 
 from . import elevation as el
+from .heightfield import imported_terrain
 
 #: Terrain under and beside the road sits this far below it (as the worker).
 SINK_M = 0.15
@@ -52,12 +53,13 @@ def _bridge_mask(model: dict[str, Any], route: dict[str, Any], s: np.ndarray) ->
     return mask
 
 
-def terrain_grid(model: dict[str, Any]) -> dict[str, Any]:
+def terrain_grid(model: dict[str, Any], spec: dict[str, Any] | None = None) -> dict[str, Any]:
     """The terrain heights on a regular grid covering the model's bounds plus the terrain margin.
 
     Returns ``{originX, originY, cellM, nx, ny, z}``: ``z`` has ``(nx + 1) * (ny + 1)`` heights in
     metres, row by row (``z[j * (nx + 1) + i]`` is at ``x = originX + i * cellM``,
-    ``y = originY + j * cellM``), rounded to 2 decimals.
+    ``y = originY + j * cellM``), rounded to 2 decimals. An imported track (``spec.sketch.imported``) uses its
+    real ground (``terrain``) instead of the seeded field, and the road's lower cambered edge.
     """
     b = model["bounds"]
     margin = float(b["terrainMarginM"])
@@ -68,7 +70,7 @@ def terrain_grid(model: dict[str, Any]) -> dict[str, Any]:
     nx, ny = max(1, math.ceil((x1 - x0) / cell)), max(1, math.ceil((y1 - y0) / cell))
 
     # The natural ground, scaled exactly as the pipeline scaled it (same routes, same grade limit).
-    ground = el.Terrain(model["slug"], model["elevation"])
+    ground = imported_terrain(spec) or el.Terrain(model["slug"], model["elevation"])
     grade_routes: list[tuple[np.ndarray, np.ndarray, bool]] = []
     xys, zs, hws = [], [], []
     for r in model["routes"]:
@@ -78,7 +80,10 @@ def terrain_grid(model: dict[str, Any]) -> dict[str, Any]:
         grade_routes.append((p, s, bool(r["closed"])))
         keep = ~_bridge_mask(model, r, s)
         xys.append(p[keep])
-        zs.append(np.array([q["z"] for q in samples], dtype=np.float64)[keep])
+        # the lower of the two (cambered) edges, so the ground stays under the whole width
+        zc = np.array([q["z"] for q in samples], dtype=np.float64)
+        ze = np.minimum(np.array(r["leftEdge"], dtype=np.float64)[:, 2], np.array(r["rightEdge"], dtype=np.float64)[:, 2])
+        zs.append(np.minimum(zc, ze)[keep])
         hws.append(np.array([q["width"] for q in samples], dtype=np.float64)[keep] / 2.0)
     ground.limit_grade(grade_routes)
     road_xy = np.concatenate(xys)
