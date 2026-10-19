@@ -133,13 +133,15 @@ def test_scenery_is_the_builders_plan_in_model_coordinates(client: TestClient, n
     road = np.array([(q["x"], q["y"], q["width"] / 2) for r in model["routes"] for q in r["samples"]])
     b = model["bounds"]
     m = b["terrainMarginM"]
+    near = sc["info"].get("nearRoadM", {})  # barrier rows and corner markers stand closer, within their own band
     for p in sc["placements"]:
         x, y, z = p["position"]
         assert b["minX"] - m <= x <= b["maxX"] + m and b["minY"] - m <= y <= b["maxY"] + m
         assert b["minZ"] - 30 < z < b["maxZ"] + 30
         if p["category"] != "gantry":
             clear = float(np.min(np.hypot(road[:, 0] - x, road[:, 1] - y) - road[:, 2]))
-            assert clear >= sc["info"]["edgeMinM"] - 1.5, (p, clear)
+            lo = near[p["category"]][0] if p["category"] in near else sc["info"]["edgeMinM"]
+            assert clear >= lo - 1.5, (p, clear)
     gantry = next(p for p in sc["placements"] if p["category"] == "gantry")
     finish = next(c for c in model["checkpoints"] if c["isFinish"])
     assert math.dist(gantry["position"][:2], finish["position"][:2]) < 30
