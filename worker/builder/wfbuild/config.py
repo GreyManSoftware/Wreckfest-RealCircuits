@@ -1,7 +1,8 @@
-"""Builder constants: dimensions, materials, stock textures, environment presets and props.
+"""Builder constants: dimensions, single-texture materials and stock textures.
 
-Every texture and prop is a stock game asset referenced by its game path (data/...); nothing is copied.
-``tests/check_scene.py`` checks that each one exists under the mounted game folder.
+Per-environment textures and stock objects live in ``environments.json`` (see ``envs.py``). Every texture and
+prop is a stock game asset referenced by its game path (data/...); nothing is copied. ``tests/check_scene.py``
+checks that each one exists under the mounted game folder.
 """
 from __future__ import annotations
 
@@ -56,58 +57,54 @@ CHECKPOINT_MARGIN = 4.0       # checkpoint planes extend past the blue route on 
 CHECKPOINT_BELOW = 5.0
 CHECKPOINT_ABOVE = 10.0
 STARTPOINT_LIFT = 0.3
-PROP_CLEARANCE = 16.0         # props stay this far outside every road edge (beyond walls and run-off)
-TEX_TILE = {"road": 8.0, "kerb": 2.4, "ground": 16.0, "wall": 4.0}
+TEX_TILE = {"road": 8.0, "kerb": 2.4, "ground": 16.0, "wall": 4.0, "far": 64.0}
 
 # --- materials -------------------------------------------------------------------------------------
-# key: (material name "name#surface", stock texture path, tiling group)
+# Single-texture materials (one Principled BSDF, texture in slot 1). The road, shoulder, terrain, edge decal
+# and backdrop materials are multi-slot stock-style materials per environment: see materials.py and
+# environments.json. key: (material name "name#surface", stock texture path, tiling group)
 _T = "data/art/textures/"
-_FIELDS = "data/art/levels/fields/textures/"
-_FOREST = "data/art/levels/forest/textures/"
 MATERIALS: dict[str, tuple[str, str, str]] = {
-    "road_asphalt": ("road_asphalt#asphalt", _T + "ground_race_tarmack_01_c.tga", "road"),
-    "road_gravel": ("road_gravel#gravel", _FOREST + "ground_gravel_01_c.tga", "road"),
-    "road_sand": ("road_sand#gravel", _FIELDS + "road_sand_05_fields_c.tga", "road"),
     "kerb": ("kerb#curb", _T + "prop_curb1_c.tga", "kerb"),
-    "shoulder": ("shoulder#gravel", _FIELDS + "ground_fields08_gravelsoil_c.tga", "ground"),
-    "runoff": ("runoff#gravel", _FIELDS + "gravel01_filler_c.tga", "ground"),
     "wall_concrete": ("wall_concrete#concrete", _T + "texture_concrete_wall_01_c.tga", "wall"),
     "wall_tyres": ("wall_tyres#default", _T + "prop_tirebarrier2_c.tga", "wall"),
     "bridge_concrete": ("bridge_concrete#concrete", _T + "prop_forest5_concretebridge01_c.tga", "wall"),
-    "terrain_gravel_pit": ("terrain_gravel_pit#offroadsand", _FIELDS + "ground_sand_pebbles_01_c.tga", "ground"),
-    "terrain_farmland": ("terrain_farmland#offroadfoliage", _FIELDS + "ground_farmfield_01_c.tga", "ground"),
-    "terrain_forest": ("terrain_forest#offroadfoliage", _FOREST + "ground_forestfloor4_c.tga", "ground"),
-    "terrain_industrial": ("terrain_industrial#concrete", _FIELDS + "ground_concrete_slab_01_c.tga", "ground"),
-    "terrain_sandpit": ("terrain_sandpit#offroadsand", _FIELDS + "ground_sand01_fields_c.tga", "ground"),
     "cube_map": ("ghost", _T + "tmp_ghost_c1.tga", "wall"),  # as every stock base; see GHOST_MATERIALS
 }
 
-# options.surface -> road material keys. "mixed" alternates asphalt and gravel by checkpoint sector
-# (the grid sector is asphalt); alternative routes are gravel.
+# options.surface -> road material keys (materials.py). "mixed" alternates asphalt and gravel by checkpoint
+# sector (the grid sector is asphalt); alternative routes are gravel.
 SURFACE_ROADS = {
-    "tarmac": ("road_asphalt",),
+    "tarmac": ("road_tarmac",),
     "gravel": ("road_gravel",),
     "sand": ("road_sand",),
-    "mixed": ("road_asphalt", "road_gravel"),
+    "mixed": ("road_tarmac", "road_gravel"),
 }
 
 WALL_MATERIAL = {"concrete": "wall_concrete", "tyres": "wall_tyres"}
 
-# Stock props (data/art/objects/<name>.scne), referenced as Toolbox "#xref ob/<name>.scne" subscenes.
-PROPS: dict[str, tuple[str, ...]] = {
-    "gravel_pit": ("prop_tirepile_black05", "prop_tirepile_black07", "prop_rock_pile_01", "prop_rock_pile_02",
-                   "prop_sandpile_02", "prop_car_rusty01", "prop_bigtire_01", "prop_rock_large2"),
-    "farmland": ("prop_bale1", "prop_straw_bale1", "prop_straw_bale2", "foliage_tree_deciduous1",
-                 "foliage_tree_deciduous2", "foliage_bush1", "foliage_oak2", "prop_logpile2"),
-    "forest": ("foliage_pine1", "foliage_pine2", "foliage_spruce1", "foliage_spruce2", "foliage_birch5",
-               "foliage_bush14", "foliage_tree_alder1", "prop_logpile2"),
-    "industrial": ("prop_container2", "prop_container4", "prop_container4red", "prop_tirepile_big01",
-                   "prop_car_rusty_pile01", "prop_concrete_element3", "prop_pallet1a", "prop_barrel4"),
-    "sandpit": ("prop_sandpile_02", "prop_sandpile_pg_01", "prop_rock_desert_01", "prop_rock_desert_02",
-                "foliage_desert_bush_01", "foliage_desert_tree_01", "prop_sandbank01_pg"),
-}
-PROP_DENSITY_PER_HA = 1.5     # props per hectare of terrain, capped below
-PROP_MAX = 160
+# Mesh kinds that use the #blend materials and so get UV2 (the generated maps' frame).
+BLEND_KINDS = ("road", "shoulder", "terrain")
+# Mesh kinds without collision (CustomData empty): the road-edge decal and the backdrop.
+NO_COLLISION_KINDS = ("decal", "backdrop", "helper")
+
+# --- generated maps (maps.py) ----------------------------------------------------------------------
+MAP_RES = 1024                # blend / colour / clutter maps, square over the terrain extent
+FIELD_PX_MIN = 2.0            # distance-field resolution (metres per pixel, at least)
+FIELD_CAP = 160.0             # distances beyond this are clamped
+GRASS_BAND = (5.0, 80.0)      # clutter grass from this far to this far outside the road edge (stock fields13)
+
+# --- edge decal ------------------------------------------------------------------------------------
+EDGE_DECAL_OUT = 0.3          # the decal's broken asphalt edge sits this far outside the road edge
+EDGE_DECAL_LIFT = 0.03
+
+# --- backdrop (backdrop.py) ------------------------------------------------------------------------
+HORIZON_OFFSET = 900.0        # wanted distance of the #horizon ring beyond the terrain edge (stock ~1400 m radius)
+HORIZON_SEGMENTS = 96
+HORIZON_REPEATS = 4           # vista texture repeats around the ring
+BACKDROP_LIMIT = LIMIT_M - 10.0
+TREE_CARD_HEIGHT = (28.0, 40.0)
+TREE_CARD_QUAD = 8.0          # card strips are built from 8 m quads (stock foliage_bgrforest00N)
 
 STATIC_CUBE_MAP = ("#static_cube_map", 'dyn = "data/property/object/ghost"')  # as in the example base
 CUBE_MAP_SIZE = 0.3           # stock bases and the example: a 0.3 m cube...

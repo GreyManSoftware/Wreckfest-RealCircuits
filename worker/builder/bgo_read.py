@@ -21,6 +21,7 @@ Layout (little endian):
 from __future__ import annotations
 
 import json
+import math
 import struct
 import sys
 from dataclasses import dataclass, field
@@ -53,6 +54,9 @@ class BgoObject:
     # Blender-space (x, y, z) triangles and material ids, only when read with tris=True
     tris: list[tuple[tuple[float, float, float], ...]] | None = None
     tri_materials: list[int] | None = None
+    # per UV layer [u, v] minimum / maximum as stored (v already flipped by the exporter), with tris=True
+    uv_lo: list[list[float]] | None = None
+    uv_hi: list[list[float]] | None = None
 
     @property
     def location(self) -> tuple[float, float, float]:
@@ -172,6 +176,8 @@ def read(path: str, tris: bool = False) -> Bgo:
                     if tris:
                         stride = 4 + 11 * ob.uv_count
                         ob.tris, ob.tri_materials = [], []
+                        lo = [[math.inf, math.inf] for _ in range(ob.uv_count)]
+                        hi = [[-math.inf, -math.inf] for _ in range(ob.uv_count)]
                         for _ in range(ob.tri_count):
                             corners = []
                             mid = 0
@@ -179,8 +185,14 @@ def read(path: str, tris: bool = False) -> Bgo:
                                 vals = r.f32(stride)
                                 mid = int(vals[0])
                                 corners.append((vals[1], vals[3], vals[2]))
+                                for k in range(ob.uv_count):
+                                    for a in (0, 1):
+                                        v = vals[4 + 11 * k + a]
+                                        lo[k][a] = min(lo[k][a], v)
+                                        hi[k][a] = max(hi[k][a], v)
                             ob.tris.append(tuple(corners))
                             ob.tri_materials.append(mid)
+                        ob.uv_lo, ob.uv_hi = lo, hi
                     r.p = gend
                 elif kind == "OBJX":
                     ob.xref = r.cstr()

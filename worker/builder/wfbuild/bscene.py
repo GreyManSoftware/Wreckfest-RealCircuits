@@ -21,7 +21,8 @@ LAYOUT_MATERIALS = {
 
 def reset() -> None:
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    for coll in (bpy.data.objects, bpy.data.meshes, bpy.data.materials, bpy.data.images, bpy.data.curves):
+    for coll in (bpy.data.objects, bpy.data.meshes, bpy.data.materials, bpy.data.images, bpy.data.curves,
+                 bpy.data.node_groups):
         for item in list(coll):
             coll.remove(item)
 
@@ -30,7 +31,66 @@ def wf_root() -> str:
     return os.environ.get("WRECKFEST_DIR", "/wreckfest")
 
 
+SPECS: dict[str, dict] = {}   # multi-slot material specs (materials.build), set by build_scene
+SLOT_GROUP = "trackgen#slots"  # Toolbox exports a node group named with '#': input k -> texture slot k
+
+
+def set_specs(specs: dict[str, dict]) -> None:
+    SPECS.clear()
+    SPECS.update(specs)
+
+
+def _slot_group() -> bpy.types.NodeTree:
+    g = bpy.data.node_groups.get(SLOT_GROUP)
+    if g is None:
+        g = bpy.data.node_groups.new(SLOT_GROUP, "ShaderNodeTree")
+        for i in range(12):
+            g.interface.new_socket(f"slot{i}", in_out="INPUT", socket_type="NodeSocketColor")
+    return g
+
+
+def image_path(rel: str, mod_root: str | None = None) -> str:
+    """A data/... texture path as Blender sees it: generated maps under the build's mod folder, stock textures
+    in the mounted install. Toolbox writes the path from 'data/' on."""
+    if rel.startswith("data/track/") and mod_root:
+        return os.path.join(mod_root, rel)
+    return os.path.join(wf_root(), rel)
+
+
+MOD_ROOT: list[str] = []
+
+
+def spec_material(spec: dict) -> bpy.types.Material:
+    """A multi-slot material: image nodes (with Mapping scale and a UVMap/UVMap2 node) feeding the 12-input
+    '#' node group, which Toolbox exports slot by slot (verified through bgeometry, visual-assets.md)."""
+    mat = bpy.data.materials.get(spec["name"])
+    if mat is not None:
+        return mat
+    mat = bpy.data.materials.new(spec["name"])
+    mat.use_nodes = True
+    nt = mat.node_tree
+    gn = nt.nodes.new("ShaderNodeGroup")
+    gn.node_tree = _slot_group()
+    for n, (slot, rel, uv, scale) in enumerate(spec["slots"]):
+        img = bpy.data.images.get(rel) or bpy.data.images.new(rel, width=1, height=1)
+        img.source = "FILE"
+        img.filepath = image_path(rel, MOD_ROOT[0] if MOD_ROOT else None)
+        tn = nt.nodes.new("ShaderNodeTexImage")
+        tn.image = img
+        tn.location = (-500, 600 - 160 * n)
+        nt.links.new(tn.outputs["Color"], gn.inputs[slot])
+        mp = nt.nodes.new("ShaderNodeMapping")
+        mp.inputs["Scale"].default_value = (scale[0], scale[1], 1.0)
+        uvn = nt.nodes.new("ShaderNodeUVMap")
+        uvn.uv_map = "UVMap2" if uv == 2 else "UVMap"
+        nt.links.new(uvn.outputs["UV"], mp.inputs["Vector"])
+        nt.links.new(mp.outputs["Vector"], tn.inputs["Vector"])
+    return mat
+
+
 def material(key: str) -> bpy.types.Material:
+    if key in SPECS:
+        return spec_material(SPECS[key])
     if key in LAYOUT_MATERIALS:
         name, colour = LAYOUT_MATERIALS[key]
         mat = bpy.data.materials.get(name) or bpy.data.materials.new(name)
@@ -82,6 +142,10 @@ def mesh_object(m: Mesh, coll: bpy.types.Collection) -> bpy.types.Object:
         uv = me.uv_layers.new(name="UVMap")
         flat = [c for face in m.uvs for corner in face for c in corner]
         uv.data.foreach_set("uv", flat)
+        if m.uvs2 is not None:
+            # Second layer = UV2 in game (Toolbox writes the layers in order)
+            uv2 = me.uv_layers.new(name="UVMap2")
+            uv2.data.foreach_set("uv", [c for face in m.uvs2 for corner in face for c in corner])
     me.update()
     ob = bpy.data.objects.new(m.name, me)
     ob.location = tuple(origin)

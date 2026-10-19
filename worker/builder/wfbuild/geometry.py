@@ -19,6 +19,19 @@ def smoothstep(t: np.ndarray) -> np.ndarray:
     return t * t * (3.0 - 2.0 * t)
 
 
+def wrap_uv(uv: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Shift a face's UVs by whole repeats so the smallest u and v lie in [0, 1).
+
+    Wreckfest stores UVs as int16 / 2048, so they must stay within +-16 (stock UV1 spans about -16..14).
+    Shifting by integers is invisible for tiling textures; neighbouring faces only differ where a face
+    crosses a whole repeat, so few vertices are split."""
+    if not uv:
+        return uv
+    du = math.floor(min(p[0] for p in uv))
+    dv = math.floor(min(p[1] for p in uv))
+    return [(p[0] - du, p[1] - dv) for p in uv]
+
+
 @dataclass
 class Mesh:
     name: str
@@ -29,6 +42,7 @@ class Mesh:
     uvs: list[list[tuple[float, float]]] = field(default_factory=list)
     kind: str = ""  # free-form tag for the manifest/tests (road, kerb, wall, terrain, ...)
     origin: tuple[float, float, float] | None = None  # object location; vertices are stored in world space
+    uvs2: list[list[tuple[float, float]]] | None = None  # UV2 (0..1 over the track's map frame) for #blend maps
 
     def vert(self, p) -> int:
         self.verts.append((float(p[0]), float(p[1]), float(p[2])))
@@ -44,7 +58,12 @@ class Mesh:
             return
         self.faces.append(tuple(idx))
         self.mats.append(mat)
-        self.uvs.append([(float(uv[k][0]), float(uv[k][1])) for k in keep])
+        self.uvs.append(wrap_uv([(float(uv[k][0]), float(uv[k][1])) for k in keep]))
+
+    def set_map_uv(self, frame: tuple[float, float, float]) -> None:
+        """UV2 from world x, y: (x - x0) / size, (y - y0) / size, the frame of the generated blend/colour maps."""
+        x0, y0, size = frame
+        self.uvs2 = [[((self.verts[i][0] - x0) / size, (self.verts[i][1] - y0) / size) for i in f] for f in self.faces]
 
     def oriented_face(self, idx, mat: str, outward, uv=None) -> None:
         """Add a polygon, flipping it if its normal points against ``outward``."""
@@ -595,8 +614,11 @@ class TrackGeometry:
         none = self.walls == "none"
         sw = C.RUNOFF_W if none else C.SHOULDER_W
         drop = C.RUNOFF_DROP if none else C.SHOULDER_DROP
-        smat = "runoff" if none else "shoulder"
+        # Same textures as the terrain (and the same world-space UV1), so the verge blends into it seamlessly;
+        # only the surface (gravel) differs.
+        smat = "shoulder"
         self.kerb_runs: dict[str, np.ndarray] = {}
+        self.edge_ok: dict[tuple[int, int], np.ndarray] = {}  # (route, side) -> samples with a plain edge
         for r in self.routes:
             q = self.qkeep[r.index]
             seg = r.seg_len()
@@ -611,6 +633,7 @@ class TrackGeometry:
                 ok = self._edge_ok(r, outer, 0.3) & self._edge_ok(r, inner, 0.3)
                 for i in self.mouth_samples.get((r.index, side), ()):
                     ok[i] = False
+                self.edge_ok[(r.index, side)] = ok & (kw <= 0)
                 kv: dict[int, tuple[int, int]] = {}
                 sv: dict[int, tuple[int, int]] = {}
                 for i in range(r.segs):
@@ -632,13 +655,66 @@ class TrackGeometry:
                     for k in (i, i2):
                         if k not in sv:
                             sv[k] = (shoulders.vert(inner[k]), shoulders.vert(outer[k]))
-                    t = C.TEX_TILE["ground"]
                     ids = (sv[i][0], sv[i2][0], sv[i2][1], sv[i][1])
-                    uv = [(0, v0 / t), (0, v1 / t), (sw / t, v1 / t), (sw / t, v0 / t)]
                     if side < 0:
-                        ids, uv = ids[::-1], uv[::-1]
-                    shoulders.face(ids, smat, uv)
+                        ids = ids[::-1]
+                    shoulders.face(ids, smat)  # world-space UV1, as the terrain
         return kerbs, shoulders
+
+    def build_edge_decals(self) -> Mesh:
+        """Stock-style broken asphalt edge: a decal strip (#decal, no collision) over each plain road edge
+        (no kerb, no junction mouth, not on a bridge), bent over the verge, so the road doesn't end in a hard
+        line against the verge. The texture's own broken edge sits EDGE_DECAL_OUT outside the road edge."""
+        from . import envs
+        d = envs.env(self.options.get("environment"))["edgeDecal"]
+        mesh = Mesh("track_edges", "", kind="decal")
+        none = self.walls == "none"
+        sw = C.RUNOFF_W if none else C.SHOULDER_W
+        drop = C.RUNOFF_DROP if none else C.SHOULDER_DROP
+        width, at = float(d["width"]), float(d["edgeAt"])
+        t_edge = at + C.EDGE_DECAL_OUT / width          # across-coordinate (0 = outer side) of the road edge
+        offs = [(at - t) * width + C.EDGE_DECAL_OUT for t in (0.0, t_edge, 1.0)]  # outward offsets of 3 columns
+        ts = (0.0, t_edge, 1.0)
+        L = float(d["lengthM"])
+        for r in self.routes:
+            q = self.qkeep[r.index]
+            for side in (1, -1):
+                ok = self.edge_ok.get((r.index, side))
+                if ok is None:
+                    continue
+                edge = r.left if side > 0 else r.right
+                other = r.right if side > 0 else r.left
+                cols = []
+                for off in offs:
+                    if off <= 0:  # on the road: along the cross-section towards the other edge
+                        f = min(-off / max(r.width, 1e-6), 1.0)
+                        p = edge + (other - edge) * f
+                    else:         # on the verge, following its slope
+                        p = self._side_points(r, side, off)
+                        p[:, 2] = edge[:, 2] - drop * min(off / sw, 1.0)
+                    p = p.copy()
+                    p[:, 2] += C.EDGE_DECAL_LIFT
+                    cols.append(p)
+                vid: dict[tuple[int, int], int] = {}
+                seg = r.seg_len()
+                for i in range(r.segs):
+                    i2 = r.nxt(i)
+                    if not (q[i] and ok[i] and ok[i2]):
+                        continue
+                    for k in (i, i2):
+                        for c in range(3):
+                            if (k, c) not in vid:
+                                vid[k, c] = mesh.vert(cols[c][k])
+                    v0, v1 = r.s[i] / L, (r.s[i] + float(seg[i])) / L
+                    for c in range(2):
+                        ids = (vid[i, c], vid[i2, c], vid[i2, c + 1], vid[i, c + 1])
+                        a, b = ts[c], ts[c + 1]
+                        if d["across"] == "u":
+                            uv = [(a, v0), (a, v1), (b, v1), (b, v0)]
+                        else:
+                            uv = [(v0, a), (v1, a), (v1, b), (v0, b)]
+                        mesh.oriented_face(ids, "edge_decal", np.array([0.0, 0.0, 1.0]), uv)
+        return mesh
 
     # ---------------------------------------------------------------------------------------- walls
     def _extrude(self, mesh: Mesh, line: np.ndarray, out2: np.ndarray, base: np.ndarray, top: np.ndarray,
@@ -846,9 +922,7 @@ class TrackGeometry:
         gx, gy = np.meshgrid(xs, ys, indexing="ij")
         pts = np.stack([gx.ravel(), gy.ravel(), np.zeros(gx.size)], axis=1)
         z = self.terrain(pts).reshape(gx.shape)
-        mat = "terrain_" + self.options.get("environment", "gravel_pit")
-        if mat not in C.MATERIALS:
-            mat = "terrain_gravel_pit"
+        mat = "terrain"
         T = C.TERRAIN_TILE_CELLS
         tile = C.TEX_TILE["ground"]
         meshes = []
@@ -871,7 +945,7 @@ class TrackGeometry:
     def build_base(self) -> list[Mesh]:
         meshes = [self.build_road()]
         kerbs, shoulders = self.build_kerbs_and_shoulders()
-        meshes += [m for m in (kerbs, shoulders) if not m.empty]
+        meshes += [m for m in (kerbs, shoulders, self.build_edge_decals()) if not m.empty]
         meshes += self.build_walls()
         meshes += self.build_bridges()
         meshes += self.build_terrain()
