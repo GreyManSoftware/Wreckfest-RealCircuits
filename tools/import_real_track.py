@@ -262,6 +262,36 @@ def fetch_dtm_wales(e0: float, n0: float, e1: float, n1: float, cache: Path) -> 
     return Dtm(xc - 0.5, yc + 0.5, 1.0, z)
 
 
+def horizon_profile(recipe: dict, eye: np.ndarray, eye_z: float, cache: Path, sea_level: float = 0.0) -> dict:
+    """The distant skyline from ``eye`` (BNG) at height ``eye_z`` (m ODN): per azimuth step (clockwise from grid
+    north) the highest elevation angle of the terrain between ``minDistanceM`` and ``maxDistanceM``, with earth
+    curvature and refraction (k = 0.13), from the Wales DTM's 32 m overview (no-data = sea at ``sea_level``),
+    and whether that skyline is the open sea."""
+    h = recipe["horizon"]
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "real_tracks_data"))
+    from cog import RemoteCog  # noqa: PLC0415
+
+    r_max, r_min = float(h.get("maxDistanceM", 45000.0)), float(h.get("minDistanceM", 3000.0))
+    step = float(h.get("stepDeg", 1.0))
+    cog = RemoteCog(WALES_DTM_COG, str(cache / "cog_cache"))
+    cog.use_level(int(h.get("overviewLevel", 5)))
+    z, xc, yc, res = cog.read_bbox(eye[0] - r_max, eye[1] - r_max, eye[0] + r_max, eye[1] + r_max)
+    z = np.where(np.isnan(z), sea_level, z)
+    grid = Dtm(xc - res / 2.0, yc + res / 2.0, res, z)
+    r = np.arange(r_min, r_max, res)
+    drop = r * r / (2 * 6371000.0) * 0.87
+    elev, sea = [], []
+    for az in np.arange(0.0, 360.0, step):
+        a = math.radians(az)
+        zz = grid.sample(eye[0] + r * math.sin(a), eye[1] + r * math.cos(a))
+        zz = np.where(np.isnan(zz), sea_level, zz)
+        ang = np.degrees(np.arctan((zz - drop - eye_z) / r))
+        i = int(np.argmax(ang))
+        elev.append(round(float(ang[i]), 3))
+        sea.append(bool(zz[i] < sea_level + 2.0))
+    return {"stepDeg": step, "elevationDeg": elev, "sea": sea}
+
+
 def load_dtm(recipe: dict, e0: float, n0: float, e1: float, n1: float, cache: Path) -> Dtm:
     """The recipe's DTM (``"dtm": "ea"`` England, the default, or ``"wales"``)."""
     if recipe.get("dtm", "ea") == "wales":
@@ -701,6 +731,9 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         imported["altLayouts"] = alt_specs
     if sea is not None:
         imported["seaLevelM"] = round(float(sea) - datum, 2)
+    if recipe.get("horizon") and recipe.get("dtm") == "wales":
+        log("Horizon profile from the DTM overview ...")
+        imported["horizon"] = horizon_profile(recipe, p[0], float(z[0]) + 1.5, cache, float(sea or 0.0))
     o = recipe["options"]
     spec = {
         "meta": {"name": recipe["name"], "slug": recipe["slug"], "description": recipe["trackDescription"][:500]},

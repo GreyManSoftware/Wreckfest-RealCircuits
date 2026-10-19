@@ -495,6 +495,30 @@ class NamedSpot:
 
 
 @dataclass(kw_only=True)
+class HorizonProfile:
+    """The distant skyline seen from the start line, beyond the far ground (from a regional DTM): per azimuth step, clockwise from north (+y), the highest terrain's elevation angle and whether the horizon there is open sea. The builder paints the #horizon texture from it (e.g. Snowdonia from Anglesey)."""
+
+    step_deg: float
+    elevation_deg: list[float]
+    sea: list[bool]
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> HorizonProfile:
+        return cls(
+            step_deg=float(data["stepDeg"]),
+            elevation_deg=[float(v0) for v0 in data["elevationDeg"]],
+            sea=[bool(v0) for v0 in data["sea"]],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["stepDeg"] = self.step_deg
+        out["elevationDeg"] = [v0 for v0 in self.elevation_deg]
+        out["sea"] = [v0 for v0 in self.sea]
+        return out
+
+
+@dataclass(kw_only=True)
 class ImportedAltLayout:
     """Another real layout that shares the base scene: the main centreline with one section replaced by this branch. The branch is open, in driving order, and starts and ends on the main centreline (its first and last points are snapped to the nearest main points). The layout's lap is the main centreline up to the branch start, the branch, then the main centreline from the branch end; it shares the main start/finish line and grid."""
 
@@ -532,6 +556,7 @@ class ImportedTrack:
     main_layout_name: str | None = None
     alt_layouts: list[ImportedAltLayout] | None = None
     sea_level_m: float | None = None
+    horizon: HorizonProfile | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> ImportedTrack:
@@ -546,6 +571,7 @@ class ImportedTrack:
             main_layout_name=None if data.get("mainLayoutName") is None else str(data["mainLayoutName"]),
             alt_layouts=None if data.get("altLayouts") is None else [ImportedAltLayout.from_dict(v0) for v0 in data["altLayouts"]],
             sea_level_m=None if data.get("seaLevelM") is None else float(data["seaLevelM"]),
+            horizon=None if data.get("horizon") is None else HorizonProfile.from_dict(data["horizon"]),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -568,6 +594,8 @@ class ImportedTrack:
             out["altLayouts"] = [v0.to_dict() for v0 in self.alt_layouts]
         if self.sea_level_m is not None:
             out["seaLevelM"] = self.sea_level_m
+        if self.horizon is not None:
+            out["horizon"] = self.horizon.to_dict()
         return out
 
 
@@ -865,6 +893,7 @@ __all__ = [
     "Environment",
     "GeometryFacts",
     "Heightfield",
+    "HorizonProfile",
     "ImportedAltLayout",
     "ImportedPoint",
     "ImportedTrack",

@@ -289,6 +289,18 @@
         }
       }
     },
+    "HorizonProfile": {
+      "title": "Horizon profile",
+      "description": "The distant skyline seen from the start line, beyond the far ground (from a regional DTM): per azimuth step, clockwise from north (+y), the highest terrain's elevation angle and whether the horizon there is open sea. The builder paints the #horizon texture from it (e.g. Snowdonia from Anglesey).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepDeg", "elevationDeg", "sea"],
+      "properties": {
+        "stepDeg": { "type": "number", "minimum": 0.25, "maximum": 10 },
+        "elevationDeg": { "type": "array", "minItems": 36, "maxItems": 1440, "items": { "type": "number", "minimum": -5, "maximum": 30 } },
+        "sea": { "type": "array", "minItems": 36, "maxItems": 1440, "items": { "type": "boolean" } }
+      }
+    },
     "ImportedAltLayout": {
       "title": "Imported alternative layout",
       "description": "Another real layout that shares the base scene: the main centreline with one section replaced by this branch. The branch is open, in driving order, and starts and ends on the main centreline (its first and last points are snapped to the nearest main points). The layout's lap is the main centreline up to the branch start, the branch, then the main centreline from the branch end; it shares the main start/finish line and grid.",
@@ -364,7 +376,8 @@
           "type": "number",
           "minimum": -200,
           "maximum": 500
-        }
+        },
+        "horizon": { "$ref": "#/$defs/HorizonProfile" }
       }
     },
     "Sketch": {
