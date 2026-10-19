@@ -371,6 +371,19 @@ def clutter_stats(s: Scene, roots: list[str]) -> dict | None:
     return best
 
 
+def missing_textures(s: Scene, roots: list[str]) -> list[str]:
+    """Texture paths of the scene's materials ('bmap' entries: u32 length + data/....bmap) that no root has."""
+    d = unbag(open(s.path, "rb").read())
+    paths, p = set(), 0
+    while (p := d.find(b"pamb", p)) >= 0:
+        n = struct.unpack_from("<I", d, p + 4)[0] if p + 8 <= len(d) else 0
+        t = d[p + 8:p + 8 + n] if 0 < n < 260 else b""
+        if t.startswith(b"data/") and t.endswith(b".bmap"):
+            paths.add(t.decode("utf-8", "replace"))
+        p += 4
+    return sorted(x for x in paths if resolve(x, roots) is None)
+
+
 def limits(path: str, roots: list[str]) -> list[tuple[str, float, float]]:
     """[(what, value, limit)] for a base scene; roots resolve subscenes and textures (mod root, then game)."""
     s = read(path)
@@ -381,6 +394,7 @@ def limits(path: str, roots: list[str]) -> list[tuple[str, float, float]]:
            ("vertices with every subscene instance", iv, LIMITS["instanceVerts"]),
            ("subscenes", t["subscenes"], LIMITS["subscenes"]),
            ("unresolved subscenes", missing, 0)]
+    out.append(("textures that don't resolve (pink in game)", len(missing_textures(s, roots)), 0))
     c = clutter_stats(s, roots)
     if c:
         out += [(f"clutter at full density, ha ({c['mask'].split('/')[-1]})", c["ha"], LIMITS["clutterHa"]),
