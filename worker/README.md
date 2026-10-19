@@ -175,14 +175,15 @@ bgeometry logs `Surface Settings does not exists: decal ()` and `... noshadow ()
 - **Kerbs:** 1.2 m `#curb` strips outside both edges where the radius is under 150 m, dilated and tapered at their ends.
 - **Shoulders:** 3 m verges sloping 0.6 m down into the terrain (8 m and 0.4 m gravel run-off without walls).
 - **Walls:** invisible collision walls (CustomData `vis = false | col = true`, like stock `wall_col` meshes), sunk 0.5 m into the terrain, on a wall line 5.5 m outside the road edge where containment is needed (inside of corners tighter than 60 m, the grid sector, under bridges, near another road) and 12 m out behind open run-off elsewhere (`geometry.wall_plan`). The visible barrier is a row of the environment's stock barrier props on the same line (`dressing.barriers`, `environments.json` "barriers"). Walls stop where they would enter another road's corridor and on folds inside tight corners.
-- **Terrain:** a 4 m grid over the model bounds plus the 60 m margin, with a 5 m berm at the edge. It follows the lowest nearby road height − 0.15 m and blends to trackgen_geom's seeded ground over 30 m. Bridge structures don't pull it up.
+- **Terrain:** a 4 m grid over the model bounds plus the 60 m margin, with a 5 m berm at the edge. It follows the lowest nearby road surface − 0.15 m and blends to trackgen_geom's seeded ground over 30 m. Bridge structures don't pull it up. The road surface is taken across its camber (the height at the point's offset from the centreline, clamped to the edges), so the ground meets the low edge of a cambered road.
+- **Imported (real-world) tracks** (`sketch.imported`, e.g. `realcadwell`): the road, kerbs, shoulders and edge decals follow the TrackModel's cambered edges; the AI strips (`#ai_*`) and the checkpoint planes' feet are tilted with the road (`Route.slope`); the grid slots come from geom already on the cambered surface. The ground is the import's real heightfield (`trackgen_geom.heightfield`) with no edge berm, and the backdrop's far ground continues it as far as the heightfield reaches (fading to the usual hills over 120 m). The import's OSM woods (`woodland`) place the trees and the forest floor and canopy shade in the maps (`wfbuild/woods.py`, `WoodMask`), and its `viewingSpots` get crowd banks on both sides first.
 - **Bridges:** the over branch's deck is its own road surface. Over it, wherever the road is above ground within the under road's width + 15 m, there's an 0.8 m slab with 1 m barriers. Pillars stand outside the under road's walls. Clearance is ≥ 5.7 m (deck 6.5 m − slab).
 - **Jumps:** `inBase` jumps are already in the road heights. One-way jumps in a reverse build (`inBase: false`) become `jump_<id>` objects in the forward layout scene only: the profile on top of the road, plus side faces.
 - **Scenery** (`wfbuild/dressing.py`, pure numpy, seeded by the slug; manifest format in [docs/scenery-manifest.md](docs/scenery-manifest.md)):
   - start/finish: a gantry (`prop_start_startlights1`) over the line, flags, staff and a start grandstand on the roomier side; a paddock (tents, trucks, crew bus, toilets, food stand) on the other side;
   - crowds of standing spectators behind fences on the outside of the sharpest corners, after jump landings and beside bridges;
   - tyre stacks or straw bales on corner apexes; ad fences and big boards on straights; stadium lights by the start;
-  - clustered foliage (shared noise, coverage per environment), saplings for sandpit, rocks, sand piles and logs; farmsteads (farmland), container yards and a city-building skyline (industrial);
+  - clustered foliage (shared noise, coverage per environment; an imported track's real woods instead), single park trees in parkland, saplings for sandpit, rocks, sand piles and logs; farmsteads (farmland), container yards and a city-building skyline (industrial);
   - only assets listed for the environment; no-go zones: the road and run-off (nothing but the gantry within wall offset + 1 m of an edge), the grid sector, bridge decks and ramps, jump landings;
   - about 1,000-4,000 subscenes per track (stock bases have 900-6,000).
 - **Backdrop** (`wfbuild/backdrop.py`): a far-ground ring from the terrain edge to past the horizon with gentle hills (at most ~15 m, like stock), a `#horizon` cylinder 900 m beyond the terrain edge (closer where the ±2000 m limit leaves less room; computed after the placement shift) and `#xtree` card strips (two layers for forest). No collision.
@@ -257,7 +258,7 @@ Builder time per track: geometry 0.5-2.2 s, scenery plan 0.1-0.8 s, maps 1.0-1.6
 
 ### Comparison renders
 
-`builder/render/` renders a built base scene (and optionally the stock fields13 base) with Cycles on the CPU, using stock textures and stock props instanced at every subscene, from an oblique camera and at driver height on the pole slot. It only approximates the game's shaders (no clutter grass, no game lighting), so use it to judge layout and texture choice, not exact looks. See `builder/render/README.md`.
+`builder/render/` renders a built base scene (and optionally the stock fields13 base) with Cycles on the CPU, using stock textures and stock props instanced at every subscene, from an oblique camera and at driver height on the pole slot (`-DriverAt 'name=metres,…'` adds driver views further round the lap). It only approximates the game's shaders (no clutter grass, no game lighting), so use it to judge layout and texture choice, not exact looks. See `builder/render/README.md`.
 
 ### Unverified in game
 
@@ -359,6 +360,8 @@ Shipped besides the scenes: the five generated maps as `data/track/<slug>/textur
 ### Weather mapping
 
 The schema's weathers are time-of-day slots. `pipeline/weather.py` maps them per environment preset to stock `.weat` files (listed from the mounted `data/property/weather/`), checking that each exists; a slot falls back to the nearest time of day (morning → sunrise, evening → sunset) or to another family. Paths below are under `data/property/weather/`:
+
+`parkland` uses fields13, then forest11, then fields14 (its slots match farmland's where fields13 has them).
 
 | Slot | gravel_pit | farmland | forest | industrial | sandpit |
 |---|---|---|---|---|---|
