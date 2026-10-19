@@ -334,7 +334,9 @@ def check_base(out: str, slug: str, model: dict, spec: dict, manifest: dict) -> 
               and cm.get("CustomData") == C.STATIC_CUBE_MAP[1],
               "base: #static_cube_map is a 0.3 m ghost cube (texture in the opacity slot), as the example",
               f"materials {mats}, size {dims:.2f} m")
-    check(("track_kerbs" in obs) == bool(opts.get("kerbs")), "base: kerbs follow options.kerbs")
+    from wfbuild.geometry import TrackGeometry as _TG
+    want_kerbs = bool(opts.get("kerbs")) and any((kw > 0).any() for kw, _g in _TG(model, spec).kerb_plan().values())
+    check(("track_kerbs" in obs) == want_kerbs, "base: kerbs follow options.kerbs (at the track's corners)")
     walls = [n for n in obs if n.startswith("walls_")]
     check(bool(walls) == (opts.get("walls") in ("concrete", "tyres"))
           and all(obs[n].get("CustomData") == C.WALL_CUSTOM_DATA for n in walls),

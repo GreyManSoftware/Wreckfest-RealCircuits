@@ -1246,7 +1246,7 @@ class TrackGeometry:
                 reasons.append((fast[side], np.full(r.n, C.FAST_CORNER_WALL)))
                 probe = edge.copy()
                 probe[:, :2] += r.nl * side * C.DROP_PROBE
-                drop = (edge[:, 2] - self.ground(probe[:, :2])) > C.DROP_H
+                drop = (edge[:, 2] - self.terrain(probe)) > C.DROP_H
                 drop &= ~np.isfinite(g["gap"])  # a lower road beside this one is a divider's job
                 reasons.append((drop, np.full(r.n, C.WALL_OFFSET)))
                 offset = np.full(r.n, np.inf)
