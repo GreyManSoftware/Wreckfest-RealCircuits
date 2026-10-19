@@ -36,12 +36,30 @@ A blend material mixes three albedos through an RGB blend map on **UV2**. Stock 
 
 ### Clutter
 
-- **Stock textures.** Stock clutter masks are 2048² `_t` maps. They are mostly black, with **G = grass** in a band roughly 5–80 m from the road, R and B sparse (bushes and flowers), and alpha 128 (forest11 uses 255).
+- **Stock textures.** Stock clutter masks are 2048² `_t` maps. They are mostly black, with **G = grass** in a band roughly 5–80 m from the road, R and B sparse (bushes and flowers), and alpha 128 (forest11 uses 255). The band is thin: only 1–8 % of the map is covered (see "Scene budgets").
 - **Clutter groups.**
   - `fields13`: `foliage_group20` grass, bushes and saplings.
   - `forest11`: `foliage_group_forest11`.
   - `sandpit3`: `foliage_group12`.
   - `fields05`: `fg_fields05`.
+
+### Scene budgets (measured 2026-10-19 with `worker/builder/scne_read.py`)
+
+All 43 stock `*_base.scne` against our builds. The visuals-v2 mods crashed at load with `Out of vertex buffer
+memory!` (`bagmodelsetup.cpp(3155)`); only the clutter was outside the stock range.
+
+| Measure | Stock (43 bases) | v2 builds that crashed | Pre-visuals Cadwell (loaded) | Limit (`scne_read.LIMITS`) |
+|---|---|---|---|---|
+| Largest draw batch (bgeometry splits per material) | 330-50,506 verts | 2,260-3,639 | 4,285 | 32,768 |
+| Scene's own vertices | 25k-1.07M | 49k-142k | 44k | 800k |
+| Vertices with every subscene instance (props, recursively) | 0.03-9.8M (urban03 21M) | 2.4-6.2M | 0.28M | 10M |
+| Subscenes | 143-8,440 | 2,384-3,833 | 38 | 9,000 |
+| Clutter at full density: mask (R+G+B) × area | 3.6-7.2 ha | 11-32 ha | none | 6 ha (builder caps 5) |
+| Clutter: highest mask mean within 400 m | 0.13-0.24 | 0.44-0.60 | none | 0.22 (builder caps 0.18) |
+
+Stock clutter masks cover 1-8 % of their frame (fields13 3.4 %); ours were a continuous band at 29-39 %. The
+builder now thins the mask evenly to the budget (`config.CLUTTER_MAX_HA`, `CLUTTER_MAX_LOCAL`, `maps.py`).
+Clutter is the best-supported cause, not yet confirmed in game.
 
 ### UV range: likely cause of "missing textures"
 
