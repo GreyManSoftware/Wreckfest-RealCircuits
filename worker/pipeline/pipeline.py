@@ -117,15 +117,23 @@ def convert_textures(manifest: dict, scenes_dir: str, project: str, run: Runner,
         return out
     dst = os.path.join(project, rel_dir)
     os.makedirs(dst, exist_ok=True)
-    for name in sorted(os.listdir(src)):
-        if not name.endswith(".tga"):
-            continue
+    names = sorted(n for n in os.listdir(src) if n.endswith(".tga"))
+
+    def one(name: str) -> tuple[str, int, str]:
         bmap = os.path.join(dst, name[:-4] + ".bmap")
         code, text = run.run(f"bimage {name}", ["wf-tool", "bimage", "-auto", "-input", os.path.join(src, name),
                                                  "-output", bmap], cwd=src)
+        ok = code == 0 and os.path.isfile(bmap) and os.path.getsize(bmap) > 0
+        return name, (0 if ok else (code or 1)), text
+
+    # bimage is mostly Wine start-up: three at a time roughly halves this step
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = list(pool.map(one, names))
+    for name, code, text in results:
         for line in text.splitlines():
             log.notice(line)
-        if code != 0 or not os.path.isfile(bmap) or os.path.getsize(bmap) == 0:
+        if code != 0:
             log.error(f"bimage {name}: exit {code}, no .bmap")
             raise BuildError(f"bimage failed for {name}")
         out.append(f"{rel_dir}/{name[:-4]}.bmap".replace(os.sep, "/"))

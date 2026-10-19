@@ -69,8 +69,9 @@ class Backdrop:
             return float(self.edge_z[k]) - 0.6
         if t == 0:
             return float(self.edge_z[k]) - 0.05
-        amp = 6.0 + 40.0 * t * t
-        z_hill = self.base_z + 4.0 + amp * (0.55 + 0.45 * self.hills[k]) + 6.0 * self.hills2[k] * t
+        # gentle: stock far-ground rings stay within ~15 m of the track level; the #horizon vista provides the hills
+        amp = 2.0 + 10.0 * t * t
+        z_hill = self.base_z + 1.0 + amp * (0.55 + 0.45 * self.hills[k]) + 3.0 * self.hills2[k] * t
         blend = min(1.0, t / 0.12)
         return float(self.edge_z[k] + 0.4) * (1 - blend) + z_hill * blend
 
@@ -146,9 +147,10 @@ class Backdrop:
             while walked < self.n:
                 span = int(self.rng.integers(4, 9))  # rays per strip (~150-250 m)
                 if self.rng.random() < coverage:
-                    tex_k = tex0 + int(self.rng.integers(len(texs)))
+                    pick = int(self.rng.integers(len(texs)))
+                    aspect = float(envs.table()["cardAspect"].get(texs[pick], 2.0))
                     m = self._strip(f"backdrop_cards_{idx:02d}", k, span, frac, float(self.rng.uniform(hmin, hmax)),
-                                    f"card_{tex_k}")
+                                    f"card_{tex0 + pick}", aspect)
                     if m is not None:
                         meshes.append(m)
                         idx += 1
@@ -157,7 +159,8 @@ class Backdrop:
                 walked += span + gap
         return meshes, n_tex
 
-    def _strip(self, name: str, k0: int, span: int, frac: float, height: float, mat: str) -> Mesh | None:
+    def _strip(self, name: str, k0: int, span: int, frac: float, height: float, mat: str,
+               aspect: float = 2.0) -> Mesh | None:
         pts = []
         for j in range(span + 1):
             k = (k0 + j) % self.n
@@ -182,7 +185,7 @@ class Backdrop:
             z = self.ground_z(kk, pts[min(int(round(ks[q])), len(pts) - 1)][2]) - 2.0
             bot.append(m.vert((xs[q], ys[q], z)))
             top.append(m.vert((xs[q], ys[q], z + height)))
-        u_per_m = 1.0 / (2.0 * height)  # the card textures are 2:1
+        u_per_m = 1.0 / (aspect * height)  # one texture repeat is aspect x height metres wide
         for q in range(nq):
             u0, u1 = tq[q] * u_per_m, tq[q + 1] * u_per_m
             mid = np.array([(xs[q] + xs[q + 1]) / 2 - self.c[0], (ys[q] + ys[q + 1]) / 2 - self.c[1], 0.0])

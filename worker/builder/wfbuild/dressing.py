@@ -384,7 +384,7 @@ class Planner:
                         "prop_long_tent_equipment_01"]),
                 (58.0, ["vehicle_t2_crewbus01", "vehicle_t2_cargotruck01", "prop_car_truck", "prop_trailer2"]),
                 (82.0, ["prop_start_tent4", "prop_trailer2", "vehicle_t2_cargotruck01"])]
-        for s_off in range(-80, 150, 18):
+        for s_off in range(-60, 120, 24):
             i = r.index_at((r.s[0] + s_off) % r.length)
             for off, assets in rows:
                 for sd in ((side,) if side else (1, -1)):
@@ -567,7 +567,7 @@ class Planner:
                 self._scatter(np.concatenate(pts), sap, "saplings", 18.0, 800, r_scale=1.0, scale_jitter=0.3)
         # ground props: rocks, sand piles, logs, bales, scrap
         gp = e.get("ground_props", [])
-        pts = self._grid(95.0)
+        pts = self._grid(60.0)
         self._scatter(pts, gp, "groundProps", 18.0, 160, r_scale=1.0)
 
     def buildings(self) -> None:

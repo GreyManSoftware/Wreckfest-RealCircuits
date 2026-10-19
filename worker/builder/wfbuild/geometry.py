@@ -699,7 +699,8 @@ class TrackGeometry:
                 seg = r.seg_len()
                 for i in range(r.segs):
                     i2 = r.nxt(i)
-                    if not (q[i] and ok[i] and ok[i2]):
+                    # asphalt edges only: gravel and sand roads fade into the verge through their blend map
+                    if not (q[i] and ok[i] and ok[i2]) or self.road_material(r, i) != "road_tarmac":
                         continue
                     for k in (i, i2):
                         for c in range(3):
