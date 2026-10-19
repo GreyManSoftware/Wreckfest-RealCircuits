@@ -121,6 +121,19 @@ def check_on_road(scene: str, lay, xref, base_road: Road) -> None:
     report("AI race route starts", ai, 1.5)
 
 
+def check_driving_order(scene: str, scne: str) -> None:
+    """The game drives a compiled AI route in its stored sector order (every stock layout's checkpoints run in
+    that order, with or without otherway), and bgeometry picks that order itself (layout.needs_otherway). Our
+    checkpoints are numbered in the driving order, so in the built .scne they must follow the stored main
+    route forwards; backwards means the race runs the wrong way round (RealCadwell, 2026-10-19)."""
+    lay = scne_read.read_layout(scne)
+    secs = lay.checkpoint_sectors()
+    n = len(lay.routes[0])
+    back = [(a, b) for a, b in zip(secs, secs[1:]) if (b - a) % n > n // 2]
+    check(len(secs) >= 2 and not back, f"{scene}: built AI route runs in the checkpoint (driving) order",
+          f"checkpoint sectors {secs[:12]}; stored otherway {lay.main_otherway()}")
+
+
 def main() -> None:
     out, root = sys.argv[1], sys.argv[2]
     with open(os.path.join(out, "manifest.json"), encoding="utf-8") as f:
@@ -166,6 +179,8 @@ def main() -> None:
             # buffer memory", 2026-10-19)
             for what, v, lim in scne_read.limits(scne, [root, WF]):
                 check(v <= lim, f"{scene}: {what} within the stock limit", f"{v:,} (limit {lim:,})")
+        if not scene.endswith("_base") and os.path.isfile(scne):
+            check_driving_order(scene, scne)
         b = bgo_read.read(bgo_path, tris=not scene.endswith("_base"))
         unresolved = sorted({f"{m.name}: {t.path}" for m in b.materials for t in m.textures
                              if not texture_exists(t.path, root)})

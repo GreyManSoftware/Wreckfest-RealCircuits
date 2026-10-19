@@ -286,6 +286,90 @@ def read(path: str) -> Scene:
     return Scene(path, len(d), nmodels, meshes, len(refs), refs)
 
 
+@dataclass
+class CompiledLayout:
+    """What bgeometry compiled into a layout scene: per AI route the sector lines (left, right) as stored,
+    Blender axes (x, y, z up); the start points (name, x, y, z); the checkpoints (number, split, route index,
+    centre x, y)."""
+    routes: list[list[tuple[tuple[float, float, float], tuple[float, float, float]]]]
+    startpoints: list[tuple[str, float, float, float]]
+    checkpoints: list[tuple[int, bool, int, float, float]]
+
+    def main_otherway(self) -> bool:
+        """Toolbox Mz's importer rule for a compiled main route: stored the other way when the first sector's
+        right end lies north (Blender +y) of the last sector's left end. bgeometry stores a route in this
+        orientation exactly when its source mesh carried ``otherway = true`` (measured on our builds)."""
+        r = self.routes[0]
+        return r[0][1][1] > r[-1][0][1]
+
+    def checkpoint_sectors(self) -> list[int]:
+        """The main-route sector nearest each main-route checkpoint, in checkpoint order."""
+        r = self.routes[0]
+        mids = [((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0) for a, b in r]
+        out = []
+        for _n, _split, ri, x, y in self.checkpoints:
+            if ri == 0:
+                out.append(min(range(len(mids)), key=lambda k: (mids[k][0] - x) ** 2 + (mids[k][1] - y) ** 2))
+        return out
+
+
+def read_layout(path: str) -> CompiledLayout:
+    """AI routes, start points and checkpoints of a built layout .scne (the sections Toolbox Mz's SCNE importer
+    reads after the models: 'airt', 'trsp', 'trcp'; Wreckfest 1 versions)."""
+    with open(path, "rb") as f:
+        d = unbag(f.read())
+    r = _P(d)
+    for tag in ("modl", "ltpd", "ssce", "aprl", "airt"):  # in file order, so a tag inside mesh data isn't hit
+        q = r.find(tag)
+        if q < 0:
+            raise ValueError(f"{path}: no '{tag}' section")
+        r.p = q + 4
+
+    def f() -> float:
+        v = struct.unpack_from("<f", d, r.p)[0]
+        r.p += 4
+        return v
+
+    def v3() -> tuple[float, float, float]:
+        x, up, z = f(), f(), f()
+        return (x, z, up)  # Bugbear Y-up -> Blender Z-up
+
+    wf2 = r.i() > 0
+    routes = []
+    for _ in range(r.i()):
+        r.header("aisc")
+        r.i()
+        lines = []
+        for _s in range(r.i()):
+            left, right = v3(), v3()
+            r.p += 4 * (8 if wf2 else 4) + (4 if wf2 else 0)  # safe and race positions (fractions)
+            lines.append((left, right))
+        r.i(), r.i()  # main-route start / end sector of an alternative route
+        r.text()
+        if wf2:
+            r.p += 4 * 11
+        routes.append(lines)
+    q = r.find("trsp")
+    r.p = q + 8
+    sps = []
+    for _ in range(r.i()):
+        name = r.text()
+        m = struct.unpack_from("<16f", d, r.p)
+        r.p += 64
+        sps.append((name, m[12], m[14], m[13]))
+    q = r.find("trcp")
+    r.p = q + 4
+    ver = r.i()
+    cps = []
+    for k in range(r.i()):
+        split, ri = d[r.p], struct.unpack_from("<b", d, r.p + 1)[0]
+        r.p += 3
+        cx, _cy, cz = f(), f(), f()
+        r.p += 24 + (4 if ver >= 5 else 0)
+        cps.append((k + 1, split > 0, ri, cx, cz))
+    return CompiledLayout(routes, sps, cps)
+
+
 # Limits for a base scene, with a margin below what stock tracks use (all 43 stock *_base.scne measured with
 # this reader, 2026-10-19; worker/docs/visual-assets.md "Scene budgets"). Stock maxima in the comments.
 LIMITS = {

@@ -166,28 +166,49 @@ class LayoutBuilder:
         out = [k for i, k in enumerate(out) if i == 0 or k - out[i - 1] >= 2 or k == r.n - 1]
         return out
 
+    def _dline(self, r: Route, i: int, kind: str, direction: int) -> tuple[np.ndarray, np.ndarray]:
+        """A sector line as (driver's left, driver's right) for the given driving direction."""
+        a, b = self._line(r, i, kind)
+        return (a, b) if direction > 0 else (b, a)
+
+    @staticmethod
+    def needs_otherway(lines: list[tuple[np.ndarray, np.ndarray]]) -> bool:
+        """bgeometry ignores the face order of ``#ai_route_main``: it stores the route in its own canonical
+        orientation (the first sector's right end south of, Blender -y, the last sector's left end) unless the
+        mesh carries ``otherway = true``, and then in the opposite one; the game drives the stored order.
+        (Toolbox Mz's SCNE importer reads ``otherway`` back with the same test; every stock layout's checkpoints
+        run in stored order.) So a strip built in the driving order needs ``otherway`` exactly when it is not
+        canonical. ``lines`` are (left, right) in driving order."""
+        return float(lines[0][1][1]) > float(lines[-1][0][1])
+
     def ai_meshes(self, layout: Layout, i_line: int, direction: int) -> None:
+        """AI strips in driving order (from the start line, ``direction`` along s). ``otherway = true`` on
+        ``#ai_route_main`` wherever bgeometry would otherwise store the route the other way (needs_otherway):
+        a forward layout can need it and a reverse one can do without it."""
         seq = self.main_sequence(i_line, direction)
-        mesh_seq = seq if direction > 0 else seq[::-1]  # meshes always run forward; otherway flips them
-        fixed = {0, len(mesh_seq) - 1} | {k for k, i in enumerate(mesh_seq) if i in self.joins}
-        mesh_seq = self._valid_sequence(mesh_seq, lambda i, kind: self._line(self.main, i, kind), fixed)
-        seq = mesh_seq if direction > 0 else mesh_seq[::-1]
-        custom_route = "otherway = true" if direction < 0 else ""
+        fixed = {0, len(seq) - 1} | {k for k, i in enumerate(seq) if i in self.joins}
+        seq = self._valid_sequence(seq, lambda i, kind: self._dline(self.main, i, kind, direction), fixed)
+        route_lines = [self._dline(self.main, i, "route", direction) for i in seq]
+        otherway = self.needs_otherway(route_lines)
+        custom_route = "otherway = true" if otherway else ""
         mats = {"route": "ai_route", "safe": "ai_safe", "race": "ai_race"}
         for kind in ("route", "safe", "race"):
-            lines = [self._line(self.main, i, kind) for i in mesh_seq]
+            lines = [self._dline(self.main, i, kind, direction) for i in seq]
             layout.meshes.append(self._strip(f"#ai_{kind}_main", lines,
                                              custom_route if kind == "route" else "", mats[kind]))
-        layout.info["mainSectors"] = len(mesh_seq) - 1
-        layout.info["mainSectorSamples"] = mesh_seq
+        layout.info["mainSectors"] = len(seq) - 1
+        layout.info["mainSectorSamples"] = seq
+        layout.info["otherway"] = otherway
         line_s = float(self.main.s[i_line])
         for r in self.alts:
             sj, ej = int(r.start_join["sampleIndex"]), int(r.end_join["sampleIndex"])
             # The first and last sector lines are the main route's lines at the junction vertices.
             items = [("main", sj)] + [("alt", k) for k in self.alt_sequence(r)[1:-1]] + [("main", ej)]
+            if direction < 0:
+                items = items[::-1]
 
             def line_of(item, kind, r=r):
-                return self._line(self.main if item[0] == "main" else r, item[1], kind)
+                return self._dline(self.main if item[0] == "main" else r, item[1], kind, direction)
 
             items = self._valid_sequence(items, line_of, {0, len(items) - 1})
             cross = self._spans_line(r, line_s)
@@ -199,9 +220,8 @@ class LayoutBuilder:
                 layout.info.setdefault("warnings", []).append(
                     f"alt-crosses-start: {r.id} bypasses the start/finish line in {layout.key}; crossstart = true "
                     "is set but no proxy checkpoint is generated (unverified in game)")
-        # The AI line as an open curve for Toolbox's AI Route Generator (not exported).
-        pts = [tuple(self.main.p[i]) for i in seq]
-        layout.curves.append(Curve("ai_path", pts if direction > 0 else pts[::-1], False))
+        # The AI line as an open curve for Toolbox's AI Route Generator (not exported), in driving order.
+        layout.curves.append(Curve("ai_path", [tuple(self.main.p[i]) for i in seq], False))
         for r in self.alts:
             layout.curves.append(Curve(f"ai_path_{alt_suffix(r)}", [tuple(p) for p in r.p], False))
 

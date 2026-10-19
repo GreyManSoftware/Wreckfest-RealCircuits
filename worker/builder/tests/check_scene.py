@@ -466,7 +466,12 @@ def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manife
     check(len(s.data.polygons) == nf == len(c.data.polygons) and len(r.data.vertices) == 2 * (nf + 1),
           f"{name}: AI meshes are open strips with identical topology", f"{nf} sectors")
     cd = r.get("CustomData", "")
-    check(("otherway = true" in cd) == rev, f"{name}: otherway = true only on the reverse layout", repr(cd))
+    rl = strip_lines(r)
+    # bgeometry stores the route in its canonical orientation unless otherway is set (layout.needs_otherway)
+    canonical = rl[0][1][1] <= rl[-1][0][1]
+    check(("otherway = true" in cd) == (not canonical),
+          f"{name}: otherway = true exactly when the driving-order strip isn't bgeometry's canonical orientation",
+          f"{cd!r}, firstR.y {rl[0][1][1]:.1f}, lastL.y {rl[-1][0][1]:.1f}")
     # the racing strip (inside the road) lies on the road surface, across its camber too
     multi = model.get("layouts") or []
     lay_def = next((d for d in multi if d["id"] == ("main" if lay["key"] == "forward" else lay["key"])), None)
@@ -538,6 +543,12 @@ def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manife
         off.append(abs((fwd - want + math.pi) % (2 * math.pi) - math.pi))
     check(max(off) < math.radians(15), f"{name}: start points face the driving direction (local +Y)",
           f"max {math.degrees(max(off)):.1f} deg")
+    # the AI strip runs in the driving order (faces from the start line onwards), as the start points face
+    m0 = (np.array(rl[0][0]) + np.array(rl[0][1])) / 2.0
+    m1 = (np.array(rl[1][0]) + np.array(rl[1][1])) / 2.0
+    a = obs["#startpoint01"].rotation_euler.z + math.pi / 2.0
+    check(float(np.dot((m1 - m0)[:2], (math.cos(a), math.sin(a)))) > 0,
+          f"{name}: #ai_route_main faces run in the driving direction (from the start line)")
     # base subscene and editing helpers
     xr = f"#xref {slug}_base.scne"
     check(xr in obs and obs[xr].get("xdir") == f"data/track/{slug}" and obs[xr].get("CustomData") == "vis = true|col = true",

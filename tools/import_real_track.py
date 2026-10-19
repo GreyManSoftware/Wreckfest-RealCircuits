@@ -555,6 +555,23 @@ def branch_of(alt: np.ndarray, main: np.ndarray, step: float, blend_m: float = 3
     return resample_open(b, step)
 
 
+def corner_order_problem(names: list[str], expected: list[str] | None) -> str | None:
+    """None when the corner labels (in driving order from the start line) follow the recipe's
+    ``expectedCornerOrder`` (the published lap order, e.g. from track guides); otherwise what is wrong.
+    Expected names without a label (not named in OSM) are skipped; at least half must be labelled. The lap
+    is a loop, so the labels may start anywhere in the expected cycle."""
+    if not expected:
+        return None
+    seen = [n for n in names if n in expected]
+    if len(set(seen)) < max(2, len(expected) // 2):
+        return f"only {sorted(set(seen))} of the expected corners are labelled"
+    want = [n for n in expected if n in seen]
+    k = want.index(seen[0])
+    if seen != want[k:] + want[:k]:
+        return f"labels run {seen}, expected {want} (reversed or out of order)"
+    return None
+
+
 def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = None, log=print) -> tuple[dict, dict]:
     """The TrackSpec and a report dict (lengths, heights, grades, camber, data checks)."""
     cell = float(cell or recipe.get("terrainCellM", 6.0))
@@ -708,6 +725,9 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         mid = np.array([np.interp(sg[-1] / 2, sg, g[:, 0]), np.interp(sg[-1] / 2, sg, g[:, 1])])
         corners.append({"name": label, "sM": round(project_s(p, mid) / k_scale, 1)})
     corners.sort(key=lambda c: c["sM"])
+    order_problem = corner_order_problem([c["name"] for c in corners], recipe.get("expectedCornerOrder"))
+    if order_problem:
+        raise ValueError(f"corner order along the driving direction: {order_problem}")
     spots = [c for c in corners if c["name"] in recipe.get("viewingSpots", [])]
 
     # 7. The spec.
