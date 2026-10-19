@@ -4,7 +4,7 @@
 Format notes: tools/docs/modlist-format.md. Used by tools/Install-TrackMod.ps1; all output is JSON.
 
   py tools/wf_modlist.py info PATH
-  py tools/wf_modlist.py set PATH --slug SLUG --state enabled|disabled [--name NAME] [--out OUT]
+  py tools/wf_modlist.py set PATH --slug SLUG --state enabled|disabled [--name NAME [--rename]] [--out OUT]
   py tools/wf_modlist.py modinfo-name PATH
   py tools/wf_modlist.py roundtrip PATH
 
@@ -547,9 +547,12 @@ def find_entry(ml: ModList, slug: str) -> int | None:
     return None
 
 
-def set_state(ml: ModList, slug: str, enable: bool, name: str | None = None) -> dict:
+def set_state(ml: ModList, slug: str, enable: bool, name: str | None = None, rename: bool = False) -> dict:
+    """Enable/disable (or add) mods/<slug>. `name` names a new entry; with `rename` it also renames an existing one."""
     if not SLUG_RE.match(slug):
         raise BagError(f'invalid slug {slug!r} (expected [a-z0-9_]+)')
+    if rename and not (name and name.strip()):
+        raise BagError('--rename needs a non-empty --name')
     i = find_entry(ml, slug)
     want = 1 if enable else 0
     if i is None:
@@ -561,12 +564,21 @@ def set_state(ml: ModList, slug: str, enable: bool, name: str | None = None) -> 
         ml.entries.append(entry)
         return {'action': 'added', 'changed': True, 'entry': entry.to_json(len(ml.entries) - 1)}
     e = ml.entries[i]
+    old_name = e.name
+    renamed = rename and e.name != name
+    if renamed:
+        e.name = name
     if e.enabled == want:
+        if renamed:
+            return {'action': 'renamed', 'changed': True, 'renamedFrom': old_name, 'before': e.enabled,
+                    'entry': e.to_json(i)}
         return {'action': 'noop', 'changed': False, 'entry': e.to_json(i)}
     before = e.enabled
     e.enabled = want
-    return {'action': 'enabled' if enable else 'disabled', 'changed': True, 'before': before,
-            'entry': e.to_json(i)}
+    result = {'action': 'enabled' if enable else 'disabled', 'changed': True, 'before': before, 'entry': e.to_json(i)}
+    if renamed:
+        result['renamedFrom'] = old_name
+    return result
 
 
 def modinfo_name(data: bytes) -> str:
@@ -598,7 +610,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument('path')
     p.add_argument('--slug', required=True)
     p.add_argument('--state', required=True, choices=['enabled', 'disabled'])
-    p.add_argument('--name')
+    p.add_argument('--name', help='display name for a new entry')
+    p.add_argument('--rename', action='store_true', help='also rename an existing entry to --name')
     p.add_argument('--out')
     p = sub.add_parser('modinfo-name', help='print the display name from a modinfo.modi')
     p.add_argument('path')
@@ -614,7 +627,7 @@ def main(argv: list[str] | None = None) -> int:
             with open(args.path, 'rb') as f:
                 data = f.read()
             ml = modlist_decode(data)
-            result = set_state(ml, args.slug, args.state == 'enabled', args.name)
+            result = set_state(ml, args.slug, args.state == 'enabled', args.name, args.rename)
             result['count'] = len(ml.entries)
             if result['changed']:
                 encoded = modlist_encode(ml)
