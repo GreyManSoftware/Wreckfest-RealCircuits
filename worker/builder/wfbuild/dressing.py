@@ -168,8 +168,12 @@ class Planner:
         self.bounds = (x0, x1, y0, y1)
         self.frame = (x0, y0, max(x1 - x0, y1 - y0))
         self.walls = geo.walls != "none"
-        # Nothing but the gantry may stand closer to a road edge than this (behind the walls / beyond the run-off).
-        self.edge_min = (C.WALL_OFFSET + 1.0) if self.walls else (C.RUNOFF_W + 2.0)
+        # Nothing but the gantry, the barrier rows and corner markers may stand closer to a road edge than this
+        # (behind the set-back barriers / beyond the run-off).
+        self.edge_min = (C.WALL_SETBACK + 2.5) if self.walls else (C.RUNOFF_W + 2.0)
+        # corner markers (dynamic tyre stacks, bales) stand just in front of the near barrier, or past the run-off
+        self.marker_off = (C.WALL_OFFSET - 1.2) if self.walls else (C.RUNOFF_W + 1.0)
+        self.fol = envs.foliage(self.env_name)
         self.occ = Occupancy()
         self.sc = Scenery(self.slug, self.env_name)
         self.tree_noise = Noise2D(seed_for(self.slug, "trees"), self.frame, 260.0, 3)
@@ -484,17 +488,48 @@ class Planner:
     def corner_markers(self, corners) -> None:
         r = self.main
         markers = self.e["cornerMarkers"]
+        off = self.marker_off
         for i, side, _k in corners[:12]:
             for j in self.walk(r, i, 36.0, 2.6):
-                q, tw, tg = self.side_point(r, j, side, self.edge_min + 0.3)
+                q, tw, tg = self.side_point(r, j, side, off)
                 a = self.pick(markers)
-                self.try_place(a, "cornerMarkers", q[0], q[1], self.face_yaw(a, tw, tg), self.edge_min - 1.0,
-                               r=0.6)
+                self.try_place(a, "cornerMarkers", q[0], q[1], self.face_yaw(a, tw, tg), off - 1.0, r=0.6)
             for j in self.walk(r, i, 8.0, 2.6):
-                q, tw, tg = self.side_point(r, j, -side, self.edge_min + 0.3)
+                q, tw, tg = self.side_point(r, j, -side, off)
                 a = self.pick(markers)
-                self.try_place(a, "cornerMarkers", q[0], q[1], self.face_yaw(a, tw, tg), self.edge_min - 1.0,
-                               r=0.6)
+                self.try_place(a, "cornerMarkers", q[0], q[1], self.face_yaw(a, tw, tg), off - 1.0, r=0.6)
+
+    def barriers(self) -> None:
+        """The visible containment: a row of the environment's stock barrier props (concrete blocks, muddy
+        barriers, tyre walls; environments.json "barriers") along the wall line of the geometry's wall plan. Each
+        prop's road-facing side sits on the invisible collision wall's face; local +Y points away from the road."""
+        row = envs.barrier_row(self.env_name, self.geo.walls)
+        if not row:
+            return
+        half = C.WALL_HALF.get(self.geo.walls, 0.35)
+        for run in self.geo.wall_runs():
+            P = np.asarray(run["points"], dtype=np.float64)[:, :2]
+            if run["closed"]:
+                P = np.vstack([P, P[:1]])
+            seg = np.hypot(*np.diff(P, axis=0).T)
+            cum = np.concatenate([[0.0], np.cumsum(seg)])
+            L = float(cum[-1])
+            at = lambda d: np.array([np.interp(d, cum, P[:, 0]), np.interp(d, cum, P[:, 1])])  # noqa: E731
+            pos = 0.0
+            while True:
+                a = self.pick(row)
+                info = envs.asset_info(a)
+                w, dep = float(info.get("width", 3.0)), float(info.get("depth", 1.0))
+                if pos + w * 0.5 > L:
+                    break
+                p0, p1 = at(pos), at(min(pos + w, L))
+                t = p1 - p0
+                t = t / max(float(np.linalg.norm(t)), 1e-9)
+                out = np.array([-t[1], t[0]]) * run["side"]
+                c = at(min(pos + w / 2.0, L)) + out * (dep / 2.0 - half)
+                self.sc.placements.append(Placement(a, "barriers", float(c[0]), float(c[1]), 0.0, yaw_to(out)))
+                self.occ.add(float(c[0]), float(c[1]), max(dep, 1.0) / 2.0)
+                pos += w * 0.985  # abut, with a little overlap on the outside of bends
 
     # --------------------------------------------------------------------------------------- foliage
     def _grid(self, spacing: float) -> np.ndarray:
@@ -531,9 +566,10 @@ class Planner:
         e = self.e
         name = self.env_name
         trees = e.get("trees", [])
-        spacing = 8.0 if name == "forest" else 11.0
-        min_tree = {"forest": 20.0, "sandpit": 60.0, "industrial": 30.0}.get(name, 24.0)
-        cap = 2600 if name == "forest" else 700
+        fol = self.fol
+        spacing = float(fol["treeSpacing"])
+        min_tree = max(float(fol["minTreeM"]), self.edge_min + 4.0)
+        cap = int(fol["treeCap"])
         pts = self._grid(spacing)
         if len(pts):
             nz = self.tree_noise.at(pts)
@@ -542,6 +578,16 @@ class Planner:
                 border = self.parcels.border(pts) < 4.0
                 sel = (sel & ~self.parcels.is_field(pts)) | (border & (self.rng.random(len(pts)) < 0.55))
             self._scatter(pts[sel], trees, "trees", min_tree, cap)
+        # a ragged tree belt along the terrain edge (as stock bases have), so the edge of the generated ground
+        # doesn't read as a line against the far ground; industrial gets its skyline buildings there instead
+        belt = int(fol.get("edgeBelt", 0 if name == "industrial" else 700))
+        if trees and belt > 0:
+            x0, x1, y0, y1 = self.bounds
+            pts = self._grid(9.0)
+            edge = np.minimum.reduce([pts[:, 0] - x0, x1 - pts[:, 0], pts[:, 1] - y0, y1 - pts[:, 1]])
+            depth = 14.0 + 26.0 * Noise2D(seed_for(self.slug, "belt"), self.frame, 120.0, 2).at(pts)
+            sel = (edge < depth) & (self.rng.random(len(pts)) < 0.8)
+            self._scatter(pts[sel], trees, "trees", min_tree, belt)
         # bushes: along the edge of the open ground and in small clusters
         bushes = e.get("bushes", [])
         pts = self._grid(14.0)
@@ -550,25 +596,34 @@ class Planner:
             band = (d > self.edge_min + 8.0) & (d < min_tree + 15.0)
             nz = self.tree_noise.at(pts)
             sel = band & (nz > self.tree_thr - 0.08) & (self.rng.random(len(pts)) < 0.5)
-            self._scatter(pts[sel], bushes, "bushes", self.edge_min + 8.0, 300 if name == "forest" else 160)
+            self._scatter(pts[sel], bushes, "bushes", self.edge_min + 8.0, int(fol["bushCap"]))
+        # stock foliage groups (grass and bush clumps, e.g. sandpit03's foliage_group12/10) in the open ground
+        groups = list(fol.get("groups", []))
+        if groups and int(fol.get("groupCap", 0)) > 0:
+            pts = self._grid(26.0)
+            d = self.field.dist(pts)
+            nz = self.tree_noise.at(pts)
+            sel = (d > self.edge_min + 6.0) & (d < 150.0) & (nz < self.tree_thr + 0.05) & (self.rng.random(len(pts)) < 0.6)
+            self._scatter(pts[sel], groups, "bushes", self.edge_min + 6.0, int(fol["groupCap"]), r_scale=0.6)
         # saplings (sandpit): clusters in the open sand
         sap = e.get("saplings", [])
         if sap:
-            centres = self._grid(70.0)
+            centres = self._grid(70.0 if int(fol["saplingClusters"]) <= 45 else 50.0)
             d = self.field.dist(centres)
             centres = centres[(d > 22.0) & (d < 160.0)]
             pts = []
-            for c in centres[self.rng.permutation(len(centres))[:45]]:
+            for c in centres[self.rng.permutation(len(centres))[:int(fol["saplingClusters"])]]:
                 k = int(self.rng.integers(8, 26))
                 ang = self.rng.uniform(0, 2 * math.pi, k)
                 rad = np.sqrt(self.rng.random(k)) * 14.0
                 pts.append(c + np.stack([np.cos(ang) * rad, np.sin(ang) * rad], axis=1))
             if pts:
-                self._scatter(np.concatenate(pts), sap, "saplings", 18.0, 800, r_scale=1.0, scale_jitter=0.3)
+                self._scatter(np.concatenate(pts), sap, "saplings", max(18.0, self.edge_min + 2.0),
+                              int(fol["saplingCap"]), r_scale=1.0, scale_jitter=0.3)
         # ground props: rocks, sand piles, logs, bales, scrap
         gp = e.get("ground_props", [])
-        pts = self._grid(60.0)
-        self._scatter(pts, gp, "groundProps", 18.0, 160, r_scale=1.0)
+        pts = self._grid(60.0 if int(fol["groundPropCap"]) <= 160 else 45.0)
+        self._scatter(pts, gp, "groundProps", max(18.0, self.edge_min + 2.0), int(fol["groundPropCap"]), r_scale=1.0)
 
     def buildings(self) -> None:
         e = self.e
@@ -675,8 +730,9 @@ class Planner:
         corners = self.corners()
         straights = self.straights()
         paddock_side = self.start_finish()
-        self.viewing_spots(corners)
         self.corner_markers(corners)
+        self.barriers()
+        self.viewing_spots(corners)
         self.ad_fences(straights)
         self.paddock(paddock_side)
         self.lights()

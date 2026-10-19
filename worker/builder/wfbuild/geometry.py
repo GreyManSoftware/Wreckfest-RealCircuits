@@ -240,18 +240,20 @@ class SampleIndex:
         self.s = np.concatenate([r.s for r in routes])
         self.closed_len = np.concatenate([np.full(r.n, r.length if r.closed else np.inf) for r in routes])
 
-    def near_other(self, pts: np.ndarray, own_ri: np.ndarray, own_s: np.ndarray, clearance: float,
+    def near_other(self, pts: np.ndarray, own_ri: np.ndarray, own_s: np.ndarray, clearance,
                    zdiff: float = 3.0, mask: np.ndarray | None = None) -> np.ndarray:
         """True where a point lies within (half width + clearance) of a sample of *another* road: a
-        different route, or the same route further than OTHER_ROUTE_S along it, within ``zdiff``."""
+        different route, or the same route further than OTHER_ROUTE_S along it, within ``zdiff``.
+        ``clearance`` is a number or one value per point."""
         out = np.zeros(len(pts), dtype=bool)
+        clr = np.broadcast_to(np.asarray(clearance, dtype=np.float64), (len(pts),))
         sel = np.ones(len(self.xy), dtype=bool) if mask is None else mask
         xy, z, hw, ri, s, cl = (self.xy[sel], self.z[sel], self.hw[sel], self.ri[sel], self.s[sel],
                                 self.closed_len[sel])
         for a in range(0, len(pts), 512):
             p = pts[a:a + 512]
             d = np.hypot(p[:, None, 0] - xy[None, :, 0], p[:, None, 1] - xy[None, :, 1])
-            close = d < hw[None, :] + clearance
+            close = d < hw[None, :] + clr[a:a + 512, None]
             if not close.any():
                 continue
             sd = np.abs(s[None, :] - own_s[a:a + 512, None])
@@ -577,7 +579,7 @@ class TrackGeometry:
         p[:, :2] += out * np.asarray(offset, dtype=np.float64).reshape(-1, 1)
         return p
 
-    def _edge_ok(self, r: Route, pts: np.ndarray, clearance: float) -> np.ndarray:
+    def _edge_ok(self, r: Route, pts: np.ndarray, clearance) -> np.ndarray:
         own_ri = np.full(len(pts), r.index)
         bad = self.index.near_other(pts, own_ri, r.s, clearance)
         return ~bad & self.svalid[r.index] & ~self.structure[r.index]
@@ -717,6 +719,70 @@ class TrackGeometry:
                         mesh.oriented_face(ids, "edge_decal", np.array([0.0, 0.0, 1.0]), uv)
         return mesh
 
+    # --------------------------------------------------------------------------- surface transitions
+    def surface_switches(self) -> list[dict]:
+        """Where a mixed track's main route changes between asphalt and gravel (checkpoint sector bounds):
+        route, sample index, s, centre point, unit tangent, half width and ``asphalt`` = +1 when the asphalt lies
+        ahead (higher s), -1 when behind. Empty unless options.surface is mixed."""
+        roads = C.SURFACE_ROADS.get(self.options.get("surface", "tarmac"), C.SURFACE_ROADS["tarmac"])
+        if len(roads) < 2:
+            return []
+        r = self.main
+        out = []
+        for i in range(1, r.segs):
+            a, b = self.road_material(r, i - 1), self.road_material(r, i)
+            if a == b or not (self.qkeep[r.index][i - 1] and self.qkeep[r.index][i]):
+                continue
+            out.append({"route": r, "index": i, "s": float(r.s[i]), "point": r.p[i].copy(),
+                        "tangent": r.tangent[i].copy(), "hw": float(r.w[i]) / 2.0,
+                        "asphalt": 1 if b == "road_tarmac" else -1})
+        if r.closed and self.road_material(r, r.segs - 1) != self.road_material(r, 0):
+            b = self.road_material(r, 0)
+            out.append({"route": r, "index": 0, "s": 0.0, "point": r.p[0].copy(), "tangent": r.tangent[0].copy(),
+                        "hw": float(r.w[0]) / 2.0, "asphalt": 1 if b == "road_tarmac" else -1})
+        return out
+
+    def _section_at(self, r: Route, s: float) -> tuple[np.ndarray, np.ndarray]:
+        """Left and right road edge points at arc length s (linear between samples)."""
+        if r.closed:
+            s = s % r.length
+            ss = np.append(r.s, r.length)
+            L, R = np.vstack([r.left, r.left[:1]]), np.vstack([r.right, r.right[:1]])
+        else:
+            s = min(max(s, float(r.s[0])), float(r.s[-1]))
+            ss, L, R = r.s, r.left, r.right
+        k = int(np.clip(np.searchsorted(ss, s) - 1, 0, len(ss) - 2))
+        t = (s - ss[k]) / max(ss[k + 1] - ss[k], 1e-9)
+        return L[k] + (L[k + 1] - L[k]) * t, R[k] + (R[k + 1] - R[k]) * t
+
+    def build_transition_decals(self) -> Mesh:
+        """Stock asphalt-to-sand transition decal (#decal, no collision) across the road at every surface switch
+        of a mixed track: broken asphalt that ends at the switch, over the asphalt-side blend ramp (maps.py)."""
+        mesh = Mesh("track_transitions", "", kind="decal")
+        on_asphalt, on_gravel = C.TRANSITION_DECAL
+        span = on_asphalt + on_gravel
+        across = 2.0 * span  # the texture is 2:1, so one repeat across is twice the decal length
+        for sw in self.surface_switches():
+            r, sgn = sw["route"], sw["asphalt"]
+            n = max(2, int(math.ceil(span / 1.0)))
+            rows = []
+            for k in range(n + 1):
+                into = -on_gravel + span * k / n           # metres into the asphalt (negative: gravel side)
+                left, right = self._section_at(r, sw["s"] + sgn * into)
+                cols = []
+                for j in range(r.m + 1):
+                    p = left + (right - left) * (j / r.m)
+                    cols.append(mesh.vert((p[0], p[1], p[2] + C.EDGE_DECAL_LIFT + 0.01)))
+                rows.append((cols, (into + on_gravel) / span))
+            w = float(np.linalg.norm((right - left)[:2]))
+            for k in range(n):
+                (c0, v0), (c1, v1) = rows[k], rows[k + 1]
+                for j in range(r.m):
+                    u0, u1 = j * w / r.m / across, (j + 1) * w / r.m / across
+                    mesh.oriented_face((c0[j], c0[j + 1], c1[j + 1], c1[j]), "transition_decal",
+                                       np.array([0.0, 0.0, 1.0]), [(u0, v0), (u1, v0), (u1, v1), (u0, v1)])
+        return mesh
+
     # ---------------------------------------------------------------------------------------- walls
     def _extrude(self, mesh: Mesh, line: np.ndarray, out2: np.ndarray, base: np.ndarray, top: np.ndarray,
                  profile: list[tuple[float, float]], mat: str, closed: bool, s: np.ndarray) -> None:
@@ -771,37 +837,95 @@ class TrackGeometry:
             runs.append(cur)
         return runs
 
-    def build_walls(self) -> list[Mesh]:
-        if self.walls == "none":
-            return []
-        mat = C.WALL_MATERIAL[self.walls]
-        height = C.WALL_HEIGHT[self.walls]
-        if self.walls == "concrete":
-            profile = [(-0.35, 0.0), (-0.12, 1.0), (0.12, 1.0), (0.35, 0.0)]
-        else:
-            profile = [(-0.4, 0.0), (-0.45, 0.55), (-0.3, 1.0), (0.3, 1.0), (0.45, 0.55), (0.4, 0.0)]
-        meshes = []
+    def _near_s(self, r: Route, mask: np.ndarray) -> np.ndarray:
+        """Distance along the route from each sample to the nearest sample in ``mask`` (inf when none)."""
+        idx = np.nonzero(mask)[0]
+        if not len(idx):
+            return np.full(r.n, np.inf)
+        out = np.empty(r.n)
+        for a in range(0, r.n, 256):
+            out[a:a + 256] = r.s_dist(r.s[a:a + 256, None], r.s[idx][None, :]).min(1)
+        return out
+
+    def wall_plan(self) -> dict[tuple[int, int], dict]:
+        """Where the containment wall runs, per (route, side): the wall line follows the road WALL_OFFSET out
+        where containment is needed (the inside of corners tighter than WALL_CORNER_RADIUS, the grid sector and
+        wherever a set-back line would come near another road, each WALL_NEAR_DILATE further along the road) and
+        WALL_SETBACK out
+        elsewhere, behind open run-off, moving between the two over WALL_RAMP. ``ok`` marks the samples that
+        carry a wall (no other road within the line's offset, not on a bridge, no fold on tight insides).
+        Shared by the collision walls (``build_walls``) and the barrier props (``dressing``)."""
+        if getattr(self, "_wall_plan", None) is not None:
+            return self._wall_plan
+        plan: dict[tuple[int, int], dict] = {}
+        slots = self.model.get("grid", {}).get("slots", [])
         for r in self.routes:
+            grid = np.zeros(r.n, dtype=bool)
+            if r.is_main and slots:
+                d = r.signed_s(r.s, 0.0)
+                grid = (d >= -25.0) & (d <= max(float(q["s"]) for q in slots) + 15.0)
             for side in (1, -1):
-                name = f"walls_{r.id}_{'l' if side > 0 else 'r'}"
-                mesh = Mesh(name, "col = true", kind="wall")
-                line = self._side_points(r, side, C.WALL_OFFSET)
-                ok = self._edge_ok(r, line, C.WALL_OFFSET + 0.5)
+                # the inside of a tight corner (a set-back line would fold there), and the grid sector
+                near = (r.curvature * side > 1.0 / C.WALL_CORNER_RADIUS) | grid
+                near &= self.svalid[r.index]
+                far_line = self._side_points(r, side, C.WALL_SETBACK)
+                ok_far = self._edge_ok(r, far_line, C.WALL_SETBACK + 0.5)
+                ok_near = self._edge_ok(r, self._side_points(r, side, C.WALL_OFFSET), C.WALL_OFFSET + 0.5)
+                need = near | (ok_near & ~ok_far)
+                ds = self._near_s(r, need)
+                t = smoothstep((ds - C.WALL_NEAR_DILATE) / C.WALL_RAMP)
+                offset = C.WALL_OFFSET + (C.WALL_SETBACK - C.WALL_OFFSET) * t
+                line = self._side_points(r, side, offset)
+                ok = self._edge_ok(r, line, offset + 0.5)
                 # Drop folds: on the inside of a tight corner the offset line can run backwards.
                 nxt = np.roll(line[:, :2], -1, axis=0) if r.closed else np.vstack([line[1:, :2], line[-1:, :2]])
                 prv = np.roll(line[:, :2], 1, axis=0) if r.closed else np.vstack([line[:1, :2], line[:-1, :2]])
                 tan = nxt - prv
                 ok &= (tan * r.tangent).sum(1) > 0.2 * np.maximum(np.linalg.norm(tan, axis=1), 1e-9)
-                tz = self.terrain(line)
-                base = tz - C.WALL_SINK
-                top = np.maximum(tz, (r.left[:, 2] if side > 0 else r.right[:, 2])) + height
-                out2 = r.nl * side
-                for run in self._runs(ok, r.closed):
-                    idx = np.array(run)
-                    closed = r.closed and len(run) == r.n
-                    self._extrude(mesh, line[idx], out2[idx], base[idx], top[idx], profile, mat, closed, r.s[idx])
-                if not mesh.empty:
-                    meshes.append(mesh)
+                line[:, 2] = self.terrain(line)
+                plan[(r.index, side)] = {"route": r, "side": side, "offset": offset, "line": line,
+                                         "out": r.nl * side, "ok": ok, "near": t < 0.5}
+        self._wall_plan = plan
+        return plan
+
+    def wall_runs(self) -> list[dict]:
+        """The wall line as continuous runs: route id, side, points (N, 3; z = terrain), outward unit normals,
+        s and offsets. Empty when options.walls is none."""
+        if self.walls == "none":
+            return []
+        out = []
+        for (_ri, side), p in sorted(self.wall_plan().items(), key=lambda kv: kv[0]):
+            r = p["route"]
+            for run in self._runs(p["ok"], r.closed):
+                idx = np.array(run)
+                out.append({"route": r.id, "side": side, "closed": r.closed and len(run) == r.n,
+                            "points": p["line"][idx], "out": p["out"][idx], "s": r.s[idx],
+                            "offset": p["offset"][idx]})
+        return out
+
+    def build_walls(self) -> list[Mesh]:
+        """Invisible collision walls (CustomData ``vis = false | col = true``, like stock bases' wall_col meshes)
+        along the wall plan; the visible barrier is a row of stock props on the same line (dressing.py)."""
+        if self.walls == "none":
+            return []
+        mat = C.WALL_MATERIAL[self.walls]
+        height = C.WALL_HEIGHT[self.walls]
+        h = C.WALL_HALF[self.walls]
+        profile = [(-h, 0.0), (-h, 1.0), (h, 1.0), (h, 0.0)]
+        meshes = []
+        for (ri, side), p in sorted(self.wall_plan().items(), key=lambda kv: kv[0]):
+            r = p["route"]
+            mesh = Mesh(f"walls_{r.id}_{'l' if side > 0 else 'r'}", C.WALL_CUSTOM_DATA, kind="wall")
+            line = p["line"]
+            tz = line[:, 2]
+            base = tz - C.WALL_SINK
+            top = np.maximum(tz, (r.left[:, 2] if side > 0 else r.right[:, 2])) + height
+            for run in self._runs(p["ok"], r.closed):
+                idx = np.array(run)
+                closed = r.closed and len(run) == r.n
+                self._extrude(mesh, line[idx], p["out"][idx], base[idx], top[idx], profile, mat, closed, r.s[idx])
+            if not mesh.empty:
+                meshes.append(mesh)
         return meshes
 
     # -------------------------------------------------------------------------------------- bridges
@@ -946,7 +1070,8 @@ class TrackGeometry:
     def build_base(self) -> list[Mesh]:
         meshes = [self.build_road()]
         kerbs, shoulders = self.build_kerbs_and_shoulders()
-        meshes += [m for m in (kerbs, shoulders, self.build_edge_decals()) if not m.empty]
+        meshes += [m for m in (kerbs, shoulders, self.build_edge_decals(), self.build_transition_decals())
+                   if not m.empty]
         meshes += self.build_walls()
         meshes += self.build_bridges()
         meshes += self.build_terrain()

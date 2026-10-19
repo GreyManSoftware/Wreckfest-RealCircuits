@@ -66,8 +66,27 @@ def allowed_assets(name: str | None) -> set[str]:
         out.update(v)
     for k in ("trees", "bushes", "ground_props", "buildings", "cornerMarkers", "saplings"):
         out.update(e.get(k, []))
+    out.update(e.get("foliage", {}).get("groups", []))
+    for row in e.get("barriers", {}).values():
+        out.update(row)
     out.add(e["crowdFence"])
     return out
+
+
+def barrier_row(name: str | None, walls: str) -> list[str]:
+    """The stock props that form the visible barrier for options.walls (concrete / tyres) in an environment."""
+    return list(env(name).get("barriers", {}).get(walls, []))
+
+
+def foliage(name: str | None) -> dict:
+    """Foliage density settings with the defaults for environments that don't override them."""
+    n = env_name(name)
+    d = {"treeSpacing": 8.0 if n == "forest" else 11.0,
+         "minTreeM": {"forest": 20.0, "sandpit": 60.0, "industrial": 30.0}.get(n, 24.0),
+         "treeCap": 2600 if n == "forest" else 700, "bushCap": 300 if n == "forest" else 160,
+         "saplingClusters": 45, "saplingCap": 800, "groundPropCap": 160, "groups": [], "groupCap": 0}
+    d.update({k: v for k, v in env(n).get("foliage", {}).items() if not k.startswith("_")})
+    return d
 
 
 def texture_stems(name: str | None) -> set[str]:
@@ -83,4 +102,5 @@ def texture_stems(name: str | None) -> set[str]:
             out.add(stem(e["edgeDecal"][k]))
     out.update(stem(x) for x in (e["macro"], e["horizon"]["c"], e["horizon"]["fog"], e["farGround"]))
     out.update(stem(x) for x in e.get("treeCards", []) + e.get("skylineCards", []))
+    out.update(stem(v) for k, v in table()["transitionDecal"].items() if not k.startswith("_"))
     return out
