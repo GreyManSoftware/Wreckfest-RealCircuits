@@ -92,9 +92,13 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
     r = np.maximum(r, zones * 0.85)
     r = np.maximum(r, smooth01((n_big - 0.72) / 0.08) * 0.6 * smooth01((d - 30) / 20))  # odd dirt patches
     b = np.zeros_like(d)
+    trees = planner.tree_noise.grid(n)
+    # how deep inside a tree cluster: 0 at its edge, 1 well inside (the planner places trees where noise > thr)
+    canopy = smooth01((trees - planner.tree_thr) / 0.12)
     if env_name == "forest":
-        trees = planner.tree_noise.grid(n)
-        b = smooth01((trees - planner.tree_thr + 0.04) / 0.08) * smooth01((d - 14.0) / 8.0)
+        # forest floor only under the dense cluster cores (stock forest11 is mostly grass, mean blend G ~ 70%);
+        # broken up by fine noise so the edge isn't a contour line
+        b = smooth01((canopy - 0.55 + (n_fine - 0.5) * 0.5) / 0.3) * smooth01((d - 16.0) / 10.0)
     elif env_name == "farmland" and planner.parcels is not None:
         fld = planner.parcels.is_field(pts).reshape(n, n) & (planner.parcels.border(pts).reshape(n, n) > 3.0)
         b = fld * smooth01((d - 40.0) / 10.0)
@@ -109,10 +113,22 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
     s = np.maximum(r + g + b, 1e-6)
     blend_terrain = np.stack([r / s, g / s, b / s], axis=2) * 255.0
 
-    # ---- road blend: R main, G variant patches, B worn edges
+    # ---- road blend: R main, G variant patches, B worn edges (asphalt: dust of the environment's gravel)
     rg = smooth01((n_mid - 0.55) / 0.12) * 0.8
-    rb = smooth01((1.6 + d + (n_fine - 0.5) * 1.2) / 1.2)          # last ~1.5 m inside each edge
-    rb = np.maximum(rb, smooth01((n_big - 0.7) / 0.1) * 0.5)
+    rb = smooth01((1.4 + d + (n_fine - 0.5) * 1.2) / 1.2) * 0.55   # dusty last ~1.3 m inside each edge
+    rb = np.maximum(rb, smooth01((n_big - 0.7) / 0.1) * 0.35)
+    # mixed tracks: the asphalt turns into the next sector's gravel over TRANSITION_RAMP before each switch
+    ramp = np.zeros_like(d)
+    for sw in geo.surface_switches():
+        c, t = sw["point"][:2], sw["tangent"]
+        rel = np.stack([gx - c[0], gy - c[1]], axis=2)
+        along = (rel[:, :, 0] * t[0] + rel[:, :, 1] * t[1]) * sw["asphalt"]     # metres into the asphalt
+        across = np.abs(-rel[:, :, 0] * t[1] + rel[:, :, 1] * t[0])
+        near = smooth01((sw["hw"] + 4.0 - across) / 2.0)
+        jag = (n_fine - 0.5) * 8.0 + (n_mid - 0.5) * 6.0
+        ramp = np.maximum(ramp, near * smooth01((C.TRANSITION_RAMP - along + jag) / (0.6 * C.TRANSITION_RAMP))
+                          * smooth01((along + 3.0) / 2.0))
+    rb = np.maximum(rb, ramp)
     rg = rg * (1 - rb)
     rr_ = np.clip(1.0 - rg - rb, 0.0, 1.0)
     s = np.maximum(rr_ + rg + rb, 1e-6)
@@ -122,13 +138,26 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
     mean = np.array(e["colour"]["mean"], dtype=np.float64)
     std = float(e["colour"]["std"])
     col = np.empty((n, n, 3))
-    var = (n_big - 0.5) * 2.0 * std + (n_mid - 0.5) * std
-    hue = (nz("map-hue", 400.0, 2) - 0.5) * std
+    # macro variation: large soft patches (stock colour maps span ~+-35 around their mean), a slow hue drift
+    # between dry/yellow and lush/green, and finer mottling
+    n_macro = nz("map-macro", 180.0, 3)
+    var = (n_macro - 0.5) * 2.6 * std + (n_mid - 0.5) * 0.9 * std + (n_fine - 0.5) * 0.4 * std
+    hue = (nz("map-hue", 400.0, 2) - 0.5) * 1.6 * std
     col[:, :, 0] = mean[0] + var + hue
-    col[:, :, 1] = mean[1] + var - hue * 0.3
-    col[:, :, 2] = mean[2] + var * 0.8 - hue * 0.5
-    wear = smooth01((10.0 - d) / 8.0) * 10.0 + zones * 8.0
-    col -= wear[:, :, None]
+    col[:, :, 1] = mean[1] + var * 1.05 - hue * 0.2
+    col[:, :, 2] = mean[2] + var * 0.7 - hue * 0.9
+    # grass reads greener than the dirt: lift G and drop B where the blend map is grass (soft light, 128 neutral)
+    green = float(e["colour"].get("grassGreen", 8.0))
+    col[:, :, 1] += g * green
+    col[:, :, 2] -= g * green * 0.8
+    # shade under the tree clusters (stock forest11's colour map darkens to ~60 there)
+    shade = float(e["colour"].get("canopyShade", 14.0))
+    col -= (canopy * shade)[:, :, None]
+    # darker, browner wear along the road edges and where people and vehicles stand
+    wear = smooth01((14.0 - dj) / 10.0) * float(e["colour"].get("wear", 16.0)) + zones * 10.0
+    col[:, :, 0] -= wear * 0.8
+    col[:, :, 1] -= wear
+    col[:, :, 2] -= wear * 1.1
     if env_name == "farmland" and planner.parcels is not None:
         tints = np.array(e["colour"].get("fieldTints", [[150, 140, 90]]), dtype=np.float64)
         t_id = planner.parcels.tint(pts).reshape(n, n) % len(tints)
@@ -147,12 +176,15 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
 
     # ---- clutter mask: G grass 5-80 m from the road, not on dirt or fields; sparse R bushes, B flowers
     lo, hi = C.GRASS_BAND
-    band = smooth01((dj - lo) / 3.0) * smooth01((hi - dj) / 15.0)
-    grass = band * smooth01((n_fine - 0.3) / 0.25) * (1 - r) * (1 - b * 0.9)
-    bushes = band * smooth01((n_mid - 0.7) / 0.08) * (1 - r) * 0.5
-    flowers = band * smooth01((n_fine - 0.75) / 0.1) * (1 - r) * 0.6
+    band = smooth01((dj - lo) / 3.0) * smooth01((hi - dj) / 25.0)
+    # a strong, continuous grass band next to the road (thinning towards its outer edge and under the canopy),
+    # with fine gaps so it doesn't read as a stripe
+    grass = band * (0.75 + 0.25 * smooth01((n_fine - 0.25) / 0.3)) * (1 - r) * (1 - b * 0.7) * (1 - canopy * 0.4)
+    grass = np.maximum(grass, 0.35 * smooth01((dj - lo) / 3.0) * smooth01((n_mid - 0.55) / 0.1) * (1 - r) * (1 - b))
+    bushes = band * smooth01((n_mid - 0.66) / 0.08) * (1 - r) * 0.6
+    flowers = band * smooth01((n_fine - 0.72) / 0.1) * (1 - r) * 0.6
     clutter = np.stack([bushes, grass, flowers], axis=2) * 255.0
-    clutter_a = np.full((n, n), 128.0)
+    clutter_a = np.full((n, n), float(e.get("clutterAlpha", 128)))
 
     out_dir = os.path.join(root, "data", "track", slug, "textures")
     paths = {}

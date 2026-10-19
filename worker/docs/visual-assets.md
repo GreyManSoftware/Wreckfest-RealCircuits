@@ -193,8 +193,67 @@ The whole plan is in the builder (`worker/builder/wfbuild/`; details in `worker/
 
 Measured on the sample tracks: 1,000–4,000 subscenes per base (forest hills 3,817; WinkyIsland 1,593; Cadwell 1,701; sandpit loop 1,544), against 30–160 before. Builds take ~40–60 s instead of 30–50 s.
 
+## Visuals v2 (2026-10-19)
+
+Review of the first comparison renders against stock fields13: flat card rectangles near the play area, no
+horizon, continuous bright walls, grey ground, a hard tarmac/gravel switch and open-looking sandpit/gravel pit
+tracks. Changes (all data in `environments.json` where possible):
+
+**Walls and barriers.** Stock bases contain containment as an invisible collision mesh (`wall_col*`,
+`*#col`, CustomData `vis = false | col = true`, e.g. fields14, urban06) plus visible barrier props or meshes.
+The builder now does the same:
+- `geometry.wall_plan()` puts the wall line 5.5 m out only where containment is needed (the inside of corners
+  tighter than 60 m, the grid sector, under bridges, and wherever a set-back line would come near another road),
+  12 m out elsewhere behind open run-off, ramping between the two over 25 m. The collision wall (`walls_*`,
+  material `wall_col_*#concrete_barrier|#global_barrier`, ghost texture) follows it.
+- `dressing.barriers()` lines it with stock props (category `barriers`), whose road face sits on the collision
+  wall's face. Static props only (the probe of each prop's `.scne`: `static` parts, `concretebarrier*.dntp`):
+
+  | Env | concrete | tyres |
+  |---|---|---|
+  | farmland | `prop_barrier7a/7c_small_colmod` (fields13, ~290 each) | `prop_tirebarrier02/04` |
+  | gravel_pit | `prop_barrier8_dirty_side1`, `dirty2_side1` (weathered, fields14) | same |
+  | forest | `prop_long_barrier_muddy01/02` (5.9 m, muddy) | same |
+  | sandpit | `prop_barrier8` (sandpit03 uses 122) | same |
+  | industrial | `prop_concrete_element3` | same |
+
+  Tyre piles (`prop_tirepile_*`) are dynamic (`tirepile.dntp`), so they stay decoration (corner markers in front
+  of the barrier). Prop sizes (Toolbox import): barrier7a/c 3.07 × 1.41 × 3.07 m (block plus fence),
+  barrier8 3.7 × 0.82 × 1.09, long_barrier_muddy 5.9 × 0.8 × 0.8, tirebarrier02/04 5.28 × 2.83 × 1.47 (a tyre
+  heap with chainlink), concrete_element3 6.0 × 1.41 × 2.54.
+- Scenery clearance with walls is now 14.5 m (behind the set-back barrier); corner markers stand 4.3 m out.
+
+**Horizon and background cards.** The ring was there but the old render camera framed the track only; the render
+tool now frames the terrain and looks to the horizon (as the stock render) and has a third `horizon` view.
+- `#horizon` is 127 m tall per 1100 m of distance (`HORIZON_SCALE_M`), so the vista reads like fields13's.
+- The far ground rolls: low hills by the terrain edge, growing towards the horizon where they hide the vista's
+  lower edge (`farHills` per environment, metres near/far).
+- Cards (`cardBands`): only just in front of the ring (t = 0.8–0.93 of the way), 16–28 m tall, feet 5 m deep in
+  the hills; a full-coverage band is one closed ring (forest), partial bands are staggered strips whose ends sink
+  into the hill over ≥ 60 m. None stand on the terrain any more.
+- A ragged tree belt (14–40 m deep) along the terrain edge hides the edge of the generated ground (not industrial).
+
+**Ground.** Stock blend/colour stats (`blend` = mean RGB of the blend map): forest11 blend (23, 131, 37), colour
+(106, 106, 103) with dark patches to ~60; sandpit3 colour (131, 128, 108); fields13 colour (133, 143, 103). Ours had
+forest floor (B) under 70 % of a forest track. Now B only under canopy cores (Cadwell's mean blend is (37, 142, 75): mostly grass),
+colour maps get large macro patches, a dry/lush hue drift, greener grass, shade under tree clusters and browner
+wear along the road; the clutter G band is continuous (mean 154–201 at 8–35 m from the road on the test tracks, < 15 beyond 100 m; alpha 255 on forest
+as forest11).
+
+**Mixed surfaces.** Asphalt's B layer is now the environment's gravel (stock forest11 asphalt uses sand pebbles):
+dusty edges, and a blend ramp over ~13–29 m before every switch so the asphalt turns into the gravel sector's own
+texture. Stock `decal_asphalt_sand_transition_fields13_c5` (+ao/n/s, 2:1) lies across the road at each switch
+(`track_transitions`, `#decal#priority2`, 7 m over the asphalt, 1.5 m over the gravel).
+
+**Density.** Stock sandpit03 has ~6000 subscenes (foliage_group12 720, group10 405, spruces ~770, saplings ~1350);
+fields14 (gravel-pit-like) uses foliage_group23, birch5c/5d, alder4, boulders and rock piles. Per-environment
+`foliage` settings now raise sandpit (spruces, more saplings, foliage groups 10/12) and gravel pit (birch5d,
+alder4, group23, boulders, rock piles).
+
 **Still open:**
-- In-game check of all of the above: the bimage'd map formats, the decal and backdrop tags, and the frame rate with thousands of subscenes.
-- The hard surface change between tarmac and gravel sectors on `mixed` tracks. A transition decal like stock `sand_transition#decal` would soften it.
+- In-game check of all of the above: the bimage'd map formats, the decal and backdrop tags, the frame rate with
+  thousands of subscenes, how the invisible collision walls feel behind the barrier props, and how
+  `prop_tirebarrier02/04` look in game (no stock base we imported uses them; the render shows red/white tyre heaps).
+- The render tool has no clutter grass, fog or game lighting, so ground colour is judged only roughly there.
 - Stock subscene groups (`foliage_bgrforest2..5.scne`) instead of our own cards.
 - Sky and weather already map to stock environments (`pipeline/weather.py`); `#static_cube_map` is unchanged.

@@ -47,15 +47,26 @@ The same slug always gives the same file (seeded by the slug).
   containers) with local Y along the driving direction. `r` is the footprint radius used for spacing, `h` the
   height (for proxies).
 - **categories**: `gantry`, `flags`, `staff`, `grandstand`, `spectators`, `crowdFence`, `cameras`, `cornerMarkers`,
-  `adFence`, `bigBoard`, `paddock`, `lights`, `trees`, `bushes`, `saplings`, `groundProps`, `buildings`.
+  `adFence`, `bigBoard`, `paddock`, `lights`, `trees`, `bushes`, `saplings`, `groundProps`, `buildings`, and
+  (since 2026-10-19, additive) `barriers`: the visible containment, a row of stock barrier props (`face: "-y"`,
+  `width` along local X, `depth`) standing on the wall line. Readers that don't know a category should draw it as
+  a generic prop; the format name is unchanged. `bushes` may also hold stock foliage groups (`foliage_group10/12/23`).
 
 ## Rules the planner follows (and `tests/check_scene.py` re-checks)
 
 - Only assets listed for the environment in `wfbuild/environments.json` (shared trackside sets + the environment's
-  trees, bushes, ground props, buildings, corner markers and crowd fence).
-- Nothing but the start/finish gantry within `edgeMinM - 1` m of any road edge (`edgeMinM` = wall offset + 1 m,
-  or run-off + 2 m without walls).
+  trees, bushes, foliage groups, ground props, buildings, corner markers, barrier rows and crowd fence).
+- Walls (`options.walls` concrete/tyres): the builder writes invisible collision walls (`vis = false | col = true`)
+  along a wall line 5.5 m from the road edge where containment is needed (inside of tight corners, grid sector,
+  near another road) and 12 m out elsewhere, behind open run-off. `barriers` placements follow that line (between
+  4.5 and 14 m from the road edge) with the environment's concrete or tyre style. No barriers when walls are none.
+- Nothing else within `edgeMinM - 1` m of any road edge (`edgeMinM` = 14.5 m with walls, i.e. behind the set-back
+  barrier, or run-off + 2 m without walls), except the start/finish gantry and the corner markers (dynamic tyre
+  stacks and bales, at least 3 m out, in front of the near barrier). `info.nearRoadM` lists these exceptions as
+  `{category: [min, max]}` metres from the road edge (`max` null = unbounded); readers checking clearance should
+  use it rather than `edgeMinM` alone.
 - No-go discs: bridge decks and ramps (+25 m), jump take-off to landing + 40 m, and the grid sector (line - 25 m to
-  the back row + 15 m), where only the gantry, flags, staff and the start grandstand may stand.
+  the back row + 15 m), where only the gantry, flags, staff and the start grandstand may stand. The barrier row is
+  exempt (containment runs past jumps and the grid).
 - Everything inside the terrain extent; footprints don't overlap (spatial hash).
 - Standing spectators face the nearest road with local +Y.

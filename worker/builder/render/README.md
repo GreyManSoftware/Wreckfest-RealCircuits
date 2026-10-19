@@ -8,7 +8,10 @@ with Cycles **on the CPU**, using stock textures and stock props, so the visuals
     -Out E:\Source\wreckfest\.local\renders -Samples 24 -Cpus 8
 ```
 
-Writes `<name>-oblique.png` and `<name>-driver.png` (1600×900) per spec, and `fields13-stock-*` with `-Stock`. About
+Writes `<name>-oblique.png`, `<name>-driver.png` and `<name>-horizon.png` (1600×900) per spec, and
+`fields13-stock-*` with `-Stock`. The oblique and horizon views frame the terrain (generated and stock alike) and
+look out to the horizon, so the far ground, background cards and `#horizon` ring show; `vis = false` collision
+walls are hidden, as in game. Pass several specs as an array (`-Specs @('a.json','b.json')`). About
 3 minutes for three tracks plus the stock base at 24 samples on 8 threads. Work files go to `.local\render`.
 
 Steps (each can be run on its own):

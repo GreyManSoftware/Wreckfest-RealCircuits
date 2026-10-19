@@ -194,7 +194,7 @@ def main() -> None:
                   f"{scene}: #static_cube_map material 'ghost' has its texture in slots 1 and 6 (invisible)",
                   str([(t.slot, t.path) for t in ghost.textures]) if ghost else "missing")
             col = [o.name for o in b.objects if o.kind == "OBJM" and o.name != "#static_cube_map"
-                   and o.name != "track_edges" and not o.name.startswith("backdrop_")
+                   and o.name not in ("track_edges", "track_transitions") and not o.name.startswith("backdrop_")
                    and "col = true" not in o.custom_data]
             check(not col, f"{scene}: collision CustomData exported", ", ".join(col[:5]))
         else:

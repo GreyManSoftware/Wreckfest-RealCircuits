@@ -48,9 +48,14 @@ def build(env_name: str | None, slug: str, maps: dict, n_cards: int) -> dict[str
         "shoulder": {"name": f"verge_{name}#gravel#blend", "slots": terrain_slots},
     }
     for surface, physics in (("tarmac", "asphalt"), ("gravel", "gravel"), ("sand", "gravel")):
+        layers = list(e["roads"][surface])
+        if surface == "tarmac":
+            # B = the environment's gravel, as stock asphalt (forest11: sand pebbles): dust on the worn edges, and
+            # on mixed tracks the ramp into the next gravel sector (maps.py) ends in the gravel road's own texture
+            layers = layers[:2] + [e["roads"]["gravel"][0]]
         specs[f"road_{surface}"] = {
             "name": f"road_{surface}_{name}#{physics}#blend",
-            "slots": _layers(e["roads"][surface], C.TEX_TILE["road"]) + [
+            "slots": _layers(layers, C.TEX_TILE["road"]) + [
                 (6, mp["blend_road_c"], 2, (1.0, 1.0)), (7, detail, 2, (1.0, 1.0)), (8, macro, 2, (1.0, 1.0)),
                 (9, mp["color_road_c"], 2, (1.0, 1.0))]}
     d = e["edgeDecal"]
@@ -60,6 +65,11 @@ def build(env_name: str | None, slug: str, maps: dict, n_cards: int) -> dict[str
     if d.get("s"):
         edge.append((9, _t(d["s"]), 1, (1.0, 1.0)))
     specs["edge_decal"] = {"name": f"road_edge_{name}#decal#priority1", "slots": edge}
+    td = envs.table()["transitionDecal"]
+    specs["transition_decal"] = {"name": f"road_transition_{name}#decal#priority2",
+                                 "slots": [(1, _t(td["c"]), 1, (1.0, 1.0)), (6, _t(td["c"]), 1, (1.0, 1.0)),
+                                           (7, _t(td["ao"]), 1, (1.0, 1.0)), (8, _t(td["n"]), 1, (1.0, 1.0)),
+                                           (9, _t(td["s"]), 1, (1.0, 1.0))]}
     h = e["horizon"]
     specs["horizon"] = {"name": f"horizon_{name}#horizon",
                         "slots": [(1, _t(h["c"]), 1, (1.0, 1.0)), (6, _t(h["c"]), 1, (1.0, 1.0)),

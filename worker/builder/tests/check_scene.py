@@ -34,7 +34,7 @@ GRID_EXEMPT = {"gantry", "flags", "staff", "grandstand"}
 
 
 def no_collision(name: str) -> bool:
-    return name == "#static_cube_map" or name == "track_edges" or name.startswith("backdrop_")
+    return name in ("#static_cube_map", "track_edges", "track_transitions") or name.startswith("backdrop_")
 
 
 def known_tag(t: str) -> bool:
@@ -73,12 +73,32 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
     xy = np.array([p["position"][:2] for p in P])
     cats = [p["category"] for p in P]
     d = exact_edge_distance(geo, xy)
+    # barriers run under bridge decks and their ramps: measure them against the roads that aren't elevated bridge
+    # structure, and where that is too close, against the roads that don't pass > 3 m overhead
+    sel = np.concatenate([geo.svalid[r.index] & ~geo.structure[r.index] for r in geo.routes])
+    rxy, rz, rhw = geo.index.xy[sel], geo.index.z[sel], geo.index.hw[sel]
+    for k, p in enumerate(P):
+        if p["category"] == "barriers":
+            dd = np.hypot(*(rxy - xy[k]).T) - rhw
+            if dd.min() < C.WALL_OFFSET - 1.0:
+                dd[rz - p["position"][2] > 3.0] = np.inf
+            d[k] = float(dd.min())
+    # the barrier row stands on the wall line and the corner markers in front of it; everything else behind
+    lanes = {"gantry": (-np.inf, np.inf), "barriers": (C.WALL_OFFSET - 1.0, C.WALL_SETBACK + 2.0),
+             "cornerMarkers": (C.SHOULDER_W, np.inf)}
     on_road = [f"{p['asset']} {d[k]:.1f} m" for k, p in enumerate(P)
-               if p["category"] != "gantry" and d[k] < pl.edge_min - 1.3]
-    check(not on_road, "scenery: nothing but the gantry within the road/run-off clearance",
-          f"clearance {pl.edge_min - 1.0:.1f} m; {on_road[:3]}")
+               if not (lanes.get(p["category"], (pl.edge_min - 1.3, np.inf))[0] <= d[k]
+                       <= lanes.get(p["category"], (0, np.inf))[1])]
+    check(not on_road, "scenery: nothing but the gantry, the barrier row (on the wall line) and corner markers "
+          "within the road/run-off clearance", f"clearance {pl.edge_min - 1.0:.1f} m; {on_road[:3]}")
+    barriers = [k for k, c in enumerate(cats) if c == "barriers"]
+    row = set(envs.barrier_row(pl.env_name, geo.walls))
+    check(bool(barriers) == bool(row) and {P[k]["asset"] for k in barriers} <= row,
+          f"scenery: barrier row follows options.walls ({geo.walls}: stock {sorted(row) or 'none'})",
+          f"{len(barriers)} barrier props")
     ex = np.array([c in GRID_EXEMPT for c in cats])
-    hit = pl.in_nogo(xy, 0.0, False) & ~ex
+    wall = np.array([c == "barriers" for c in cats])  # containment follows the road, no-go zones included
+    hit = pl.in_nogo(xy, 0.0, False) & ~ex & ~wall
     hit |= pl.in_nogo(xy, 0.0, True) & ex
     check(not hit.any(), "scenery: no-go zones (grid sector, bridge decks/ramps, jump landings) are clear",
           ", ".join(f"{P[k]['asset']}" for k in np.nonzero(hit)[0][:3]))
@@ -102,6 +122,58 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
               f"{bad} of {len(sp)} facing away")
     check(len(gantry) <= 1, "scenery: at most one start/finish gantry", f"{len(gantry)}")
     print(f"INFO scenery: {sc['total']} placements {sc['counts']}")
+
+
+def read_tga(path: str) -> np.ndarray:
+    """The builder's uncompressed TGA maps as RGB(A) rows from v = 0 (south) up."""
+    with open(path, "rb") as f:
+        h = f.read(18)
+        w, ht, bpp = int.from_bytes(h[12:14], "little"), int.from_bytes(h[14:16], "little"), h[16] // 8
+        a = np.frombuffer(f.read(w * ht * bpp), dtype=np.uint8).reshape(ht, w, bpp).astype(np.float64)
+    a[:, :, :3] = a[:, :, 2::-1]
+    return a
+
+
+def check_maps(out: str, model: dict, spec: dict, manifest: dict) -> None:
+    """Generated maps: a strong clutter grass band beside the road, and on mixed tracks the asphalt's blend ramp
+    (B = the environment's gravel) leading into each surface switch."""
+    from wfbuild.fields import exact_edge_distance
+    from wfbuild.geometry import TrackGeometry
+
+    mp = manifest["maps"]
+    x0, y0, size = mp["frame"]
+    root = os.path.join(out, "mod")
+    clutter = read_tga(os.path.join(root, mp["paths"]["clutter_t"] + ".tga"))
+    road = read_tga(os.path.join(root, mp["paths"]["blend_road_c"] + ".tga"))
+    n = clutter.shape[0]
+    geo = TrackGeometry(model, spec)
+
+    def px(p):
+        return (np.clip(((np.asarray(p)[:, 1] - y0) / size * n).astype(int), 0, n - 1),
+                np.clip(((np.asarray(p)[:, 0] - x0) / size * n).astype(int), 0, n - 1))
+
+    rng = np.random.default_rng(1)
+    pts = np.column_stack([rng.uniform(x0, x0 + size, 6000), rng.uniform(y0, y0 + size, 6000)])
+    pts = pts[(pts[:, 0] <= geo.extent[1]) & (pts[:, 1] <= geo.extent[3])]
+    d = exact_edge_distance(geo, pts)
+    j, i = px(pts)
+    band = clutter[j, i, 1][(d > 8.0) & (d < 35.0)]
+    far = clutter[j, i, 1][d > 100.0]
+    check(len(band) > 20 and float(np.mean(band)) >= 110.0 and (not len(far) or float(np.mean(far)) < 40.0),
+          "maps: clutter grass (G) forms a strong band beside the road and fades out far from it",
+          f"band mean {np.mean(band) if len(band) else 0:.0f}, far {np.mean(far) if len(far) else 0:.0f}")
+    sw = geo.surface_switches()
+    if sw:
+        before, inside = [], []
+        for s in sw:
+            r = s["route"]
+            for into, acc in ((3.0, before), (C.TRANSITION_RAMP + 15.0, inside)):
+                k = r.index_at((s["s"] + s["asphalt"] * into) % r.length)
+                jj, ii = px(r.p[k:k + 1, :2])
+                acc.append(road[jj[0], ii[0], 2])
+        check(min(before) >= 140.0 and np.median(inside) < 120.0,
+              "maps: mixed tracks blend the asphalt into gravel (road blend B) just before each surface switch",
+              f"{len(sw)} switches; B at 3 m {min(before):.0f}, past the ramp median {np.median(inside):.0f}")
 
 
 def check(ok: bool, what: str, detail: str = "") -> bool:
@@ -164,8 +236,16 @@ def check_base(out: str, slug: str, model: dict, spec: dict, manifest: dict) -> 
               f"materials {mats}, size {dims:.2f} m")
     check(("track_kerbs" in obs) == bool(opts.get("kerbs")), "base: kerbs follow options.kerbs")
     walls = [n for n in obs if n.startswith("walls_")]
-    check(bool(walls) == (opts.get("walls") in ("concrete", "tyres")), "base: walls follow options.walls",
-          f"{len(walls)} wall objects")
+    check(bool(walls) == (opts.get("walls") in ("concrete", "tyres"))
+          and all(obs[n].get("CustomData") == C.WALL_CUSTOM_DATA for n in walls),
+          "base: walls follow options.walls (invisible collision walls, vis = false | col = true; the barrier "
+          "props are the visible part)", f"{len(walls)} wall objects")
+    trans = obs.get("track_transitions")
+    want_trans = opts.get("surface") == "mixed" and len(C.SURFACE_ROADS["mixed"]) > 1
+    check((trans is not None) == want_trans and (trans is None or all(
+        "#decal" in m.name for m in trans.data.materials)),
+        "base: mixed surface switches carry the stock transition decal (only on mixed tracks)",
+        f"{len(trans.data.polygons) if trans else 0} decal faces")
     bridges = [c for c in model["crossings"] if c["type"] == "bridge" and c.get("detected", True)]
     for c in bridges:
         check(f"bridge_{c['id']}_deck" in obs and f"bridge_{c['id']}_barriers" in obs,
@@ -244,6 +324,7 @@ def check_base(out: str, slug: str, model: dict, spec: dict, manifest: dict) -> 
     missing = [n for n in names if not os.path.isfile(os.path.join(WF, "data/art/objects", n + ".scne"))]
     check(not missing, "base: every prop exists in the game data", ", ".join(missing))
     check_scenery(out, model, spec, manifest, len(props))
+    check_maps(out, model, spec, manifest)
     # bounds
     worst = max(float(np.abs(world_verts(o)[:, :2]).max()) for o in meshes if len(o.data.vertices))
     check(worst <= C.LIMIT_M, "base: all vertices within +-2000 m", f"max |x|,|y| = {worst:.1f} m")

@@ -29,9 +29,17 @@ SHOULDER_W = 3.0              # sloped verge between the road (or kerb) and the 
 SHOULDER_DROP = 0.6
 RUNOFF_W = 8.0                # walls = "none": a wider, flatter gravel run-off instead
 RUNOFF_DROP = 0.4
-WALL_OFFSET = 5.5             # wall line, measured outwards from the road edge
-WALL_HEIGHT = {"concrete": 1.1, "tyres": 0.9}
+WALL_OFFSET = 5.5             # wall line where containment is needed, measured outwards from the road edge
+WALL_SETBACK = 12.0           # elsewhere the barrier stands this far out, behind open run-off (stock style)
+WALL_CORNER_RADIUS = 60.0     # the inside of corners tighter than this keeps the near wall...
+WALL_NEAR_DILATE = 20.0       # ...this far (along the road) before and after
+WALL_RAMP = 25.0              # the wall line moves between near and set back over this distance
+WALL_HEIGHT = {"concrete": 1.1, "tyres": 1.2}
 WALL_SINK = 0.5               # walls start this far below the terrain
+WALL_HALF = {"concrete": 0.35, "tyres": 0.5}   # half thickness of the collision wall (the barrier props' face)
+# The wall mesh is an invisible collision wall (as stock bases' "wall_col" / "#col" meshes); the visible barrier is
+# a row of stock props on the same line (dressing.barriers, environments.json "barriers").
+WALL_CUSTOM_DATA = "vis = false | col = true"
 OTHER_ROUTE_S = 60.0          # same-route samples further than this (along s) count as another road
 MOUTH_CLEAR = 0.5             # an alt-route cross-section must be this far outside the road it leaves
 TERRAIN_CELL = 4.0
@@ -66,8 +74,9 @@ TEX_TILE = {"road": 8.0, "kerb": 2.4, "ground": 16.0, "wall": 4.0, "far": 1000.0
 _T = "data/art/textures/"
 MATERIALS: dict[str, tuple[str, str, str]] = {
     "kerb": ("kerb#curb", _T + "prop_curb1_c.tga", "kerb"),
-    "wall_concrete": ("wall_concrete#concrete", _T + "texture_concrete_wall_01_c.tga", "wall"),
-    "wall_tyres": ("wall_tyres#default", _T + "prop_tirebarrier2_c.tga", "wall"),
+    # invisible collision walls (vis = false): the stock ghost texture, the barrier surface for impacts
+    "wall_concrete": ("wall_col_concrete#concrete_barrier", _T + "tmp_ghost_c1.tga", "wall"),
+    "wall_tyres": ("wall_col_tyres#global_barrier", _T + "tmp_ghost_c1.tga", "wall"),
     "bridge_concrete": ("bridge_concrete#concrete", _T + "prop_forest5_concretebridge01_c.tga", "wall"),
     "cube_map": ("ghost", _T + "tmp_ghost_c1.tga", "wall"),  # as every stock base; see GHOST_MATERIALS
 }
@@ -98,17 +107,23 @@ GRASS_BAND = (5.0, 80.0)      # clutter grass from this far to this far outside 
 EDGE_DECAL_OUT = 0.3          # the decal's broken asphalt edge sits this far outside the road edge
 EDGE_DECAL_LIFT = 0.03
 
+# --- mixed-surface transitions (geometry.build_transition_decals, maps.py) ---------------------------
+TRANSITION_RAMP = 22.0        # the asphalt blends into gravel over this distance before each switch
+TRANSITION_DECAL = (7.0, 1.5) # stock asphalt/sand transition decal: metres on the asphalt / gravel side
+
 # --- backdrop (backdrop.py) ------------------------------------------------------------------------
 HORIZON_OFFSET = 900.0        # wanted distance of the #horizon ring beyond the terrain edge (stock ~1400 m radius)
 HORIZON_SEGMENTS = 96
+HORIZON_SCALE_M = 1100.0      # the ring is 127 m tall (z -60..+67, stock fields13) per this distance
 HORIZON_REPEATS = 4           # vista texture repeats around the ring
 BACKDROP_LIMIT = LIMIT_M - 10.0
 TREE_CARD_HEIGHT = (28.0, 40.0)
 TREE_CARD_QUAD = 8.0          # card strips are built from 8 m quads (stock foliage_bgrforest00N)
+TREE_CARD_SINK = 5.0          # card feet are buried this deep in the far-ground hills (soft base)
 
 STATIC_CUBE_MAP = ("#static_cube_map", 'dyn = "data/property/object/ghost"')  # as in the example base
 CUBE_MAP_SIZE = 0.3           # stock bases and the example: a 0.3 m cube...
 CUBE_MAP_HEIGHT = 3.5         # ...2-4 m above the ground near the track
 # Materials whose texture also goes into the opacity slot (6), so the object is invisible in game. The example's
 # "ghost" material has ghost_c1 in slots 1 and 6; stock bases use data/art/textures/tmp_ghost_c1 the same way.
-GHOST_MATERIALS = ("cube_map",)
+GHOST_MATERIALS = ("cube_map", "wall_concrete", "wall_tyres")
