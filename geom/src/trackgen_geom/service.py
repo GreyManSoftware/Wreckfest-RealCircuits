@@ -33,6 +33,7 @@ from fastapi.responses import JSONResponse, Response
 from . import __version__, rules
 from .model import to_plain
 from .pipeline import GeometryIssue, Result, build_track_model
+from .terrain import terrain_grid
 
 __all__ = ["app", "settings"]
 
@@ -288,7 +289,10 @@ async def preview(request: Request) -> JSONResponse:
 
 @app.post("/model")
 async def model(request: Request) -> JSONResponse:
-    """``/validate`` plus the full TrackModel (internal; the worker calls the library directly)."""
+    """``/validate`` plus the full TrackModel and a coarse ``terrain`` grid (the web editor's 3D view)."""
     result = _checked(await _build(await _read_spec(request)))
     assert result.model is not None
-    return JSONResponse({**_body(result), "model": result.model.to_dict()})
+    model_dict = result.model.to_dict()
+    loop = asyncio.get_running_loop()
+    grid = await loop.run_in_executor(_executor, terrain_grid, model_dict)
+    return JSONResponse({**_body(result), "model": model_dict, "terrain": grid})
