@@ -109,6 +109,17 @@ class Route:
         self.slope = (self.left[:, 2] - self.right[:, 2]) / np.maximum(self.w, 1e-6)
         self.tangent = np.stack([np.cos(self.h), np.sin(self.h)], axis=1)
         self.segs = self.n if self.closed else self.n - 1
+        # longitudinal grade (rise per metre along s), central differences
+        if self.n > 2:
+            if self.closed:
+                dzs = np.roll(self.p[:, 2], -1) - np.roll(self.p[:, 2], 1)
+                dss = (np.roll(self.s, -1) - np.roll(self.s, 1)) % max(self.length, 1e-9)
+            else:
+                dzs = np.gradient(self.p[:, 2])
+                dss = np.gradient(self.s)
+            self.grade = dzs / np.maximum(dss, 1e-6)
+        else:
+            self.grade = np.zeros(self.n)
         self.m = max(1, round(float(np.median(self.w)) / C.ROAD_CELL_M))
         self.start_join = d.get("startJoin")
         self.end_join = d.get("endJoin")
@@ -243,6 +254,8 @@ class SampleIndex:
         self.si = np.concatenate([np.arange(r.n) for r in routes])
         self.s = np.concatenate([r.s for r in routes])
         self.closed_len = np.concatenate([np.full(r.n, r.length if r.closed else np.inf) for r in routes])
+        self.tangent = np.concatenate([r.tangent for r in routes])
+        self.grade = np.concatenate([r.grade for r in routes])
 
     def near_other(self, pts: np.ndarray, own_ri: np.ndarray, own_s: np.ndarray, clearance,
                    zdiff: float = 3.0, mask: np.ndarray | None = None) -> np.ndarray:
@@ -272,11 +285,11 @@ class TerrainField:
     """Terrain height: the natural ground, pulled to just below the road near it.
 
     ``ground`` is trackgen_geom's seeded height field (the same one the road heights came from) or, for an
-    imported track, its real heightfield. Near a road the terrain follows the lowest nearby road surface minus
-    TERRAIN_SINK, then blends to the ground over TERRAIN_BLEND. The road surface is taken across its camber:
-    the height at the point's offset from the centreline (clamped to the edges), so the ground meets the low
-    edge of a cambered road and never pokes through it. Samples on bridge structures don't pull the terrain
-    up. ``berm`` raises the outer edge of the terrain (off for real ground, which continues into the backdrop).
+    imported track, its real heightfield. Near a road the terrain follows the nearest road surface (see
+    ``__call__``; once the lowest road sample within ~10 m, which on a graded road sank the grass 0.5-1 m below
+    the edge), then blends to the ground over TERRAIN_BLEND. The road surface is taken across its camber, so
+    the ground meets the low edge of a cambered road and never pokes through it. Samples on bridge structures
+    don't pull the terrain up. ``berm`` raises the outer edge of the terrain (off for real ground, which continues into the backdrop).
     """
 
     def __init__(self, index: SampleIndex, ground, influence: np.ndarray, extent: tuple[float, float, float, float],
@@ -288,11 +301,33 @@ class TerrainField:
         self.hw = index.hw[sel]
         self.nl = index.nl[sel]
         self.slope = index.slope[sel]
+        self.tangent = index.tangent[sel]
+        self.grade = index.grade[sel]
+        self.ri = index.ri[sel]
+        self.s = index.s[sel]
+        self.closed_len = index.closed_len[sel]
         self.cambered = bool(np.any(np.abs(self.slope) > 1e-9))
         self.berm = berm
         self.extent = extent  # min_x, max_x, min_y, max_y of the terrain
 
+    def road_height(self, p: np.ndarray, j: np.ndarray) -> np.ndarray:
+        """Height of the road surface of sample ``j`` extended to the points ``p``: along its grade (within one
+        sample spacing) and across its camber (clamped to the edges)."""
+        dx, dy = p[:, 0] - self.xy[j, 0], p[:, 1] - self.xy[j, 1]
+        along = np.clip(dx * self.tangent[j, 0] + dy * self.tangent[j, 1], -2.5, 2.5)
+        z = self.z[j] + along * self.grade[j]
+        if self.cambered:
+            lat = dx * self.nl[j, 0] + dy * self.nl[j, 1]
+            z = z + np.clip(lat, -self.hw[j], self.hw[j]) * self.slope[j]
+        return z
+
     def __call__(self, pts: np.ndarray) -> np.ndarray:
+        """Near a road the terrain is the nearest road's surface (extended across its camber and along its
+        grade), lowered by TERRAIN_SINK under the road and TERRAIN_FLUSH beside it, so grass meets the road
+        edge a few centimetres down; where another road (a different route, or the same one further than
+        OTHER_ROUTE_S along it) is about as near, the lower of the two. It then blends to the ground over
+        TERRAIN_BLEND, never dipping below the straight line from the road edge to the ground at the end of
+        the blend (no artificial ditch beside the road; banks that rise away from it stay)."""
         pts = np.asarray(pts, dtype=np.float64)
         out = np.empty(len(pts))
         g = self.ground(pts[:, :2])
@@ -300,20 +335,40 @@ class TerrainField:
         near_band = 3.0 + C.TERRAIN_CELL * 0.75
         for a in range(0, len(pts), 1024):
             p = pts[a:a + 1024]
+            ar = np.arange(len(p))
             d = np.hypot(p[:, None, 0] - self.xy[None, :, 0], p[:, None, 1] - self.xy[None, :, 1])
             e = d - self.hw[None, :]
             k = np.argmin(e, axis=1)
-            e_min = e[np.arange(len(p)), k]
+            e_min = e[ar, k]
+            zr = self.road_height(p, k)
+            # other roads within the band (crossings, close parallel sections) pull the terrain below them too
             band = e <= (e_min[:, None] + near_band)
-            zs = self.z[None, :]
-            if self.cambered:
-                lat = ((p[:, None, 0] - self.xy[None, :, 0]) * self.nl[None, :, 0]
-                       + (p[:, None, 1] - self.xy[None, :, 1]) * self.nl[None, :, 1])
-                zs = zs + np.clip(lat, -self.hw[None, :], self.hw[None, :]) * self.slope[None, :]
-            zr = np.where(band, zs, np.inf).min(1) - C.TERRAIN_SINK
+            sd = np.abs(self.s[None, :] - self.s[k][:, None])
+            cl = self.closed_len[k][:, None]
+            sd = np.where(np.isfinite(cl), np.minimum(sd, cl - sd), sd)
+            other = band & ((self.ri[None, :] != self.ri[k][:, None]) | (sd > C.OTHER_ROUTE_S))
+            if other.any():
+                rows, cols = np.nonzero(other)
+                zo = np.full(len(p), np.inf)
+                np.minimum.at(zo, rows, self.road_height(p[rows], cols))
+                zr = np.minimum(zr, zo)
+            sink = C.TERRAIN_SINK + (C.TERRAIN_FLUSH - C.TERRAIN_SINK) * smoothstep((e_min + 1.0) / 1.5)
+            zr = zr - sink
             t = smoothstep((e_min - C.TERRAIN_CORE) / C.TERRAIN_BLEND)
             gz = g[a:a + 1024]
             zz = zr * (1.0 - t) + gz * t
+            # Fill dips between the road and the ground further out (verge ditches in a real DTM, the coarse
+            # heightfield): not below the line from the road edge level to the ground at the blend's end.
+            blend = (e_min > 0.0) & (e_min < reach)
+            if blend.any():
+                kb = k[blend]
+                lat = ((p[blend, 0] - self.xy[kb, 0]) * self.nl[kb, 0] + (p[blend, 1] - self.xy[kb, 1]) * self.nl[kb, 1])
+                outward = self.nl[kb] * np.sign(lat)[:, None]
+                far_pt = p[blend, :2] + outward * (reach - e_min[blend])[:, None]
+                g_far = self.ground(far_pt)
+                f = np.clip(e_min[blend] / reach, 0.0, 1.0)
+                floor = zr[blend] * (1.0 - f) + np.minimum(g_far, zr[blend]) * f
+                zz[blend] = np.maximum(zz[blend], floor)
             far = e_min > reach
             zz[far] = gz[far]
             out[a:a + 1024] = zz

@@ -11,6 +11,7 @@ Exits non-zero on any failure.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sys
@@ -121,6 +122,93 @@ def check_on_road(scene: str, lay, xref, base_road: Road) -> None:
     report("AI race route starts", ai, 1.5)
 
 
+class Surface:
+    """Height lookup on exported triangles (world space, x/y binned)."""
+
+    def __init__(self, tris: np.ndarray, cell: float = 8.0):
+        self.tri, self.cell = tris, cell
+        lo, hi = tris[:, :, :2].min(1), tris[:, :, :2].max(1)
+        self.bins: dict[tuple[int, int], list[int]] = {}
+        for k in range(len(tris)):
+            for i in range(int(lo[k, 0] // cell), int(hi[k, 0] // cell) + 1):
+                for j in range(int(lo[k, 1] // cell), int(hi[k, 1] // cell) + 1):
+                    self.bins.setdefault((i, j), []).append(k)
+
+    def height(self, x: float, y: float) -> float | None:
+        for k in self.bins.get((int(x // self.cell), int(y // self.cell)), ()):
+            a, b, c = self.tri[k]
+            m = np.array([[b[0] - a[0], c[0] - a[0]], [b[1] - a[1], c[1] - a[1]]])
+            det = m[0, 0] * m[1, 1] - m[0, 1] * m[1, 0]
+            if abs(det) < 1e-12:
+                continue
+            u = ((x - a[0]) * m[1, 1] - (y - a[1]) * m[0, 1]) / det
+            w = ((y - a[1]) * m[0, 0] - (x - a[0]) * m[1, 0]) / det
+            if u >= -1e-6 and w >= -1e-6 and u + w <= 1 + 1e-6:
+                return float(a[2] + u * (b[2] - a[2]) + w * (c[2] - a[2]))
+        return None
+
+
+def check_road_flush(full, model: dict, manifest: dict) -> None:
+    """Road and grass meet like stock tracks: on the exported base, the terrain 2 m outside a plain road edge
+    (away from other roads) lies 0-15 cm below the edge (no lip, no step up), and between 2 and 15 m out it
+    doesn't dip more than 0.3 m below both the edge and the ground 30 m out (no ditch or embankment look).
+    RealCadwell sat on a 0.5-1 m lip (2026-10-19): the terrain took the lowest road within ~10 m along a
+    graded road."""
+    tris = [to_world(o, np.array(o.tris).reshape(-1, 3)).reshape(-1, 3, 3)
+            for o in full.objects if o.name.startswith("terrain_") and o.tris]
+    if not tris:
+        check(False, "base: terrain exported")
+        return
+    ter = Surface(np.concatenate(tris))
+    t = manifest.get("transform", {})
+    a = math.radians(t.get("rotateDeg", 0))
+    ca, sa = round(math.cos(a)), round(math.sin(a))
+    shift = np.array(t.get("shift", [0.0, 0.0, 0.0]))
+
+    def scene(p: np.ndarray) -> np.ndarray:
+        p = np.array(p, dtype=np.float64)
+        x, y = p[:, 0].copy(), p[:, 1].copy()
+        p[:, 0], p[:, 1] = x * ca - y * sa, x * sa + y * ca
+        return p + shift[: p.shape[1]]
+
+    routes = model["routes"]
+    allc = np.concatenate([np.array([[q["x"], q["y"], q["z"]] for q in r["samples"]]) for r in routes])
+    allw = np.concatenate([np.array([q["width"] for q in r["samples"]]) / 2.0 for r in routes])
+    allr = np.concatenate([np.full(len(r["samples"]), k) for k, r in enumerate(routes)])
+    alls = np.concatenate([np.array([q["s"] for q in r["samples"]]) for r in routes])
+    steps, dips, n = [], 0, 0
+    for k, r in enumerate(routes):
+        smp = r["samples"]
+        for side, key_ in ((1, "leftEdge"), (-1, "rightEdge")):
+            edge = np.array(r[key_])
+            for i in range(0, len(smp), 5):
+                h = smp[i]["heading"]
+                nl = np.array([-math.sin(h), math.cos(h)]) * side
+                probe = edge[i, :2] + nl * 15.0
+                # plain edges only: no other road (or this one further along) within 40 m of the probe line
+                d = np.hypot(*(allc[:, :2] - probe).T) - allw
+                sd = np.abs(alls - smp[i]["s"])
+                sd = np.minimum(sd, float(r["lengthM"]) - sd) if r["closed"] else sd
+                if np.any((d < 25.0) & ((allr != k) | (sd > 60.0))):
+                    continue
+                pts = scene(np.array([[*(edge[i, :2] + nl * o), 0.0] for o in (2.0, 5.0, 10.0, 15.0, 30.0)]))
+                z = [ter.height(p[0], p[1]) for p in pts]
+                if any(v is None for v in z):
+                    continue
+                ez = float(scene(edge[i:i + 1])[0, 2])
+                n += 1
+                steps.append(ez - z[0])
+                if min(z[:4]) < min(ez, z[4]) - 0.3:
+                    dips += 1
+    steps = np.array(steps)
+    lo, hi = (np.percentile(steps, 2), np.percentile(steps, 98)) if len(steps) else (0, 0)
+    check(n > 20 and -0.02 <= lo and hi <= 0.15,
+          "base: terrain 2 m outside the road edge lies 0-15 cm below it (flush, stock-like)",
+          f"{n} probes, edge - terrain p2 {lo:.3f} m, median {np.median(steps):.3f} m, p98 {hi:.3f} m")
+    check(n > 20 and dips <= 0.02 * n, "base: no ditch beside the road (terrain 2-15 m out not 0.3 m below the "
+          "edge and the ground 30 m out)", f"{dips} of {n} probes dip")
+
+
 def check_driving_order(scene: str, scne: str) -> None:
     """The game drives a compiled AI route in its stored sector order (every stock layout's checkpoints run in
     that order, with or without otherway), and bgeometry picks that order itself (layout.needs_otherway). Our
@@ -167,6 +255,7 @@ def main() -> None:
         gen = sorted({t.path for m in full.materials for t in m.textures if t.path.startswith(f"data/track/{slug}/")})
         check(gen and all(texture_exists(p, root) for p in gen),
               "base: generated maps referenced by mod path and present in the mod as .bmap", f"{len(gen)} maps")
+        check_road_flush(full, model, manifest)
     check(road is not None, "base: exported road surface found")
     for scene, desc in manifest["scenes"].items():
         bgo_path = os.path.join(track, scene + ".bgo3")
