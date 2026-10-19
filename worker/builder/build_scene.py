@@ -8,7 +8,8 @@ Writes, in DIR:
     <slug>_base.blend            road, kerbs, shoulders, walls, bridges, terrain tiles, props (subscenes)
     <slug>_race.blend            forward layout: AI routes, checkpoints, start points, base subscene
     <slug>_race_reverse.blend    reverse layout (when the model has reverse: true)
-    manifest.json                objects, layouts, junctions, bridges, warnings
+    manifest.json                objects, layouts (with each one's minimap outline), junctions, bridges, warnings
+    mod/data/track/<slug>/       generated maps (textures/*.tga) and one track data file <layout>.tcat per layout
 Exit codes: 0 built, 2 bad input (no model), 3 geometry out of bounds.
 """
 from __future__ import annotations
@@ -32,7 +33,7 @@ from wfbuild import config as C
 from wfbuild.geometry import Mesh, TrackGeometry
 from wfbuild.layout import LayoutBuilder, strip_end_lines
 from wfbuild import backdrop as backdrop_mod
-from wfbuild import dressing, maps, materials
+from wfbuild import dressing, maps, materials, tcat
 from wfbuild.fields import DistanceField
 from wfbuild.layout import Empty
 
@@ -138,6 +139,27 @@ def transform(meshes, empties, curves, deg: int, dy: float) -> None:
         c.points = [tp(p) for p in c.points]
 
 
+def write_tcat(lay, slug: str, mod_root: str) -> dict:
+    """mod/data/track/<slug>/<layout>.tcat with one route entry per AI route (main, alt1, ...), and what the
+    minimap will show: the main route's outline (``ai_path``, the TrackModel centreline in driving order, in
+    scene coordinates) as bounds, signed area (> 0 counter-clockwise seen from above) and length, for
+    check_export to compare with the compiled AI route the game draws."""
+    routes = sorted((m.name for m in lay.meshes if m.kind == "ai" and m.name.startswith("#ai_route_")),
+                    key=lambda n: (n != "#ai_route_main", int(n.rsplit("alt", 1)[-1]) if "_alt" in n else 0))
+    path = next(c for c in lay.curves if c.name == "ai_path")
+    p = np.array(path.points, dtype=np.float64)[:, :2]
+    q = np.roll(p, -1, axis=0)
+    area = 0.5 * float(np.sum(p[:, 0] * q[:, 1] - q[:, 0] * p[:, 1]))
+    length = float(np.sum(np.hypot(*(q - p).T)))
+    rel = f"data/track/{slug}/{lay.name}.tcat"
+    out = os.path.join(mod_root, *rel.split("/"))
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "wb") as f:
+        f.write(tcat.build(len(routes), length))
+    return {"tcat": rel, "routes": routes, "bounds": [round(float(v), 2) for v in (*p.min(0), *p.max(0))],
+            "signedAreaM2": round(area, 1), "lengthM": round(length, 1)}
+
+
 def check_bounds(meshes: list[Mesh], what: str) -> float:
     worst = 0.0
     for m in meshes:
@@ -208,6 +230,8 @@ def main() -> None:
     worst = check_bounds(base_meshes, "base")
     for lay in layouts:
         worst = max(worst, check_bounds(lay.meshes, lay.name))
+    for lay in layouts:  # track data (.tcat) per layout: the game sets up the minimap with it (wfbuild/tcat.py)
+        lay.info["minimap"] = write_tcat(lay, slug, mod_root)
 
     import bpy
     from wfbuild import bscene
