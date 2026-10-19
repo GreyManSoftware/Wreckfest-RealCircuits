@@ -1,5 +1,6 @@
 import copy
 import json
+import math
 import os
 import time
 from pathlib import Path
@@ -106,9 +107,45 @@ def test_model(client: TestClient) -> None:
     assert FACT_KEYS <= set(body["facts"])
     t = body["terrain"]
     assert len(t["z"]) == (t["nx"] + 1) * (t["ny"] + 1)
+    assert "scenery" not in body  # only on /scenery (the planner is slow)
 
 
-@pytest.mark.parametrize("endpoint", ["/validate", "/preview", "/model"])
+@pytest.mark.parametrize("name", ["hilly_circuit", "loop_alt_jump"])
+def test_scenery_is_the_builders_plan_in_model_coordinates(client: TestClient, name: str) -> None:
+    pytest.importorskip("wfbuild")
+    import numpy as np
+
+    spec = load(name)
+    response = client.post("/scenery", json={"spec": spec})
+    assert response.status_code == 200
+    sc = response.json()["scenery"]
+    assert sc["format"] == "trackgen-scenery/1"
+    assert sc["slug"] == spec["meta"]["slug"]
+    assert sc["environment"] == spec["options"]["environment"]
+    assert sc["transform"]["rotateDeg"] == 0 and sc["transform"]["shift"] == [0, 0, 0]
+    assert sc["total"] == len(sc["placements"]) == sum(sc["counts"].values()) > 100
+    assert {"trees", "spectators", "grandstand", "gantry"} <= set(sc["counts"])
+    assert set(sc["assets"]) == {p["asset"] for p in sc["placements"]}
+    assert not [w for w in sc["warnings"] if w.startswith("ground-fallback")]
+    # Alignment with the road the 3D view draws from /model (the same coordinates): everything but the start
+    # gantry keeps the planner's clearance from every road edge and stands on the terrain.
+    model = client.post("/model", json={"spec": spec}).json()["model"]
+    road = np.array([(q["x"], q["y"], q["width"] / 2) for r in model["routes"] for q in r["samples"]])
+    b = model["bounds"]
+    m = b["terrainMarginM"]
+    for p in sc["placements"]:
+        x, y, z = p["position"]
+        assert b["minX"] - m <= x <= b["maxX"] + m and b["minY"] - m <= y <= b["maxY"] + m
+        assert b["minZ"] - 30 < z < b["maxZ"] + 30
+        if p["category"] != "gantry":
+            clear = float(np.min(np.hypot(road[:, 0] - x, road[:, 1] - y) - road[:, 2]))
+            assert clear >= sc["info"]["edgeMinM"] - 1.5, (p, clear)
+    gantry = next(p for p in sc["placements"] if p["category"] == "gantry")
+    finish = next(c for c in model["checkpoints"] if c["isFinish"])
+    assert math.dist(gantry["position"][:2], finish["position"][:2]) < 30
+
+
+@pytest.mark.parametrize("endpoint", ["/validate", "/preview", "/model", "/scenery"])
 def test_deterministic(client: TestClient, endpoint: str) -> None:
     spec = load("figure8_bridge")
     first = client.post(endpoint, json={"spec": spec})
@@ -174,18 +211,29 @@ def test_oversized_chunked_body_is_413(client: TestClient, monkeypatch: pytest.M
     assert response.status_code == 413
 
 
-def test_timeout_is_503(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    real = service.build_track_model
+@pytest.mark.parametrize(("endpoint", "slow_step"), [("/validate", "build_track_model"), ("/scenery", "plan_scenery")])
+def test_timeout_is_503(client: TestClient, monkeypatch: pytest.MonkeyPatch, endpoint: str, slow_step: str) -> None:
+    real = getattr(service, slow_step)
 
-    def slow(spec: Any) -> Any:
+    def slow(*args: Any) -> Any:
         time.sleep(0.5)
-        return real(spec)
+        return real(*args)
 
-    monkeypatch.setattr(service, "build_track_model", slow)
-    monkeypatch.setattr(service.settings, "compute_timeout_s", 0.05)
-    response = client.post("/validate", json={"spec": load("oval")})
+    monkeypatch.setattr(service, slow_step, slow)
+    monkeypatch.setattr(service.settings, "compute_timeout_s", 0.2)
+    response = client.post(endpoint, json={"spec": load("oval")})
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "compute-timeout"
+
+
+def test_scenery_without_the_planner_is_503(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    def missing(*args: Any) -> Any:
+        raise service.SceneryUnavailable("No module named 'wfbuild'")
+
+    monkeypatch.setattr(service, "plan_scenery", missing)
+    response = client.post("/scenery", json={"spec": load("oval")})
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "scenery-unavailable"
 
 
 def test_unexpected_error_is_generic_500(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

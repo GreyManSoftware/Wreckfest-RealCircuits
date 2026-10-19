@@ -67,7 +67,7 @@ cd src\web; npm ci; npm run build; npx vitest run; npm run lint
 # Geometry (venv under geom\.venv)
 cd geom
 py -m venv .venv
-.\.venv\Scripts\python -m pip install -e ".[service,test]"
+.\.venv\Scripts\python -m pip install -e ".[service,test]" -e ..\worker\builder   # wfbuild for /scenery
 .\.venv\Scripts\python -m pytest
 
 # Generated code (stdlib-only; run after any schema change)
