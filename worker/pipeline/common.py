@@ -18,6 +18,8 @@ TOOL_TIMEOUT = int(os.environ.get("PIPELINE_TOOL_TIMEOUT", "900"))
 KNOWN_NOTICES = [
     (re.compile(r"illegal key (otherway|crossstart)", re.I),
      "bgeometry reports 'custom data has illegal key {0}' but applies the key (known notice)"),
+    (re.compile(r"Surface Settings does not exists?: (decal|noshadow) \(\)", re.I),
+     "bgeometry: no surface settings for the render tag '{0}' (stock materials use #decal / #noshadow too)"),
     (re.compile(r"XDG_RUNTIME_DIR"), "Wine: XDG_RUNTIME_DIR is invalid (harmless)"),
     (re.compile(r"BKE_icon"), "Blender: BKE_icon messages while Toolbox registers (harmless)"),
 ]

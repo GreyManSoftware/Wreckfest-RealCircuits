@@ -31,7 +31,10 @@ from wfbuild import BUILDER_VERSION
 from wfbuild import config as C
 from wfbuild.geometry import Mesh, TrackGeometry
 from wfbuild.layout import LayoutBuilder, strip_end_lines
-from wfbuild.scatter import scatter
+from wfbuild import backdrop as backdrop_mod
+from wfbuild import dressing, maps, materials
+from wfbuild.fields import DistanceField
+from wfbuild.layout import Empty
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -162,9 +165,34 @@ def main() -> None:
     geo = TrackGeometry(model, spec)
     base_meshes = geo.build_base()
     base_meshes.append(static_cube_map(geo))
-    props = scatter(geo)
     layouts = LayoutBuilder(geo).build()
     rot, shift = placement(layouts, base_meshes)
+    t_core = time.time() - t0
+
+    # Scenery: dressing plan (placement manifest), generated maps, backdrop - all in TrackModel coordinates.
+    t1 = time.time()
+    field = DistanceField(geo)
+    scenery, planner = dressing.plan(geo, field)
+    t_dress = time.time() - t1
+    mod_root = os.path.join(args.out, "mod")
+    t1 = time.time()
+    map_info = maps.generate(geo, field, planner, mod_root)
+    t_maps = time.time() - t1
+    bd = backdrop_mod.Backdrop(geo, rot, shift)
+    backdrop_meshes, backdrop_info = bd.build()
+    fr = tuple(map_info["frame"])
+    for m in base_meshes:
+        if m.kind in C.BLEND_KINDS:
+            m.set_map_uv(fr)
+    base_meshes += backdrop_meshes
+    specs = materials.build(geo.options.get("environment"), slug, map_info, bd.n_textures)
+    props = [Empty(f"#xref ob/{p.asset}.scne", (p.x, p.y, p.z), p.yaw, display="PLAIN_AXES", size=1.0,
+                   scale=(p.scale, p.scale, p.scale)) for p in scenery.placements]
+    transform_info = {"rotateDeg": rot, "shift": [0.0, round(shift, 4), 0.0],
+                      "note": "scene = rotate(model, rotateDeg about +z) + shift"}
+    with open(os.path.join(args.out, "scenery.json"), "w", encoding="utf-8", newline="\n") as f:
+        json.dump(scenery.to_json(transform_info, backdrop_info), f, indent=1)
+
     if rot or shift:
         transform(base_meshes, props, [], rot, shift)
         for lay in layouts:
@@ -186,9 +214,11 @@ def main() -> None:
     files = {}
     scenes = {}
     bscene.reset()
+    bscene.set_specs(specs)
+    bscene.MOD_ROOT[:] = [mod_root]
     bpy.context.scene.name = f"{slug}_base"
-    groups = {"road": ("road", "kerb", "shoulder"), "walls": ("wall",), "bridges": ("bridge",),
-              "terrain": ("terrain",), "helpers": ("helper",)}
+    groups = {"road": ("road", "kerb", "shoulder", "decal"), "walls": ("wall",), "bridges": ("bridge",),
+              "terrain": ("terrain",), "backdrop": ("backdrop",), "helpers": ("helper",)}
     for group, kinds in groups.items():
         coll = bscene.collection(group)
         for m in base_meshes:
@@ -249,6 +279,11 @@ def main() -> None:
         "bridges": [{"id": b.id, "over": b.over.id, "under": b.under.id, "sOver": b.s_over, "sUnder": b.s_under,
                      "structureSamples": int(b.structure.sum())} for b in geo.bridges],
         "props": len(props),
+        "scenery": {"file": "scenery.json", "counts": scenery.counts(), "total": len(scenery.placements),
+                    "info": scenery.info, "backdrop": backdrop_info},
+        "maps": map_info,
+        "materials": {k: {"name": v["name"], "slots": [list(x) for x in v["slots"]]} for k, v in specs.items()},
+        "timings": {"core": round(t_core, 2), "dressing": round(t_dress, 2), "maps": round(t_maps, 2)},
         "scenes": scenes,
         "warnings": warnings,
         "seconds": round(time.time() - t0, 2),

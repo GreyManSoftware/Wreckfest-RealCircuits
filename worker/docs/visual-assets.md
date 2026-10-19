@@ -1,6 +1,6 @@
 # Stock visual assets for generated tracks
 
-Research notes from 2026-10-18, used to plan the visual work on generated tracks. The work isn't implemented yet. Every path below is a stock game path, so reference it and never copy it.
+Research notes from 2026-10-18, used to plan the visual work on generated tracks (implemented 2026-10-19; see the end). Every path below is a stock game path, so reference it and never copy it.
 
 ## How we found this
 
@@ -176,14 +176,25 @@ Stock bases have roughly 900–6000 subscenes:
 
 Collision comes from the prop scenes themselves. The `#xref` placers carry no CustomData.
 
-## Not done yet
+## Implemented (2026-10-19)
 
-The builder still uses single-texture materials, the old 1.5 props/ha scatter and no backdrop. The plan, in order:
+The whole plan is in the builder (`worker/builder/wfbuild/`; details in `worker/README.md`, "Surfaces and materials" and "Geometry"). The environment → asset table is data: `wfbuild/environments.json`.
 
-1. UV wrap and UV2.
-2. Generated blend, colour and clutter maps per track. The pipeline then needs to `bimage` them into `data/track/<slug>/textures/`.
-3. Blend materials for the road, shoulders and terrain.
-4. The far-ground ring and horizon cylinder.
-5. Background tree cards.
-6. Crowds, grandstands, the start/finish gantry, a paddock, ad fences and tyre stacks.
-7. Foliage clusters.
+| Step | Where | Notes |
+|---|---|---|
+| UV wrap and UV2 | `geometry.py` (`wrap_uv`, `Mesh.set_map_uv`) | UV1 shifted per face by whole repeats (max \|uv\| now ~5); UV2 0..1 over the map frame on road, verge and terrain |
+| Generated maps | `maps.py`, pipeline `convert_textures` | blend terrain/road, colour terrain/road, clutter `_t`; 1024², bimage'd into `data/track/<slug>/textures/` |
+| Blend materials | `materials.py`, `bscene.spec_material` | the stock 12-slot layout through a `#` node group; the verge shares the terrain's textures and world UV1, so there is no tarmac/grass seam beyond the road edge |
+| Road edge | `geometry.build_edge_decals` | stock broken-asphalt `#decal#priority1` strip over plain tarmac edges |
+| Far ground, horizon | `backdrop.py` | `#noshadow` filler ring (1000 m tiles, hills up to ~15 m), `#horizon` 900 m beyond the terrain edge, clamped to ±2000 m after the placement shift |
+| Background cards | `backdrop.py` | `#xtree` strips of 8 m quads, coverage per environment (forest has 2 layers; industrial gets `bgr_city_01` skyline cards instead) |
+| Crowds and dressing | `dressing.py` | crowds behind fences at corners, jumps and bridges; gantry, flags, grandstand, staff, paddock, ad fences, corner markers, lights; no-go zones; `scenery.json` ([format](scenery-manifest.md)) |
+| Foliage | `dressing.py` | clustered stock x-variant trees (the same noise as the forest-floor blend), bushes at clearing edges, saplings (sandpit), rocks, sand piles and logs, farmsteads, container yards |
+
+Measured on the sample tracks: 1,000–4,000 subscenes per base (forest hills 3,817; WinkyIsland 1,593; Cadwell 1,701; sandpit loop 1,544), against 30–160 before. Builds take ~40–60 s instead of 30–50 s.
+
+**Still open:**
+- In-game check of all of the above: the bimage'd map formats, the decal and backdrop tags, and the frame rate with thousands of subscenes.
+- The hard surface change between tarmac and gravel sectors on `mixed` tracks. A transition decal like stock `sand_transition#decal` would soften it.
+- Stock subscene groups (`foliage_bgrforest2..5.scne`) instead of our own cards.
+- Sky and weather already map to stock environments (`pipeline/weather.py`); `#static_cube_map` is unchanged.

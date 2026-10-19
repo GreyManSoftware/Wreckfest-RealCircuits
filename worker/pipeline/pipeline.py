@@ -106,6 +106,41 @@ def build_scenes(spec_path: str, model_path: str, scenes_dir: str, run: Runner, 
     return manifest
 
 
+def convert_textures(manifest: dict, scenes_dir: str, project: str, run: Runner, log: BuildLog) -> list[str]:
+    """The builder's generated maps (TGA under scenes/mod/data/track/<slug>/textures) -> .bmap in the project
+    with bimage -auto (which records the data/... path). Returns the mod-relative .bmap paths."""
+    slug = manifest["slug"]
+    rel_dir = os.path.join("data", "track", slug, "textures")
+    src = os.path.join(scenes_dir, "mod", rel_dir)
+    out = []
+    if not os.path.isdir(src):
+        return out
+    dst = os.path.join(project, rel_dir)
+    os.makedirs(dst, exist_ok=True)
+    names = sorted(n for n in os.listdir(src) if n.endswith(".tga"))
+
+    def one(name: str) -> tuple[str, int, str]:
+        bmap = os.path.join(dst, name[:-4] + ".bmap")
+        code, text = run.run(f"bimage {name}", ["wf-tool", "bimage", "-auto", "-input", os.path.join(src, name),
+                                                 "-output", bmap], cwd=src)
+        ok = code == 0 and os.path.isfile(bmap) and os.path.getsize(bmap) > 0
+        return name, (0 if ok else (code or 1)), text
+
+    # bimage is mostly Wine start-up: three at a time roughly halves this step
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = list(pool.map(one, names))
+    for name, code, text in results:
+        for line in text.splitlines():
+            log.notice(line)
+        if code != 0:
+            log.error(f"bimage {name}: exit {code}, no .bmap")
+            raise BuildError(f"bimage failed for {name}")
+        out.append(f"{rel_dir}/{name[:-4]}.bmap".replace(os.sep, "/"))
+    log.line(f"textures: {len(out)} generated maps -> .bmap")
+    return out
+
+
 def export_and_build(manifest: dict, scenes_dir: str, project: str, run: Runner, log: BuildLog) -> dict:
     """Steps 3-4: Toolbox export and bgeometry, base first (layouts reference the base)."""
     slug = manifest["slug"]
@@ -188,7 +223,11 @@ def build_mod(spec_path: str, out_dir: str, tcats: dict[str, str] | None = None,
         scenes_dir = os.path.join(work, "scenes")
         manifest = build_scenes(spec_local, model_path, scenes_dir, run, log)
         project = os.path.join(work, "project")
+        textures = convert_textures(manifest, scenes_dir, project, run, log)
         sizes = export_and_build(manifest, scenes_dir, project, run, log)
+        report["generatedTextures"] = textures
+        report["scenery"] = manifest.get("scenery")
+        report["builderTimings"] = manifest.get("timings")
         zip_path, rep = package.package(spec, manifest, _geom.preview_svg, project, sizes, work, out_dir,
                                         tcats or {}, run, log, report)
         res.update(ok=True, zip=zip_path)

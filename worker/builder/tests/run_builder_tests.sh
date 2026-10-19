@@ -41,6 +41,19 @@ export_and_build() {
     project="$WORK/$(basename "$dir")/project"
     track="$project/data/track/$slug"
     rm -rf "$project" "$dir/project" && mkdir -p "$track"
+    # Generated maps: TGA -> .bmap with bimage (as the pipeline does), from the container's filesystem
+    local tex="$dir/mod/data/track/$slug/textures" stage="$WORK/$(basename "$dir")/mod"
+    if [[ -d "$tex" ]]; then
+        rm -rf "$stage" && mkdir -p "$stage/data/track/$slug" "$track/textures"
+        cp -r "$tex" "$stage/data/track/$slug/"
+        local nt=0 bad=0
+        for t in "$stage/data/track/$slug/textures"/*.tga; do
+            if (cd "$(dirname "$t")" && timeout "$TOOL_TIMEOUT" wf-tool bimage -auto -input "$t" \
+                -output "$track/textures/$(basename "${t%.tga}").bmap" > /dev/null 2>&1) \
+                && [[ -s "$track/textures/$(basename "${t%.tga}").bmap" ]]; then nt=$((nt + 1)); else bad=$((bad + 1)); fi
+        done
+        if (( bad == 0 && nt > 0 )); then echo "PASS: bimage $nt generated maps"; else echo "FAIL: bimage ($bad failed)"; rc=1; fi
+    fi
     for scene in $(scenes_of "$dir"); do
         if ! "${BLENDER[@]}" --python "$T/export_scene.py" -- "$dir/$scene.blend" "$track/$scene.bgo3" \
             > "$dir/export_$scene.log" 2>&1; then
@@ -62,7 +75,9 @@ export_and_build() {
             if [[ -s "$f" ]]; then errlog="$track/Error_$scene.log"; cat "$f" >> "$errlog"; rm -f "$f"; fi
         done
         [[ -n "$errlog" ]] && errs="$(grep -vE 'Log created|illegal key (otherway|crossstart)|^[[:space:]]*$' "$errlog")"
-        if (( code != 0 )) || [[ ! -s "$track/$scene.scne" ]] || grep -v 'XDG_RUNTIME_DIR' <<<"$out" | grep -qiE '(^|[^a-z])(error|failed|warning|fatal)' || [[ -n "$errs" ]]; then
+        # "Surface Settings does not exists: decal|noshadow" is a known notice: render tags that stock
+        # materials use as well (#decal on road edges, #noshadow on the far ground)
+        if (( code != 0 )) || [[ ! -s "$track/$scene.scne" ]] || grep -vE 'XDG_RUNTIME_DIR|Surface Settings does not exists?: (decal|noshadow) \(\)' <<<"$out" | grep -qiE '(^|[^a-z])(error|failed|warning|fatal)' || [[ -n "$errs" ]]; then
             echo "FAIL: bgeometry $scene (exit $code)"; echo "$out" | grep -v XDG_RUNTIME_DIR | tail -n 30
             [[ -n "$errlog" ]] && { echo "--- $errlog"; head -n 40 "$errlog"; }
             rc=1
@@ -112,8 +127,9 @@ determinism() {
         done
     done
     if [[ -n "$(ls "$a/out" 2>/dev/null)" ]] && diff <(cd "$a/out" && sha256sum *.bgo3) <(cd "$b/out" && sha256sum *.bgo3) \
-        && cmp -s "$a/model.json" "$b/model.json"; then
-        echo "PASS: identical model.json and .bgo3 files"; (cd "$a/out" && sha256sum *.bgo3)
+        && cmp -s "$a/model.json" "$b/model.json" && cmp -s "$a/scenery.json" "$b/scenery.json" \
+        && diff <(cd "$a/mod" && find . -type f -exec sha256sum {} + | sort) <(cd "$b/mod" && find . -type f -exec sha256sum {} + | sort) > /dev/null; then
+        echo "PASS: identical model.json, scenery.json, generated maps and .bgo3 files"; (cd "$a/out" && sha256sum *.bgo3)
         RESULT[determinism]="PASS"
     else
         echo "FAIL: builds differ"; RESULT[determinism]="FAIL"; return 1

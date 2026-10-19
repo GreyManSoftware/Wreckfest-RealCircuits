@@ -1,0 +1,86 @@
+"""Environment presets (``environments.json``): stock textures and the stock objects each environment may use.
+
+Pure Python (no bpy, no numpy), so the dressing planner and the web preview tooling can use it too.
+"""
+from __future__ import annotations
+
+import json
+import os
+from functools import lru_cache
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PREFIX = {
+    "fields:": "data/art/levels/fields/textures/",
+    "forest:": "data/art/levels/forest/textures/",
+    "sandpit:": "data/art/levels/sandpit/textures/",
+    "urban:": "data/art/levels/urban/textures/",
+    "tex:": "data/art/textures/",
+}
+DEFAULT_ENV = "gravel_pit"
+
+
+def stem(s: str) -> str:
+    """'fields:x_c' -> 'data/art/levels/fields/textures/x_c' (a game path without extension)."""
+    for p, full in PREFIX.items():
+        if s.startswith(p):
+            return full + s[len(p):]
+    if not s.startswith("data/"):
+        raise ValueError(f"texture stem without a known prefix: {s}")
+    return s
+
+
+def ns_of(layer: dict) -> str:
+    """The layer's normal/AO/spec (_ns) map: explicit, or the albedo stem with _c -> _ns."""
+    if layer.get("ns"):
+        return stem(layer["ns"])
+    c = stem(layer["c"])
+    if not c.endswith("_c"):
+        raise ValueError(f"cannot derive _ns from {c}")
+    return c[:-2] + "_ns"
+
+
+@lru_cache(maxsize=1)
+def table() -> dict:
+    with open(os.path.join(HERE, "environments.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def env(name: str | None) -> dict:
+    envs = table()["environments"]
+    return envs.get(name or DEFAULT_ENV, envs[DEFAULT_ENV])
+
+
+def env_name(name: str | None) -> str:
+    return name if name in table()["environments"] else DEFAULT_ENV
+
+
+def asset_info(name: str) -> dict:
+    return table()["assets"].get(name, {"r": 1.0, "h": 2.0, "face": "+y"})
+
+
+def allowed_assets(name: str | None) -> set[str]:
+    """Every stock object an environment may place: the shared trackside sets plus its own lists."""
+    e = env(name)
+    out: set[str] = set()
+    for v in table()["common"].values():
+        out.update(v)
+    for k in ("trees", "bushes", "ground_props", "buildings", "cornerMarkers", "saplings"):
+        out.update(e.get(k, []))
+    out.add(e["crowdFence"])
+    return out
+
+
+def texture_stems(name: str | None) -> set[str]:
+    """Every stock texture stem an environment references (for the tests)."""
+    e = env(name)
+    out = set()
+    layers = list(e["ground"].values()) + [lay for v in e["roads"].values() for lay in v]
+    for lay in layers:
+        out.add(stem(lay["c"]))
+        out.add(ns_of(lay))
+    for k in ("c", "n", "s"):
+        if e["edgeDecal"].get(k):
+            out.add(stem(e["edgeDecal"][k]))
+    out.update(stem(x) for x in (e["macro"], e["horizon"]["c"], e["horizon"]["fog"], e["farGround"]))
+    out.update(stem(x) for x in e.get("treeCards", []) + e.get("skylineCards", []))
+    return out

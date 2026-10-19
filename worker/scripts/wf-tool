@@ -26,7 +26,7 @@ if [[ ! -f "$src" ]]; then
 fi
 if [[ ! -f "$exe" ]] || ! cmp -s "$src" "$exe"; then
     mkdir -p "$cache"
-    cp "$src" "$exe.part" && mv "$exe.part" "$exe"
+    cp "$src" "$exe.part.$$" && mv -f "$exe.part.$$" "$exe"  # per-process temp: parallel first uses don't clash
 fi
 
 exec wine "$exe" "$@"

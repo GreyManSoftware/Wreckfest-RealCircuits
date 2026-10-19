@@ -130,8 +130,28 @@ def main() -> None:
     road = None
     base_bgo = os.path.join(track, f"{slug}_base.bgo3")
     if os.path.isfile(base_bgo):
-        ro = next((o for o in bgo_read.read(base_bgo, tris=True).objects if o.name == "track_surface"), None)
+        full = bgo_read.read(base_bgo, tris=True)
+        ro = next((o for o in full.objects if o.name == "track_surface"), None)
         road = Road(ro) if ro is not None and ro.tris else None
+        # UVs as written (int16 / 2048 in the game): within +-16; UV2 (generated maps) within 0..1
+        worst, bad2 = 0.0, []
+        for o in full.objects:
+            for k, (lo, hi) in enumerate(zip(o.uv_lo or [], o.uv_hi or [])):
+                worst = max(worst, max(abs(v) for v in lo + hi))
+                if k == 1 and (min(lo) < -1e-3 or max(hi) > 1 + 1e-3):
+                    bad2.append(o.name)
+        check(worst < 16.0, "base: exported UVs within +-16 (int16 / 2048)", f"max |uv| {worst:.2f}")
+        check(not bad2, "base: exported UV2 within 0..1", ", ".join(bad2[:3]))
+        # stock-layout #blend materials: albedo/_ns on UV1, blend/macro/colour/clutter maps on UV2
+        blends = [m for m in full.materials if "#blend" in m.name]
+        bad = [m.name for m in blends if not set(range(10)) <= {t.slot for t in m.textures}
+               or any(t.uv != 2 for t in m.textures if t.slot in (6, 8, 9, 11))
+               or any(t.uv != 1 for t in m.textures if t.slot < 6)]
+        check(blends and not bad, "base: #blend materials keep the 12-slot layout and UV channels",
+              f"{len(blends)} materials; bad {bad[:3]}")
+        gen = sorted({t.path for m in full.materials for t in m.textures if t.path.startswith(f"data/track/{slug}/")})
+        check(gen and all(texture_exists(p, root) for p in gen),
+              "base: generated maps referenced by mod path and present in the mod as .bmap", f"{len(gen)} maps")
     check(road is not None, "base: exported road surface found")
     for scene, desc in manifest["scenes"].items():
         bgo_path = os.path.join(track, scene + ".bgo3")
@@ -174,6 +194,7 @@ def main() -> None:
                   f"{scene}: #static_cube_map material 'ghost' has its texture in slots 1 and 6 (invisible)",
                   str([(t.slot, t.path) for t in ghost.textures]) if ghost else "missing")
             col = [o.name for o in b.objects if o.kind == "OBJM" and o.name != "#static_cube_map"
+                   and o.name != "track_edges" and not o.name.startswith("backdrop_")
                    and "col = true" not in o.custom_data]
             check(not col, f"{scene}: collision CustomData exported", ", ".join(col[:5]))
         else:
