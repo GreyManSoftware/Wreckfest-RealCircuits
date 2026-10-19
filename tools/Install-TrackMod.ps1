@@ -16,6 +16,12 @@
     and restore the backup automatically if the written file does not verify. Needs Python 3.11+ (py or python);
     the format is described in tools\docs\modlist-format.md.
 
+    The list entry is named from the mod's modinfo.modi. A name that looks like a file name (e.g. 'x_c.bmap', written
+    by older pipeline builds) is replaced by the title-cased slug, with a warning. -DisplayName sets the name
+    explicitly and also renames an entry that is already in the list, without changing its enabled state.
+
+    Works under Windows PowerShell 5.1 (powershell -File ...) and PowerShell 7 (pwsh -File ...).
+
 .EXAMPLE
     .\tools\Install-TrackMod.ps1 -Zip .\my_oval.zip
 .EXAMPLE
@@ -24,6 +30,8 @@
     .\tools\Install-TrackMod.ps1 -Zip .\my_oval.zip -Enable
 .EXAMPLE
     .\tools\Install-TrackMod.ps1 -Enable -Slug my_oval -WhatIf
+.EXAMPLE
+    .\tools\Install-TrackMod.ps1 -Enable -Slug shortcut_reverse -DisplayName 'Shortcut Reverse'
 .EXAMPLE
     .\tools\Install-TrackMod.ps1 -ListMods
 .EXAMPLE
@@ -40,16 +48,21 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'ListMods')][switch]$ListMods,
     [Parameter(Mandatory, ParameterSetName = 'Uninstall')][Parameter(Mandatory, ParameterSetName = 'Enable')]
     [Parameter(Mandatory, ParameterSetName = 'Disable')][string]$Slug,
+    # Mod list display name: overrides modinfo.modi and renames an entry that is already listed.
+    [Parameter(ParameterSetName = 'Zip')][Parameter(ParameterSetName = 'Url')][Parameter(ParameterSetName = 'Enable')]
+    [string]$DisplayName,
     [string]$GameDir = 'D:\SteamLibrary\steamapps\common\Wreckfest',
     [Parameter(ParameterSetName = 'Zip')][Parameter(ParameterSetName = 'Url')][switch]$Force,
     [Parameter(ParameterSetName = 'Zip')][Parameter(ParameterSetName = 'Url')][switch]$Server,
     [string]$ServerDir,
-    [string]$TempRoot = (Join-Path (Split-Path $PSScriptRoot -Parent) '.local\tmp'),
+    # Default <repo>\.local\tmp and <repo>\.local\modlist-backups, set in the body: Windows PowerShell 5.1 leaves
+    # $PSScriptRoot empty while it binds parameter defaults.
+    [string]$TempRoot,
     # Mod list location: explicit file, or the single Steam user under -SteamUserDataDir (pick one with -SteamUserId).
     [string]$ModListPath,
     [string]$SteamUserId,
     [string]$SteamUserDataDir = 'C:\Program Files (x86)\Steam\userdata',
-    [string]$ModListBackupDir = (Join-Path (Split-Path $PSScriptRoot -Parent) '.local\modlist-backups'),
+    [string]$ModListBackupDir,
     # Process names that count as "the game is running" (tests point this at a fake).
     [string[]]$GameProcessName = @('Wreckfest_x64', 'Wreckfest')
 )
@@ -58,11 +71,16 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
+$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
+$repoRoot = Split-Path $scriptDir -Parent
+if (-not $TempRoot) { $TempRoot = Join-Path $repoRoot '.local\tmp' }
+if (-not $ModListBackupDir) { $ModListBackupDir = Join-Path $repoRoot '.local\modlist-backups' }
+
 $markerName = '.trackgen'
 $slugPattern = '^[a-z0-9_]+$'
 if (-not $ServerDir) { $ServerDir = $GameDir }
 $modsDir = Join-Path $GameDir 'mods'
-$modListHelper = Join-Path $PSScriptRoot 'wf_modlist.py'
+$modListHelper = Join-Path $scriptDir 'wf_modlist.py'
 
 function Test-Marked([string]$Path) { Test-Path -LiteralPath (Join-Path $Path $markerName) -PathType Leaf }
 
@@ -111,16 +129,25 @@ function Get-RunningGame {
     }
 }
 
-function Get-ModDisplayName([string]$ModDir, [string]$Fallback) {
+function Get-FriendlyName([string]$ModSlug) { (Get-Culture).TextInfo.ToTitleCase(($ModSlug -replace '_', ' ')) }
+
+function Get-ModDisplayName([string]$ModDir, [string]$ModSlug) {
+    if ($DisplayName) { return $DisplayName }
     $modi = Join-Path $ModDir 'modinfo.modi'
     if (Test-Path -LiteralPath $modi -PathType Leaf) {
         try {
             $name = (Invoke-ModListHelper @('modinfo-name', $modi)).name
+            # Older pipeline builds wrote the last generated texture's file name (<slug>_color_terrain_c.bmap) here.
+            if ($name -and $name.Trim() -match '^\S+\.(bmap|scne|tga|png|jpg|dds|evse|envi|weli|modi)$') {
+                $friendly = Get-FriendlyName $ModSlug
+                Write-Warning "modinfo.modi in $ModDir names the mod '$name', a file name (rebuild the zip). Using '$friendly'; pass -DisplayName to choose."
+                return $friendly
+            }
             if ($name -and $name.Trim()) { return $name }
         }
         catch { Write-Warning "Could not read the mod name from ${modi}: $($_.Exception.Message)" }
     }
-    $Fallback
+    $ModSlug
 }
 
 function Show-ModList {
@@ -137,9 +164,16 @@ function Show-ModList {
     if ($running) { Write-Warning "Wreckfest is running (PID $(($running | ForEach-Object Id) -join ', ')); it rewrites this file when it exits." }
 }
 
-function Get-FileSha([string]$Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash }
+# Not Get-FileHash: under Windows PowerShell 5.1 it honours -WhatIf and returns nothing.
+function Get-FileSha([string]$Path) {
+    $full = [IO.Path]::Combine((Get-Location -PSProvider FileSystem).ProviderPath, $Path)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $fs = [IO.File]::OpenRead($full)
+    try { -join ($sha.ComputeHash($fs) | ForEach-Object { $_.ToString('X2') }) }
+    finally { $fs.Dispose(); $sha.Dispose() }
+}
 
-function Update-ModList([string]$TargetSlug, [bool]$On, [string]$DisplayName) {
+function Update-ModList([string]$TargetSlug, [bool]$On, [string]$EntryName, [bool]$Rename = $false) {
     $path = Resolve-ModListPath
     $state = if ($On) { 'enabled' } else { 'disabled' }
     New-Item -ItemType Directory -Path $TempRoot -Force -WhatIf:$false | Out-Null
@@ -148,13 +182,16 @@ function Update-ModList([string]$TargetSlug, [bool]$On, [string]$DisplayName) {
         $origHash = Get-FileSha $path
         $before = Invoke-ModListHelper @('info', $path)
         $helperArgs = @('set', $path, '--slug', $TargetSlug, '--state', $state, '--out', $staged)
-        if ($DisplayName) { $helperArgs += @('--name', $DisplayName) }
+        if ($EntryName) { $helperArgs += @('--name', $EntryName) }
+        if ($Rename) { $helperArgs += '--rename' }
         $plan = Invoke-ModListHelper $helperArgs
         $label = if ($plan.entry) { "'$($plan.entry.name)' (mods/$TargetSlug)" } else { "mods/$TargetSlug" }
         if ($plan.action -eq 'noop') { Write-Host "Mod list: $label is already $state - nothing to do ($path)."; return }
         if ($plan.action -eq 'absent') { Write-Host "Mod list: $label is not in the list - nothing to disable ($path)."; return }
         $what = if ($plan.action -eq 'added') { "add $label as a new enabled entry (order $($plan.entry.order))" }
+                elseif ($plan.action -eq 'renamed') { "rename '$($plan.renamedFrom)' to $label (stays $state)" }
                 else { "set $label $state ($($plan.before) -> $($plan.entry.enabledRaw))" }
+        if ($plan.action -ne 'renamed' -and $plan.PSObject.Properties['renamedFrom']) { $what += " and rename it from '$($plan.renamedFrom)'" }
 
         $running = @(Get-RunningGame)
         if ($running) {
@@ -187,6 +224,12 @@ function Update-ModList([string]$TargetSlug, [bool]$On, [string]$DisplayName) {
                 $n = $new[$i]
                 if ($i -eq $plan.entry.index) {
                     if ($n.path -ne $plan.entry.path -or [bool]$n.enabled -ne $On) { throw "entry $i is not $state after writing" }
+                    if ($n.name -ne $plan.entry.name) { throw "entry $i is named '$($n.name)', expected '$($plan.entry.name)'" }
+                    if ($plan.action -ne 'added') {
+                        $o = $old[$i]
+                        if ($n.info -ne $o.info -or $n.order -ne $o.order -or $n.path -ne $o.path) { throw "entry $i changed more than its state or name" }
+                        if ($plan.action -eq 'renamed' -and $n.enabledRaw -ne $o.enabledRaw) { throw "entry $i changed state during a rename" }
+                    }
                     continue
                 }
                 $o = $old[$i]
@@ -216,7 +259,7 @@ if ($PSCmdlet.ParameterSetName -in 'Enable', 'Disable') {
     if ($Enable) {
         $target = Join-Path $modsDir $Slug
         if (-not (Test-Path -LiteralPath $target -PathType Container)) { throw "Not installed: $target. Install it first (or pass -GameDir)." }
-        Update-ModList $Slug $true (Get-ModDisplayName $target $Slug)
+        Update-ModList $Slug $true (Get-ModDisplayName $target $Slug) ([bool]$DisplayName)
     }
     else { Update-ModList $Slug $false $null }
     return
@@ -291,7 +334,7 @@ try {
     $events = @(Get-ChildItem -LiteralPath (Join-Path $staged "data\property\event\$modSlug") -Filter *.evse -File -ErrorAction SilentlyContinue |
         ForEach-Object { $_.BaseName } | Sort-Object)
 
-    $displayName = if ($Enable) { Get-ModDisplayName $staged $modSlug } else { $null }
+    $entryName = if ($Enable) { Get-ModDisplayName $staged $modSlug } else { $null }
     if ($PSCmdlet.ShouldProcess($target, 'Install track mod')) {
         if (-not (Test-Path -LiteralPath $modsDir)) { New-Item -ItemType Directory -Path $modsDir | Out-Null }
         if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
@@ -302,7 +345,7 @@ try {
         if ($events) { Write-Host "Then pick the event(s): $($events -join ', ')" }
         else { Write-Host "Then pick the '$modSlug' event in Custom Event (no .evse found under data\property\event\$modSlug)." }
     }
-    if ($Enable) { Update-ModList $modSlug $true $displayName }
+    if ($Enable) { Update-ModList $modSlug $true $entryName ([bool]$DisplayName) }
 
     if ($Server) {
         $cfg = Join-Path $ServerDir 'server_config.cfg'
@@ -325,10 +368,10 @@ try {
         foreach ($id in $ids) { Write-Host "+ el_add=$id" }
         Write-Host '3) Start-WreckfestServer.ps1'
         Write-Host '   $circuitMap:'
-        $friendly = (Get-Culture).TextInfo.ToTitleCase(($modSlug -replace '_', ' '))
+        $friendly = Get-FriendlyName $modSlug
         Write-Host ("+     '^{0}(_|$)' = '{1}'" -f $modSlug, $friendly)
         $evCount = 86; $cirCount = 33
-        $startScript = Join-Path (Split-Path $PSScriptRoot -Parent) 'Start-WreckfestServer.ps1'
+        $startScript = Join-Path $repoRoot 'Start-WreckfestServer.ps1'
         if (Test-Path -LiteralPath $startScript) {
             $m = Select-String -LiteralPath $startScript -Pattern '\$expected\s*=\s*@\{\s*Events\s*=\s*(\d+);\s*Circuits\s*=\s*(\d+)' | Select-Object -First 1
             if ($m) { $evCount = [int]$m.Matches[0].Groups[1].Value; $cirCount = [int]$m.Matches[0].Groups[2].Value }

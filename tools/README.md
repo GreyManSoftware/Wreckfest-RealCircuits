@@ -50,6 +50,7 @@ Safety:
 .\tools\Install-TrackMod.ps1 -Enable -Slug my_oval -WhatIf      # preview
 .\tools\Install-TrackMod.ps1 -Enable -Slug my_oval              # enable an installed mod
 .\tools\Install-TrackMod.ps1 -Disable -Slug my_oval
+.\tools\Install-TrackMod.ps1 -Enable -Slug my_oval -DisplayName 'My Oval'   # rename the listed entry
 .\tools\Install-TrackMod.ps1 -ListMods                          # print names, order and enabled state
 ```
 
@@ -58,7 +59,9 @@ automatically. If more than one Steam user has one, pass `-SteamUserId <id>`, or
 Before each write, the script backs up the file to `modlist.mods.bak-<yyyyMMdd-HHmmss>`, next to it and in
 `.local\modlist-backups\`. It then re-reads the written file and restores the backup if the file doesn't verify.
 An existing `mods/<slug>/` entry is switched on. Otherwise a new entry is added, named from the mod's
-`modinfo.modi` (or the slug). Needs Python 3.11+ (`py` or `python`); the format is described in
+`modinfo.modi` (or the slug; a modinfo name that is a file name, from older builds, becomes the title-cased slug
+with a warning). `-DisplayName 'Name'` sets the name and also renames an entry that is already listed, keeping its
+enabled state. Works in Windows PowerShell 5.1 and pwsh 7. Needs Python 3.11+ (`py` or `python`); the format is described in
 [docs/modlist-format.md](docs/modlist-format.md).
 
 Tests (fake game dir under `.local\fake-game`, never the real D: install):

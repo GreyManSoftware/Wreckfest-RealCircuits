@@ -34,7 +34,8 @@ count × entry:
 
 Field names come from BagEdit's schema (`bbMod` v5: `name`, `info`, `enabled`, `order`, `path`); Chris
 confirmed `enabled = 1` is "on" in the Mods menu. New entries added by the helper copy the local layout,
-with `order = max(order) + 1`, the way the game appended `Cadwell`.
+with `order = max(order) + 1`, the way the game appended `Cadwell`. `set --name N --rename` also renames an
+existing entry (only `name` changes; `Install-TrackMod.ps1 -DisplayName`).
 
 ## Sources
 

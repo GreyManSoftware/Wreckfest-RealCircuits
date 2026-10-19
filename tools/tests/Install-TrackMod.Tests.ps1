@@ -1,5 +1,7 @@
 # Self-contained tests for Install-TrackMod.ps1. Runs ONLY against a fake game dir under .local\fake-game.
-# Usage: powershell -File tools\tests\Install-TrackMod.Tests.ps1
+# Usage (run both; the script must work in Windows PowerShell 5.1 and PowerShell 7):
+#   powershell -ExecutionPolicy Bypass -File tools\tests\Install-TrackMod.Tests.ps1
+#   pwsh -ExecutionPolicy Bypass -File tools\tests\Install-TrackMod.Tests.ps1
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
@@ -119,7 +121,7 @@ Check 'uninstall removes marked folder' ($r.Ok -and -not (Test-Path $target)) $r
 $left = @(Get-ChildItem $tmp -Directory -Filter 'install-*' -ErrorAction SilentlyContinue)
 Check 'temp dirs cleaned up' ($left.Count -eq 0) ($left -join ', ')
 
-# --- Mod list (modlist.mods) — synthetic fixture under .local\fake-game, never the real Steam file ---
+# --- Mod list (modlist.mods) - synthetic fixture under .local\fake-game, never the real Steam file ---
 $helper = Join-Path $repo 'tools\wf_modlist.py'
 $py = if (Get-Command py -ErrorAction SilentlyContinue) { 'py' } else { 'python' }
 function Get-ModList([string]$Path) { (& $py $helper info $Path | Out-String | ConvertFrom-Json).entries }
@@ -178,8 +180,18 @@ Check 'disable restores the original bytes' ($r.Ok -and (Get-Sha $modList) -eq $
 $r = Invoke-Install @{ Disable = $true; Slug = 'nothere' }
 Check 'disable of an unlisted mod is a no-op' ($r.Ok -and $r.Out -match 'not in the list' -and (Get-Sha $modList) -eq $fixtureHash) $r.Out
 
-$modi = [byte[]]([byte[]](1, 0, 0, 0) + [Text.Encoding]::ASCII.GetBytes('idom') + [byte[]](0, 0, 0, 0, 7, 0, 0, 0) + [Text.Encoding]::ASCII.GetBytes('My Oval') + [byte[]](0, 0, 0, 0))
-$withModi = New-TestZip 'withmodi' @{ 'my_oval/modinfo.modi' = $modi; 'my_oval/data/a.txt' = 'x' }
+# modinfo.modi as the pipeline writes it (format 1 bag): name, preview, description, then fixed fields.
+function New-Modi([string]$Name) {
+    $out = New-Object Collections.Generic.List[byte]
+    $out.AddRange([byte[]](1, 0, 0, 0)); $out.AddRange([Text.Encoding]::ASCII.GetBytes('idom')); $out.AddRange([byte[]](0, 0, 0, 0))
+    foreach ($t in $Name, 'preview.jpg', 'Generated track: 1.8 km, sand') {
+        $b = [Text.Encoding]::UTF8.GetBytes($t)
+        $out.AddRange([BitConverter]::GetBytes([int]$b.Length)); $out.AddRange($b)
+    }
+    $out.AddRange([byte[]](0, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+    , $out.ToArray()  # leading comma: return the byte[] itself, not its unrolled items
+}
+$withModi = New-TestZip 'withmodi' @{ 'my_oval/modinfo.modi' = (New-Modi 'My Oval'); 'my_oval/data/a.txt' = 'x' }
 Start-Sleep -Seconds 1
 $r = Invoke-Install @{ Zip = $withModi; Enable = $true; Force = $true }
 $after = Get-ModList $modList
@@ -191,6 +203,47 @@ Start-Sleep -Seconds 1
 $env:TRACKGEN_MODLIST_TEST_FAULT = 'corrupt-after-write'
 try { $r = Invoke-Install @{ Disable = $true; Slug = 'my_oval' } } finally { Remove-Item Env:TRACKGEN_MODLIST_TEST_FAULT }
 Check 'failed verification restores the backup' (-not $r.Ok -and $r.Out -match 'Restored the backup' -and (Get-Sha $modList) -eq $hashBefore) $r.Out
+
+# A mod with generated textures whose modinfo.modi names it after the last texture (older pipeline builds).
+function New-TexturedZip([string]$Name, [string]$ModSlug, [string]$ModiName) {
+    $e = @{ "$ModSlug/modinfo.modi" = (New-Modi $ModiName); "$ModSlug/preview.jpg" = 'x'
+            "$ModSlug/data/property/event/$ModSlug/${ModSlug}_race.evse" = 'x' }
+    foreach ($t in 'blend_road_c', 'blend_terrain_c', 'clutter_t', 'color_road_c', 'color_terrain_c') {
+        $e["$ModSlug/data/track/$ModSlug/textures/${ModSlug}_$t.bmap"] = [byte[]](1, 2, 3)
+    }
+    New-TestZip $Name $e
+}
+$texBad = New-TexturedZip 'texbad' 'tex_track' 'tex_track_color_terrain_c.bmap'
+$before = Get-ModList $modList
+$r = Invoke-Install @{ Zip = $texBad; Enable = $true }
+$after = Get-ModList $modList
+$same = @(0..4 | Where-Object { ($before[$_] | ConvertTo-Json) -eq ($after[$_] | ConvertTo-Json) }).Count
+Check 'textured mod with a file-name modinfo gets the title-cased slug' ($r.Ok -and @($after).Count -eq 6 -and $after[5].name -eq 'Tex Track' -and $after[5].path -eq 'mods/tex_track/' -and $after[5].enabled -and $same -eq 5 -and $r.Out -match 'a file name') $r.Out
+
+$texGood = New-TexturedZip 'texgood' 'tex_good' 'Tex Good'
+$r = Invoke-Install @{ Zip = $texGood; Enable = $true }
+$after = Get-ModList $modList
+Check 'textured mod with a proper modinfo keeps its name' ($r.Ok -and @($after).Count -eq 7 -and $after[6].name -eq 'Tex Good' -and $r.Out -notmatch 'a file name') $r.Out
+
+$before = $after
+$bakCount = @(Get-ChildItem $modListDir -Filter 'modlist.mods.bak-*').Count
+$r = Invoke-Install @{ Enable = $true; Slug = 'tex_track'; DisplayName = 'Tex Track Renamed' }
+$after = Get-ModList $modList
+$others = @(0..6 | Where-Object { $_ -ne 5 } | Where-Object { ($before[$_] | ConvertTo-Json) -ne ($after[$_] | ConvertTo-Json) })
+Check '-DisplayName renames a listed entry, state and others intact' ($r.Ok -and $r.Out -match 'renamed' -and $after[5].name -eq 'Tex Track Renamed' -and $after[5].enabledRaw -eq $before[5].enabledRaw -and $after[5].order -eq $before[5].order -and $after[5].info -eq $before[5].info -and $others.Count -eq 0 -and @($after).Count -eq 7 -and @(Get-ChildItem $modListDir -Filter 'modlist.mods.bak-*').Count -eq $bakCount + 1) $r.Out
+$hashBefore = Get-Sha $modList
+$r = Invoke-Install @{ Enable = $true; Slug = 'tex_track'; DisplayName = 'Tex Track Renamed' }
+Check '-DisplayName with the current name is a no-op' ($r.Ok -and $r.Out -match 'nothing to do' -and (Get-Sha $modList) -eq $hashBefore) $r.Out
+$r = Invoke-Install @{ Enable = $true; Slug = 'tex_track' }
+Check '-Enable without -DisplayName never renames' ($r.Ok -and $r.Out -match 'nothing to do' -and (Get-Sha $modList) -eq $hashBefore) $r.Out
+
+# Default -TempRoot/-ModListBackupDir through -File in this host (Windows PowerShell 5.1 has no $PSScriptRoot in defaults).
+$hostExe = (Get-Process -Id $PID).Path
+$out = & {
+    $ErrorActionPreference = 'Continue'  # 5.1 turns a native command's stderr into terminating errors under 'Stop'
+    & $hostExe -NoProfile -ExecutionPolicy Bypass -File $script -Enable -Slug example -WhatIf -GameDir $game -SteamUserDataDir $userData -GameProcessName trackgen_no_such_game_process 2>&1 | Out-String -Width 300
+}
+Check "-File with default paths works in $(Split-Path $hostExe -Leaf) $($PSVersionTable.PSVersion)" ($LASTEXITCODE -eq 0 -and $out -match 'What if' -and $out -match 'Example Assets' -and (Get-Sha $modList) -eq $hashBefore) $out
 
 New-Item -ItemType Directory -Path (Join-Path $userData '67890\228380\local\wreckfest') -Force | Out-Null
 Copy-Item $modList (Join-Path $userData '67890\228380\local\wreckfest\modlist.mods')
