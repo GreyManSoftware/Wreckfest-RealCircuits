@@ -49,6 +49,23 @@ Recipe extras (RealAnglesey, `tools/real_tracks/anglesey.json`):
 - `horizon`: the distant skyline (3-45 km, 32 m DTM overview) for a painted `#horizon` texture (Wales only).
 - `terrainCellM`: heightfield cell (default 6 m; 10 m for a wide coastal margin).
 
+Every recipe (2026-10-19, after RealCadwell drove backwards):
+
+- `expectedCornerOrder`: the published lap order of the named corners (track guides). The importer fails when
+  the OSM labels, in driving order from the start line, don't follow it (a rotation is fine, reversed isn't);
+  `geom/tests/test_import_real_track.py` drives each recipe's committed sample through it in every layout and
+  checks the recipe's `clockwise`. The builder's AI routes, start points and checkpoints follow increasing s, and
+  `check_export` reads the built `.scne` to confirm the game drives that way (worker README, "Driving direction
+  and `otherway`"). RealCadwell's spec was always right; the game drove it backwards because bgeometry flips an
+  AI strip it considers non-canonical unless `otherway` is set.
+- `gridSize` 24: the game races up to 24 cars and parks any without a start point beside the grid, on the grass.
+- `kerbs` (optional): per-corner kerb data from real sources, `{"corner": <label>, "entry"|"apex"|"exit"|"green":
+  bool, "source": <where it comes from>}`, written to `sketch.imported.kerbs` at the label's sM. The builder applies
+  it to the corner nearest that sM; other corners get the geometric placement (apex kerb inside, exit kerb outside,
+  a green strip beyond the exit kerb when the apex radius is 40 m or more). Use OSM kerb/run-off features, a clear
+  LIDAR signal or a track guide, never proprietary imagery. The build's `manifest.json` lists every kerbed corner
+  with its source (`kerbs`).
+
 ## Data sources and attribution
 
 | Data | Source | Licence | Attribution (in the spec's `sketch.imported.source`) |
@@ -83,6 +100,21 @@ Crowd banks at the Mountain, the Hairpin and Hall Bends. Renders: `.local\render
 
 Unverified: the start/finish position (estimated from the pit lane), the width (not published; one value for the
 whole lap), and how the camber and the Mountain's crest drive in game.
+
+**v3 (2026-10-19, after Chris's first drive):** it ran backwards (bgeometry flipped the AI route; now `otherway`),
+the road sat on a 0.5-1 m lip (the terrain took the lowest road within ~10 m; now flush, 4 cm down), eight of
+24 cars started on the grass (16 start points; now 24), the start straight and the run to the Mountain ran
+15-17 m apart with nothing between them (now a divider along the middle of the gap; the bank between them is in
+the DTM), the kerbs were grey (UVs across the texture) and continuous with a barrier row all round (now kerbs at
+corners only, green strips on fast exits, barriers only where needed). Kerb sources: OSM has no kerb or run-off
+features here (Overpass: `barrier=kerb`, `kerb=*`, `area:highway=*`, `racing:kerb` none) and the 1 m DTM can't
+resolve 5 cm kerbs, so five corners use track-guide overrides (Coppice exit; Charlies exit + green; Park apex;
+the Gooseneck entry, apex, exit + green; Hall Bends entry + apex; sources in the recipe) and the rest geometry.
+Built `E:\WreckfestMods\realcadwell.zip` (6.7 MB; barriers on 27-29 % of each side, 414 barrier props instead of
+1,312; built route checked to run in checkpoint order) and installed; renders
+`.local\renders\realcadwell-v3-{driver,driver-parallel,driver-mountain,driver-gooseneck,oblique,horizon}.png`.
+RealAnglesey got the same rebuild (geometric kerbs: no OSM, LIDAR or guide data on kerbs there):
+`E:\WreckfestMods\realanglesey.zip`, renders `.local\renders\realanglesey-v2-*.png`, installed.
 
 ## RealAnglesey (Anglesey Circuit / Trac Môn, International + Coastal, 2026-10-19)
 

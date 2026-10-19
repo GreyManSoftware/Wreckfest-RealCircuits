@@ -49,12 +49,13 @@
   "viewingSpots": ["Corkscrew", "Rocket", "Banking"],
   "expectedCornerOrder": ["Target", "Banking", "Church", "School", "Rocket", "Peel", "Seamans", "Corkscrew", "Tom Pryce Straight", "Hairpin", "Bus Stop"],
   "expectedCornerOrderNote": "Driving order of the named corners (clockwise). Seamans is the downhill left at the start of the Corkscrew way (not named in OSM, so not labelled).",
+  "kerbsNote": "No kerb overrides: OSM has no kerb or run-off features here (Overpass 2026-10-19: barrier=kerb, kerb=*, area:highway=*, racing:kerb none; guard rails and a tyre wall only), the 1 m DTM can't resolve kerbs, and the track guides found (visordown.com, markhales.com) don't place any. Every corner gets the geometric apex/exit kerbs.",
   "options": {
     "surface": "tarmac",
     "kerbs": true,
     "walls": "concrete",
     "environment": "coastal",
-    "gridSize": 16,
+    "gridSize": 24,
     "weathers": ["morning", "midday", "afternoon"],
     "reverseLayout": false,
     "defaultLaps": 5

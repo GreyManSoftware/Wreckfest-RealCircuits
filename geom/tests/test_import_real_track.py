@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import math
 from pathlib import Path
 
@@ -95,3 +96,49 @@ def test_corner_easing_reaches_the_rule_radius() -> None:
     q, moved = irt.ease_corners(p, 11.0)
     assert irt.radii(q).min() >= 11.0 * 0.999
     assert 0 < moved < 8.0
+
+
+_ROOT = Path(__file__).resolve().parents[2]
+_RECIPES = sorted(p for p in (_ROOT / "tools" / "real_tracks").glob("*.json")
+                  if "expectedCornerOrder" in json.loads(p.read_text(encoding="utf-8")))
+
+
+def test_corner_order_problem_accepts_a_rotation_and_rejects_the_reverse() -> None:
+    want = ["A", "B", "C", "D"]
+    assert irt.corner_order_problem(["x", "A", "B", "C", "D"], want) is None
+    assert irt.corner_order_problem(["C", "D", "A", "B"], want) is None  # the lap may start mid-cycle
+    assert irt.corner_order_problem(["A", "C", "D"], want) is None       # B not labelled
+    assert "reversed" in irt.corner_order_problem(["D", "C", "B", "A"], want)
+    assert "labelled" in irt.corner_order_problem(["A"], want)
+
+
+@pytest.mark.parametrize("recipe_path", _RECIPES, ids=[p.stem for p in _RECIPES])
+def test_imported_sample_drives_the_recipes_corner_order_in_every_layout(recipe_path: Path) -> None:
+    """The committed sample, built into a TrackModel, is driven (increasing s from the start line, which the
+    builder's layouts and the built-.scne driving-order check follow) through the published corner order, the
+    right way round, in the main and every alternative layout."""
+    from trackgen_geom import build_track_model
+
+    recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+    spec = json.loads((_ROOT / "geom" / "tests" / "samples" / f"{recipe['slug']}.json").read_text(encoding="utf-8"))
+    res = build_track_model(spec)
+    assert res.model is not None and res.valid, [e.message for e in res.errors]
+    xy = np.array([[q.x, q.y] for q in res.model.route("main").samples])
+    if recipe.get("clockwise") is not None:
+        assert (irt.signed_area(xy) < 0) == bool(recipe["clockwise"])
+    # the game races up to 24 cars and puts any without a start point beside the grid (on the grass)
+    assert spec["options"]["gridSize"] == 24 == len(res.model.grid.slots)
+    hw = float(spec["options"]["widthM"]) / 2.0
+    for sl in res.model.grid.slots:
+        lateral = float(np.min(np.hypot(*(xy - np.array(sl.position[:2])).T)))
+        assert lateral + 1.0 <= hw, (sl.name, lateral)  # a 2 m wide car fully on the tarmac
+    corners = sorted(spec["sketch"]["imported"]["corners"], key=lambda c: c["sM"])
+    layouts = res.model.layouts or []
+    sections = [lay.sections for lay in layouts] or [[{"route": "main", "fromS": 0.0, "toS": res.model.lap_length_m}]]
+    for secs in sections:
+        names = [c["name"] for sec in secs if sec["route"] == "main"
+                 for c in corners if sec["fromS"] <= c["sM"] <= sec["toS"]]
+        expected = recipe["expectedCornerOrder"]
+        if len(secs) > 1:  # an alternative layout skips part of the lap: only the corners it passes count
+            expected = [n for n in expected if n in names]
+        assert irt.corner_order_problem(names, expected) is None, (secs, names)

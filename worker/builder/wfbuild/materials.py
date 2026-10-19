@@ -60,6 +60,11 @@ def build(env_name: str | None, slug: str, maps: dict, n_cards: int, generated: 
             "slots": _layers(layers, C.TEX_TILE["road"]) + [
                 (6, mp["blend_road_c"], 2, (1.0, 1.0)), (7, detail, 2, (1.0, 1.0)), (8, macro, 2, (1.0, 1.0)),
                 (9, mp["color_road_c"], 2, (1.0, 1.0))]}
+    if "limits_c" in mp:
+        # green track-limit strips: grippy but slow (stock surface "slowdown"), our own paint texture
+        specs["limits"] = {"name": "track_limits#slowdown",
+                           "slots": [(1, mp["limits_c"], 1, (1.0, 1.0)),
+                                     (9, "data/art/textures/default_zero_spec_s" + TGA, 1, (1.0, 1.0))]}
     d = e["edgeDecal"]
     edge = [(1, _t(d["c"]), 1, (1.0, 1.0)), (6, _t(d["c"]), 1, (1.0, 1.0))]
     if d.get("n"):

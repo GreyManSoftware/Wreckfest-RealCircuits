@@ -66,16 +66,52 @@ class LayoutBuilder:
         self.model = geo.model
         self.main = geo.main
         self.slug = self.model["slug"]
-        self.margin = C.AI_ROUTE_MARGIN["none" if geo.walls == "none" else "walls"]
         self.alts = sorted((r for r in geo.routes if not r.is_main), key=lambda r: -r.ai_index)
         self.joins = sorted({int(j["sampleIndex"]) for r in self.alts for j in (r.start_join, r.end_join) if j})
         self.warnings: list[str] = []
 
     # ------------------------------------------------------------------------------- sector lines
+    def _margins(self, r: Route) -> tuple[np.ndarray, np.ndarray]:
+        """How far the blue AI route reaches beyond the left and right road edges at each sample of r: over the
+        grass run-off, short of a wall and half way to another road (geometry.wall_plan ``ai_margin``). An
+        imported layout's composite route takes them from the route samples it was assembled from."""
+        cache = self.__dict__.setdefault("_margin_cache", {})
+        if id(r) in cache:
+            return cache[id(r)]
+        plan = self.geo.wall_plan()
+        if self.geo.by_id.get(r.id) is r:
+            out = (plan[(r.index, 1)]["ai_margin"].copy(), plan[(r.index, -1)]["ai_margin"].copy())
+        else:
+            ix = self.geo.index
+            ml, mr = np.empty(r.n), np.empty(r.n)
+            for k in range(r.n):
+                j = int(np.argmin(np.hypot(*(ix.xy - r.p[k, :2]).T)))
+                src = self.geo.routes[int(ix.ri[j])]
+                ml[k] = plan[(src.index, 1)]["ai_margin"][int(ix.si[j])]
+                mr[k] = plan[(src.index, -1)]["ai_margin"][int(ix.si[j])]
+            out = (ml, mr)
+        cache[id(r)] = out
+        return out
+
+    def _narrow_folds(self, r: Route, seq: list[int], direction: int) -> None:
+        """Where the wide blue route would make a sector fold (round a hairpin), narrow its run-off margins
+        there (and either side) until every sector is a convex quad, rather than dropping sector lines."""
+        ml, mr = self._margins(r)
+        for _ in range(8):
+            bad = [k for k, (a, b) in enumerate(itertools.pairwise(seq))
+                   if not self._quad_ok(self._dline(r, a, "route", direction), self._dline(r, b, "route", direction))]
+            if not bad:
+                return
+            for k in bad:
+                for i in r.window(seq[k], 3 * C.AI_SECTOR_SAMPLES):
+                    ml[i] = max(0.5, ml[i] * 0.7)
+                    mr[i] = max(0.5, mr[i] * 0.7)
+
     def _halfwidths(self, r: Route, i: int, kind: str) -> tuple[float, float]:
         hw = r.w[i] / 2.0
         if kind == "route":
-            hl = hr = hw + self.margin
+            ml, mr = self._margins(r)
+            hl, hr = hw + float(ml[i]), hw + float(mr[i])
         elif kind == "safe":
             hl = hr = hw - C.AI_SAFE_INSET
         else:
@@ -166,28 +202,50 @@ class LayoutBuilder:
         out = [k for i, k in enumerate(out) if i == 0 or k - out[i - 1] >= 2 or k == r.n - 1]
         return out
 
+    def _dline(self, r: Route, i: int, kind: str, direction: int) -> tuple[np.ndarray, np.ndarray]:
+        """A sector line as (driver's left, driver's right) for the given driving direction."""
+        a, b = self._line(r, i, kind)
+        return (a, b) if direction > 0 else (b, a)
+
+    @staticmethod
+    def needs_otherway(lines: list[tuple[np.ndarray, np.ndarray]]) -> bool:
+        """bgeometry ignores the face order of ``#ai_route_main``: it stores the route in its own canonical
+        orientation (the first sector's right end south of, Blender -y, the last sector's left end) unless the
+        mesh carries ``otherway = true``, and then in the opposite one; the game drives the stored order.
+        (Toolbox Mz's SCNE importer reads ``otherway`` back with the same test; every stock layout's checkpoints
+        run in stored order.) So a strip built in the driving order needs ``otherway`` exactly when it is not
+        canonical. ``lines`` are (left, right) in driving order."""
+        return float(lines[0][1][1]) > float(lines[-1][0][1])
+
     def ai_meshes(self, layout: Layout, i_line: int, direction: int) -> None:
+        """AI strips in driving order (from the start line, ``direction`` along s). ``otherway = true`` on
+        ``#ai_route_main`` wherever bgeometry would otherwise store the route the other way (needs_otherway):
+        a forward layout can need it and a reverse one can do without it."""
         seq = self.main_sequence(i_line, direction)
-        mesh_seq = seq if direction > 0 else seq[::-1]  # meshes always run forward; otherway flips them
-        fixed = {0, len(mesh_seq) - 1} | {k for k, i in enumerate(mesh_seq) if i in self.joins}
-        mesh_seq = self._valid_sequence(mesh_seq, lambda i, kind: self._line(self.main, i, kind), fixed)
-        seq = mesh_seq if direction > 0 else mesh_seq[::-1]
-        custom_route = "otherway = true" if direction < 0 else ""
+        self._narrow_folds(self.main, seq, direction)
+        fixed = {0, len(seq) - 1} | {k for k, i in enumerate(seq) if i in self.joins}
+        seq = self._valid_sequence(seq, lambda i, kind: self._dline(self.main, i, kind, direction), fixed)
+        route_lines = [self._dline(self.main, i, "route", direction) for i in seq]
+        otherway = self.needs_otherway(route_lines)
+        custom_route = "otherway = true" if otherway else ""
         mats = {"route": "ai_route", "safe": "ai_safe", "race": "ai_race"}
         for kind in ("route", "safe", "race"):
-            lines = [self._line(self.main, i, kind) for i in mesh_seq]
+            lines = [self._dline(self.main, i, kind, direction) for i in seq]
             layout.meshes.append(self._strip(f"#ai_{kind}_main", lines,
                                              custom_route if kind == "route" else "", mats[kind]))
-        layout.info["mainSectors"] = len(mesh_seq) - 1
-        layout.info["mainSectorSamples"] = mesh_seq
+        layout.info["mainSectors"] = len(seq) - 1
+        layout.info["mainSectorSamples"] = seq
+        layout.info["otherway"] = otherway
         line_s = float(self.main.s[i_line])
         for r in self.alts:
             sj, ej = int(r.start_join["sampleIndex"]), int(r.end_join["sampleIndex"])
             # The first and last sector lines are the main route's lines at the junction vertices.
             items = [("main", sj)] + [("alt", k) for k in self.alt_sequence(r)[1:-1]] + [("main", ej)]
+            if direction < 0:
+                items = items[::-1]
 
             def line_of(item, kind, r=r):
-                return self._line(self.main if item[0] == "main" else r, item[1], kind)
+                return self._dline(self.main if item[0] == "main" else r, item[1], kind, direction)
 
             items = self._valid_sequence(items, line_of, {0, len(items) - 1})
             cross = self._spans_line(r, line_s)
@@ -199,9 +257,8 @@ class LayoutBuilder:
                 layout.info.setdefault("warnings", []).append(
                     f"alt-crosses-start: {r.id} bypasses the start/finish line in {layout.key}; crossstart = true "
                     "is set but no proxy checkpoint is generated (unverified in game)")
-        # The AI line as an open curve for Toolbox's AI Route Generator (not exported).
-        pts = [tuple(self.main.p[i]) for i in seq]
-        layout.curves.append(Curve("ai_path", pts if direction > 0 else pts[::-1], False))
+        # The AI line as an open curve for Toolbox's AI Route Generator (not exported), in driving order.
+        layout.curves.append(Curve("ai_path", [tuple(self.main.p[i]) for i in seq], False))
         for r in self.alts:
             layout.curves.append(Curve(f"ai_path_{alt_suffix(r)}", [tuple(p) for p in r.p], False))
 

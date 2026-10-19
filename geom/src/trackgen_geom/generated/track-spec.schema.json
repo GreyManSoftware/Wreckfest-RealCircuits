@@ -289,6 +289,26 @@
         }
       }
     },
+    "KerbOverride": {
+      "title": "Kerb override",
+      "description": "Real-world kerbs and track-limit strips at one corner of an imported track (from OSM, LIDAR or a track guide), overriding the builder's geometric placement (apex kerb inside, exit kerb outside, a green strip beyond the exit kerb on fast corners) at the corner nearest sM.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["corner", "sM", "source"],
+      "properties": {
+        "corner": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "sM": {
+          "description": "Distance along the centreline of the corner (its named way's middle), metres.",
+          "type": "number",
+          "minimum": 0
+        },
+        "entry": { "description": "Kerb on the outside before the turn-in.", "type": "boolean" },
+        "apex": { "description": "Kerb on the inside at the apex.", "type": "boolean" },
+        "exit": { "description": "Kerb on the outside from the apex to the exit.", "type": "boolean" },
+        "green": { "description": "Green track-limit strip beyond the exit kerb.", "type": "boolean" },
+        "source": { "description": "Where this comes from (e.g. a track guide's URL).", "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
     "HorizonProfile": {
       "title": "Horizon profile",
       "description": "The distant skyline seen from the start line, beyond the far ground (from a regional DTM): per azimuth step, clockwise from north (+y), the highest terrain's elevation angle and whether the horizon there is open sea. The builder paints the #horizon texture from it (e.g. Snowdonia from Anglesey).",
@@ -356,6 +376,13 @@
           "type": "array",
           "maxItems": 20,
           "items": { "$ref": "#/$defs/NamedSpot" },
+          "default": []
+        },
+        "kerbs": {
+          "description": "Per-corner kerb and track-limit overrides from real data; corners without one get the geometric placement.",
+          "type": "array",
+          "maxItems": 60,
+          "items": { "$ref": "#/$defs/KerbOverride" },
           "default": []
         },
         "mainLayoutName": {

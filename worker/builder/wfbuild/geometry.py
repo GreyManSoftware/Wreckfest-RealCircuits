@@ -109,6 +109,17 @@ class Route:
         self.slope = (self.left[:, 2] - self.right[:, 2]) / np.maximum(self.w, 1e-6)
         self.tangent = np.stack([np.cos(self.h), np.sin(self.h)], axis=1)
         self.segs = self.n if self.closed else self.n - 1
+        # longitudinal grade (rise per metre along s), central differences
+        if self.n > 2:
+            if self.closed:
+                dzs = np.roll(self.p[:, 2], -1) - np.roll(self.p[:, 2], 1)
+                dss = (np.roll(self.s, -1) - np.roll(self.s, 1)) % max(self.length, 1e-9)
+            else:
+                dzs = np.gradient(self.p[:, 2])
+                dss = np.gradient(self.s)
+            self.grade = dzs / np.maximum(dss, 1e-6)
+        else:
+            self.grade = np.zeros(self.n)
         self.m = max(1, round(float(np.median(self.w)) / C.ROAD_CELL_M))
         self.start_join = d.get("startJoin")
         self.end_join = d.get("endJoin")
@@ -243,6 +254,8 @@ class SampleIndex:
         self.si = np.concatenate([np.arange(r.n) for r in routes])
         self.s = np.concatenate([r.s for r in routes])
         self.closed_len = np.concatenate([np.full(r.n, r.length if r.closed else np.inf) for r in routes])
+        self.tangent = np.concatenate([r.tangent for r in routes])
+        self.grade = np.concatenate([r.grade for r in routes])
 
     def near_other(self, pts: np.ndarray, own_ri: np.ndarray, own_s: np.ndarray, clearance,
                    zdiff: float = 3.0, mask: np.ndarray | None = None) -> np.ndarray:
@@ -268,15 +281,34 @@ class SampleIndex:
         return out
 
 
+    def other_at(self, pts: np.ndarray, own_ri: int, own_s: np.ndarray, zdiff: float = 8.0) -> np.ndarray:
+        """Index (into this SampleIndex) of a sample of *another* road (a different route, or this one further
+        than OTHER_ROUTE_S along it) whose road covers each point (within its half width), else -1."""
+        out = np.full(len(pts), -1, dtype=np.int64)
+        for a in range(0, len(pts), 512):
+            p = pts[a:a + 512]
+            d = np.hypot(p[:, None, 0] - self.xy[None, :, 0], p[:, None, 1] - self.xy[None, :, 1]) - self.hw[None, :]
+            close = d < 0.0
+            if not close.any():
+                continue
+            sd = np.abs(self.s[None, :] - own_s[a:a + 512, None])
+            sd = np.where(np.isfinite(self.closed_len)[None, :], np.minimum(sd, self.closed_len[None, :] - sd), sd)
+            other = (self.ri[None, :] != own_ri) | (sd > C.OTHER_ROUTE_S)
+            ok = close & other & (np.abs(self.z[None, :] - p[:, None, 2]) < zdiff)
+            hit = ok.any(1)
+            out[a:a + 512][hit] = np.argmin(np.where(ok, d, np.inf), axis=1)[hit]
+        return out
+
+
 class TerrainField:
     """Terrain height: the natural ground, pulled to just below the road near it.
 
     ``ground`` is trackgen_geom's seeded height field (the same one the road heights came from) or, for an
-    imported track, its real heightfield. Near a road the terrain follows the lowest nearby road surface minus
-    TERRAIN_SINK, then blends to the ground over TERRAIN_BLEND. The road surface is taken across its camber:
-    the height at the point's offset from the centreline (clamped to the edges), so the ground meets the low
-    edge of a cambered road and never pokes through it. Samples on bridge structures don't pull the terrain
-    up. ``berm`` raises the outer edge of the terrain (off for real ground, which continues into the backdrop).
+    imported track, its real heightfield. Near a road the terrain follows the nearest road surface (see
+    ``__call__``; once the lowest road sample within ~10 m, which on a graded road sank the grass 0.5-1 m below
+    the edge), then blends to the ground over TERRAIN_BLEND. The road surface is taken across its camber, so
+    the ground meets the low edge of a cambered road and never pokes through it. Samples on bridge structures
+    don't pull the terrain up. ``berm`` raises the outer edge of the terrain (off for real ground, which continues into the backdrop).
     """
 
     def __init__(self, index: SampleIndex, ground, influence: np.ndarray, extent: tuple[float, float, float, float],
@@ -288,11 +320,39 @@ class TerrainField:
         self.hw = index.hw[sel]
         self.nl = index.nl[sel]
         self.slope = index.slope[sel]
+        self.tangent = index.tangent[sel]
+        self.grade = index.grade[sel]
+        self.ri = index.ri[sel]
+        self.s = index.s[sel]
+        self.closed_len = index.closed_len[sel]
         self.cambered = bool(np.any(np.abs(self.slope) > 1e-9))
         self.berm = berm
         self.extent = extent  # min_x, max_x, min_y, max_y of the terrain
+        self.banks: list[tuple[np.ndarray, np.ndarray]] = []  # TrackGeometry._divider_banks
+
+    def road_height(self, p: np.ndarray, j: np.ndarray) -> np.ndarray:
+        """Height of the road surface of sample ``j`` extended to the points ``p``: along its grade (within one
+        sample spacing) and across its camber (clamped to the edges)."""
+        dx, dy = p[:, 0] - self.xy[j, 0], p[:, 1] - self.xy[j, 1]
+        along = np.clip(dx * self.tangent[j, 0] + dy * self.tangent[j, 1], -2.5, 2.5)
+        z = self.z[j] + along * self.grade[j]
+        if self.cambered:
+            # the camber plane continues CAMBER_RUNOUT past the low edge (a terrain cell spanning the edge then
+            # doesn't bridge above it); past the high edge the ground stays level with the edge
+            lat = dx * self.nl[j, 0] + dy * self.nl[j, 1]
+            s = self.slope[j]
+            hi = self.hw[j] + np.where(s < 0, C.CAMBER_RUNOUT, 0.0)
+            lo = -self.hw[j] - np.where(s > 0, C.CAMBER_RUNOUT, 0.0)
+            z = z + np.clip(lat, lo, hi) * s
+        return z
 
     def __call__(self, pts: np.ndarray) -> np.ndarray:
+        """Near a road the terrain is the nearest road's surface (extended across its camber and along its
+        grade), lowered by TERRAIN_SINK under the road and TERRAIN_FLUSH beside it, so grass meets the road
+        edge a few centimetres down; where another road (a different route, or the same one further than
+        OTHER_ROUTE_S along it) is about as near, the lower of the two. It then blends to the ground over
+        TERRAIN_BLEND, never dipping below the straight line from the road edge to the ground at the end of
+        the blend (no artificial ditch beside the road; banks that rise away from it stay)."""
         pts = np.asarray(pts, dtype=np.float64)
         out = np.empty(len(pts))
         g = self.ground(pts[:, :2])
@@ -300,23 +360,55 @@ class TerrainField:
         near_band = 3.0 + C.TERRAIN_CELL * 0.75
         for a in range(0, len(pts), 1024):
             p = pts[a:a + 1024]
+            ar = np.arange(len(p))
             d = np.hypot(p[:, None, 0] - self.xy[None, :, 0], p[:, None, 1] - self.xy[None, :, 1])
             e = d - self.hw[None, :]
             k = np.argmin(e, axis=1)
-            e_min = e[np.arange(len(p)), k]
+            e_min = e[ar, k]
+            zr = self.road_height(p, k)
+            # other roads within the band (crossings, close parallel sections) pull the terrain below them too
             band = e <= (e_min[:, None] + near_band)
-            zs = self.z[None, :]
-            if self.cambered:
-                lat = ((p[:, None, 0] - self.xy[None, :, 0]) * self.nl[None, :, 0]
-                       + (p[:, None, 1] - self.xy[None, :, 1]) * self.nl[None, :, 1])
-                zs = zs + np.clip(lat, -self.hw[None, :], self.hw[None, :]) * self.slope[None, :]
-            zr = np.where(band, zs, np.inf).min(1) - C.TERRAIN_SINK
+            sd = np.abs(self.s[None, :] - self.s[k][:, None])
+            cl = self.closed_len[k][:, None]
+            sd = np.where(np.isfinite(cl), np.minimum(sd, cl - sd), sd)
+            # another road, or this one doubling back (round a hairpin: far along it but close by)
+            dxy = np.hypot(self.xy[None, :, 0] - self.xy[k][:, None, 0], self.xy[None, :, 1] - self.xy[k][:, None, 1])
+            other = band & ((self.ri[None, :] != self.ri[k][:, None]) | (sd > 1.5 * dxy + 4.0))
+            if other.any():
+                rows, cols = np.nonzero(other)
+                zo = np.full(len(p), np.inf)
+                np.minimum.at(zo, rows, self.road_height(p[rows], cols))
+                zr = np.minimum(zr, zo)
+            # full sink under the road (more on steep grades: a 4 m terrain cell spanning a curving road can't
+            # follow it exactly), easing to flush by 1.5 m out
+            under = C.TERRAIN_SINK + 0.5 * np.abs(self.grade[k])
+            sink = under + (C.TERRAIN_FLUSH - under) * smoothstep(e_min / 1.5)
+            zr = zr - sink
             t = smoothstep((e_min - C.TERRAIN_CORE) / C.TERRAIN_BLEND)
             gz = g[a:a + 1024]
             zz = zr * (1.0 - t) + gz * t
+            # Fill dips between the road and the ground further out (verge ditches in a real DTM, the coarse
+            # heightfield): not below the line from the road edge level to the ground at the blend's end.
+            blend = (e_min > 0.0) & (e_min < reach)
+            if blend.any():
+                kb = k[blend]
+                lat = ((p[blend, 0] - self.xy[kb, 0]) * self.nl[kb, 0] + (p[blend, 1] - self.xy[kb, 1]) * self.nl[kb, 1])
+                outward = self.nl[kb] * np.sign(lat)[:, None]
+                far_pt = p[blend, :2] + outward * (reach - e_min[blend])[:, None]
+                g_far = self.ground(far_pt)
+                f = np.clip(e_min[blend] / reach, 0.0, 1.0)
+                floor = zr[blend] * (1.0 - f) + np.minimum(g_far, zr[blend]) * f
+                zz[blend] = np.maximum(zz[blend], floor)
             far = e_min > reach
             zz[far] = gz[far]
             out[a:a + 1024] = zz
+        for bp, bhw in self.banks:  # grass banks between close sections (drawn tracks)
+            for a in range(0, len(pts), 1024):
+                p = pts[a:a + 1024, :2]
+                d = np.hypot(p[:, None, 0] - bp[None, :, 0], p[:, None, 1] - bp[None, :, 1])
+                k = np.argmin(d, axis=1)
+                f = 1.0 - d[np.arange(len(p)), k] / np.maximum(bhw[k], 1e-6)
+                out[a:a + 1024] += C.DIVIDER_BANK_H * smoothstep(f)
         x0, x1, y0, y1 = self.extent
         edge = np.minimum.reduce([pts[:, 0] - x0, x1 - pts[:, 0], pts[:, 1] - y0, y1 - pts[:, 1]])
         if self.berm:
@@ -420,6 +512,22 @@ class TrackGeometry:
         influence = ~np.concatenate([self.structure[r.index] for r in self.routes])
         self.terrain = TerrainField(self.index, self.ground, influence, self.extent,
                                     berm=0.0 if self.real_ground else C.BERM_H)
+        if not self.real_ground:  # an imported track's DTM already has whatever bank divides close sections
+            self.terrain.banks = self._divider_banks()
+
+    def _divider_banks(self) -> list[tuple[np.ndarray, np.ndarray]]:
+        """Grass banks under the dividers between close sections of a drawn track (where the gap leaves room):
+        (points along the middle of the gap, bank half widths)."""
+        out = []
+        for (ri, side), g in self.road_gaps().items():
+            r = self.routes[ri]
+            sel = np.isfinite(g["gap"]) & g["owner"] & (g["gap"] >= C.DIVIDER_BANK_MIN_GAP)
+            if not sel.any():
+                continue
+            edge = r.left if side > 0 else r.right
+            p = edge[sel, :2] + r.nl[sel] * side * (g["gap"][sel] / 2.0)[:, None]
+            out.append((p, np.minimum(g["gap"][sel] / 2.0 - 2.5, C.DIVIDER_BANK_HALF)))
+        return out
 
     # ----------------------------------------------------------------- topology: junctions, crossings
     def _mouth(self, alt: Route, target: Route, join_sample: int, from_start: bool) -> int | None:
@@ -624,34 +732,127 @@ class TrackGeometry:
         bad = self.index.near_other(pts, own_ri, r.s, clearance)
         return ~bad & self.svalid[r.index] & ~self.structure[r.index]
 
-    def kerb_widths(self, r: Route, side: int) -> np.ndarray:
-        if not self.options.get("kerbs", False):
-            return np.zeros(r.n)
-        want = np.abs(r.curvature) > C.KERB_MIN_CURVATURE
-        want &= ~self.jump_zone[r.index]
-        if want.any():
-            k = np.ones(2 * C.KERB_DILATE + 1)
-            if r.closed:
-                pad = np.concatenate([want[-C.KERB_DILATE:], want, want[:C.KERB_DILATE]])
-                want = np.convolve(pad.astype(float), k, mode="valid") > 0
-            else:
-                want = np.convolve(want.astype(float), k, mode="same") > 0
-        outer = self._side_points(r, side, C.KERB_W + C.SHOULDER_W)
-        want &= self._edge_ok(r, outer, 0.3)
-        # Taper to zero over KERB_TAPER samples at each end of a kerbed run.
-        dist = np.full(r.n, 10 ** 6, dtype=np.float64)
-        idx = np.nonzero(~want)[0]
+    # ------------------------------------------------------------- corners, kerbs and track limits
+    def corner_runs(self, r: Route, max_radius: float = C.KERB_CORNER_RADIUS,
+                    min_turn_deg: float = C.CORNER_MIN_TURN_DEG) -> list[dict]:
+        """Corners of route r: runs of samples whose curvature (smoothed over ~CORNER_SMOOTH_M) is tighter than
+        ``max_radius`` one way and that turn at least ``min_turn_deg`` in all, with the entry, apex (sharpest
+        sample) and exit samples, the inside side (+1 left) and the apex radius. Kinks on straights don't count."""
+        seg = float(np.median(r.seg_len())) if r.n > 1 else 2.0
+        w = max(1, int(round(C.CORNER_SMOOTH_M / max(seg, 1e-6) / 2)))
+        ker = np.ones(2 * w + 1) / (2 * w + 1)
+        k = r.curvature
+        ks = (np.convolve(np.concatenate([k[-w:], k, k[:w]]), ker, mode="valid") if r.closed
+              else np.convolve(np.pad(k, w, mode="edge"), ker, mode="valid"))
+        segs = r.seg_len()
+        out = []
+        for sign in (1, -1):
+            for run in self._runs(ks * sign > 1.0 / max_radius, r.closed):
+                idx = np.array(run)
+                turn = abs(float(np.sum(k[idx] * segs[np.minimum(idx, len(segs) - 1)])))
+                if len(run) < 3 or math.degrees(turn) < min_turn_deg:
+                    continue
+                apex = int(idx[np.argmax(np.abs(ks[idx]))])
+                out.append({"inside": sign, "i_in": int(run[0]), "i_apex": apex, "i_out": int(run[-1]),
+                            "radius": 1.0 / max(abs(float(ks[apex])), 1e-9), "turnDeg": math.degrees(turn)})
+        return sorted(out, key=lambda c: float(r.s[c["i_apex"]]))
+
+    def _named(self, s: float) -> str:
+        """The imported track's corner label nearest arc length s on the main route (within 150 m), else ''."""
+        best, name = 150.0, ""
+        for c in (self.imported or {}).get("corners") or []:
+            d = float(self.main.s_dist(float(c["sM"]), s))
+            if d < best:
+                best, name = d, c["name"]
+        return name
+
+    def kerb_plan(self) -> dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]:
+        """Kerb and green track-limit strip widths per (route, side), as on real circuits: per corner an apex kerb
+        on the inside, an exit kerb on the outside from past the apex to beyond the exit, and on fast corners
+        (apex radius >= GREEN_MIN_RADIUS) a green strip beyond the exit kerb; nothing on straights. An imported
+        track's ``kerbs`` overrides (real data: OSM, LIDAR, track guides) replace the geometric choice at the
+        corner nearest their sM. ``self.kerb_report`` records each corner's kerbs and their source."""
+        if getattr(self, "_kerb_plan", None) is not None:
+            return self._kerb_plan
+        plan: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+        self.kerb_report: list[dict] = []
+        overrides = list((self.imported or {}).get("kerbs") or [])
+        for r in self.routes:
+            want = {side: (np.zeros(r.n, dtype=bool), np.zeros(r.n, dtype=bool)) for side in (1, -1)}
+            corners = self.corner_runs(r) if self.options.get("kerbs", False) else []
+            if r.is_main and corners:
+                for o in overrides:  # each override applies to the corner whose apex is nearest its sM
+                    near = min(corners, key=lambda c: float(r.s_dist(r.s[c["i_apex"]], float(o["sM"]))))
+                    if float(r.s_dist(r.s[near["i_apex"]], float(o["sM"]))) < 150.0:
+                        near.setdefault("overrides", []).append(o)
+            L = r.length
+            for c in corners:
+                s_in, s_ap, s_out = (float(r.s[c[k]]) for k in ("i_in", "i_apex", "i_out"))
+                before = (s_ap - s_in) % L if r.closed else s_ap - s_in
+                after = (s_out - s_ap) % L if r.closed else s_out - s_ap
+                R = c["radius"]
+                kinds = {"apex": True, "exit": True, "entry": False, "green": R >= C.GREEN_MIN_RADIUS}
+                source = "geometry"
+                for o in c.get("overrides", []):
+                    kinds.update({k: bool(o[k]) for k in ("entry", "apex", "exit", "green") if k in o})
+                    source = o["source"]
+                d = r.signed_s(r.s, s_ap)
+                ins, outs = c["inside"], -c["inside"]
+                a = float(np.clip(0.3 * (before + after) + 6.0, 8.0, 30.0))
+                spans = []
+                if kinds["apex"]:
+                    spans.append((ins, -a, a, False))
+                if kinds["exit"]:
+                    spans.append((outs, 0.25 * after, after + float(np.clip(0.2 * R, 8.0, 30.0)), kinds["green"]))
+                if kinds["entry"]:
+                    spans.append((outs, -before - 15.0, -0.7 * before, False))
+                for side, lo, hi, green in spans:
+                    m = (d >= lo) & (d <= hi)
+                    want[side][0][m] = True
+                    if green:
+                        want[side][1][m] = True
+                self.kerb_report.append({
+                    "route": r.id, "corner": self._named(s_ap) if r.is_main else "", "sApex": round(s_ap, 1),
+                    "inside": "left" if ins > 0 else "right", "radiusM": round(R, 1),
+                    "kerbs": [k for k in ("entry", "apex", "exit", "green") if kinds[k]], "source": source})
+            for side in (1, -1):
+                kerb, green = want[side]
+                kerb &= ~self.jump_zone[r.index]
+                outer = self._side_points(r, side, C.KERB_W + C.GREEN_W + C.SHOULDER_W)
+                kerb &= self._edge_ok(r, outer, 0.3)
+                kw = C.KERB_W * self._taper(r, kerb)
+                gw = C.GREEN_W * self._taper(r, green & kerb)
+                plan[(r.index, side)] = (kw, gw)
+        self._kerb_plan = plan
+        return plan
+
+    def _taper(self, r: Route, mask: np.ndarray) -> np.ndarray:
+        """1 inside the mask, tapering to 0 over KERB_TAPER samples at each end of a run; 0 outside."""
+        idx = np.nonzero(~mask)[0]
         if len(idx) == 0:
-            return np.full(r.n, C.KERB_W)
-        for i in range(r.n):
+            return np.ones(r.n)
+        dist = np.zeros(r.n, dtype=np.float64)
+        for i in np.nonzero(mask)[0]:
             dd = np.abs(idx - i)
             if r.closed:
                 dd = np.minimum(dd, r.n - dd)
             dist[i] = dd.min()
-        return C.KERB_W * np.clip(dist / C.KERB_TAPER, 0.0, 1.0) * want
+        return np.clip(dist / C.KERB_TAPER, 0.0, 1.0) * mask
+
+    def kerb_widths(self, r: Route, side: int) -> np.ndarray:
+        return self.kerb_plan()[(r.index, side)][0]
 
     def build_kerbs_and_shoulders(self) -> tuple[Mesh, Mesh]:
+        return self.build_roadside()[:2]
+
+    def build_roadside(self) -> tuple[Mesh, Mesh, Mesh]:
+        """Kerbs (stock red/white prop_curb1, #curb, rising KERB_RISE to their outer side), green track-limit
+        strips beyond exit kerbs (our own green paint, from the kerb down to just above the grass) and the
+        verge shoulders. Returns (kerbs, shoulders, limits)."""
+        if getattr(self, "_roadside", None) is not None:
+            return self._roadside
         kerbs = Mesh("track_kerbs", "col = true", kind="kerb")
+        limits = Mesh("track_limits", "col = true", kind="limits")
         shoulders = Mesh("track_shoulders", "col = true", kind="shoulder")
         none = self.walls == "none"
         sw = C.RUNOFF_W if none else C.SHOULDER_W
@@ -661,47 +862,60 @@ class TrackGeometry:
         smat = "shoulder"
         self.kerb_runs: dict[str, np.ndarray] = {}
         self.edge_ok: dict[tuple[int, int], np.ndarray] = {}  # (route, side) -> samples with a plain edge
+        plan = self.kerb_plan()
+        P = C.KERB_PERIOD
+        up = np.array([0.0, 0.0, 1.0])
         for r in self.routes:
             q = self.qkeep[r.index]
             seg = r.seg_len()
             for side in (1, -1):
-                kw = self.kerb_widths(r, side)
+                kw, gw = plan[(r.index, side)]
                 self.kerb_runs[f"{r.id}:{'l' if side > 0 else 'r'}"] = kw
                 edge = r.left if side > 0 else r.right
                 inner = self._side_points(r, side, kw)
                 inner[:, 2] = edge[:, 2] + C.KERB_RISE * (kw / C.KERB_W)
-                outer = self._side_points(r, side, kw + sw)
-                outer[:, 2] = np.minimum(inner[:, 2] - drop, self.terrain(outer) - 0.3)
+                green = self._side_points(r, side, kw + gw)
+                gz = self.terrain(green) + C.GREEN_LIFT
+                green[:, 2] = np.where(gw > 0, np.minimum(inner[:, 2], gz), inner[:, 2])
+                outer = self._side_points(r, side, kw + gw + sw)
+                outer[:, 2] = np.minimum(green[:, 2] - drop, self.terrain(outer) - 0.3)
                 ok = self._edge_ok(r, outer, 0.3) & self._edge_ok(r, inner, 0.3)
                 for i in self.mouth_samples.get((r.index, side), ()):
                     ok[i] = False
                 self.edge_ok[(r.index, side)] = ok & (kw <= 0)
                 kv: dict[int, tuple[int, int]] = {}
+                gv: dict[int, tuple[int, int]] = {}
                 sv: dict[int, tuple[int, int]] = {}
                 for i in range(r.segs):
                     i2 = r.nxt(i)
                     if not (q[i] and ok[i] and ok[i2]):
                         continue
-                    v0, v1 = r.s[i], r.s[i] + seg[i]
+                    s0, s1 = r.s[i], r.s[i] + seg[i]
                     if kw[i] > 0 or kw[i2] > 0:
                         for k in (i, i2):
                             if k not in kv:
                                 e = kerbs.vert(edge[k])
                                 kv[k] = (e, kerbs.vert(inner[k]) if kw[k] > 0 else e)
-                        t = C.TEX_TILE["kerb"]
+                        # red/white blocks along the road (the texture's long axis), its short axis across the kerb
                         ids = (kv[i][0], kv[i2][0], kv[i2][1], kv[i][1])
-                        uv = [(0, v0 / t), (0, v1 / t), (kw[i2] / t, v1 / t), (kw[i] / t, v0 / t)]
-                        if side < 0:
-                            ids, uv = ids[::-1], uv[::-1]
-                        kerbs.face(ids, "kerb", uv)
+                        uv = [(s0 / P, 0.0), (s1 / P, 0.0), (s1 / P, kw[i2] / C.KERB_W), (s0 / P, kw[i] / C.KERB_W)]
+                        kerbs.oriented_face(ids, "kerb", up, uv)
+                    if gw[i] > 0 or gw[i2] > 0:
+                        for k in (i, i2):
+                            if k not in gv:
+                                a = limits.vert(inner[k])
+                                gv[k] = (a, limits.vert(green[k]) if gw[k] > 0 else a)
+                        ids = (gv[i][0], gv[i2][0], gv[i2][1], gv[i][1])
+                        t = C.TEX_TILE["limits"]
+                        uv = [(0.0, s0 / t), (0.0, s1 / t), (gw[i2] / t, s1 / t), (gw[i] / t, s0 / t)]
+                        limits.oriented_face(ids, "limits", up, uv)
                     for k in (i, i2):
                         if k not in sv:
-                            sv[k] = (shoulders.vert(inner[k]), shoulders.vert(outer[k]))
+                            sv[k] = (shoulders.vert(green[k]), shoulders.vert(outer[k]))
                     ids = (sv[i][0], sv[i2][0], sv[i2][1], sv[i][1])
-                    if side < 0:
-                        ids = ids[::-1]
-                    shoulders.face(ids, smat)  # world-space UV1, as the terrain
-        return kerbs, shoulders
+                    shoulders.oriented_face(ids, smat, up)  # world-space UV1, as the terrain
+        self._roadside = (kerbs, shoulders, limits)
+        return self._roadside
 
     def build_edge_decals(self) -> Mesh:
         """Stock-style broken asphalt edge: a decal strip (#decal, no collision) over each plain road edge
@@ -887,50 +1101,193 @@ class TrackGeometry:
             out[a:a + 256] = r.s_dist(r.s[a:a + 256, None], r.s[idx][None, :]).min(1)
         return out
 
+    def road_gaps(self) -> dict[tuple[int, int], dict]:
+        """Per (route, side): ``gap``, the distance from this road edge to another road (a different route, or
+        this one further than OTHER_ROUTE_S along it) straight out on that side, up to DIVIDER_GAP (inf beyond),
+        and ``owner``, whether this side builds the divider between them (of the two facing edges, the one with
+        the lower (route, s)). Samples near a junction mouth, a flat crossing or a bridge don't count (those
+        roads meet on purpose)."""
+        if getattr(self, "_gaps", None) is not None:
+            return self._gaps
+        out: dict[tuple[int, int], dict] = {}
+        probes = np.arange(0.5, C.DIVIDER_GAP + 0.01, 1.0)
+        for r in self.routes:
+            skip = ~self.svalid[r.index] | self.structure[r.index]
+            meet = [c.sample for c in self.cuts if c.route is r]
+            meet += [c.target_sample for c in self.cuts if c.target is r]
+            meet += [int(j["sampleIndex"]) for a in self.routes for j in (a.start_join, a.end_join)
+                     if j and j["route"] == r.id]
+            for b in self.bridges:
+                if b.under is r:
+                    meet.append(r.index_at(b.s_under))
+                if b.over is r:
+                    meet.append(r.index_at(b.s_over))
+            for i in meet:
+                skip |= r.s_dist(r.s, r.s[i]) < C.DIVIDER_JUNCTION_CLEAR
+            for side in (1, -1):
+                edge = r.left if side > 0 else r.right
+                gap = np.full(r.n, np.inf)
+                owner = np.zeros(r.n, dtype=bool)
+                todo = ~skip
+                for t in probes:
+                    if not todo.any():
+                        break
+                    idx = np.nonzero(todo)[0]
+                    pts = edge[idx].copy()
+                    pts[:, :2] += r.nl[idx] * side * t
+                    j = self.index.other_at(pts, r.index, r.s[idx])
+                    hit = j >= 0
+                    if hit.any():
+                        ii, jj = idx[hit], j[hit]
+                        gap[ii] = t
+                        owner[ii] = (self.index.ri[jj] > r.index) | ((self.index.ri[jj] == r.index)
+                                                                     & (self.index.s[jj] > r.s[ii]))
+                        todo[ii] = False
+                out[(r.index, side)] = {"gap": gap, "owner": owner}
+        self._gaps = out
+        return out
+
+    def corner_apexes(self) -> list[tuple[int, int, float]]:
+        """Main-route corner apexes (index, outside side, |curvature|), sharpest first, at least 60 m apart."""
+        r = self.main
+        k = np.abs(r.curvature)
+        w = 12
+        cand = []
+        for i in range(r.n):
+            win = [(i + o) % r.n for o in range(-w, w + 1)] if r.closed else range(max(0, i - w), min(r.n, i + w + 1))
+            if k[i] > 1.0 / 150.0 and k[i] >= max(k[j] for j in win):
+                cand.append(i)
+        cand.sort(key=lambda i: -k[i])
+        out: list[tuple[int, int, float]] = []
+        for i in cand:
+            if all(r.s_dist(r.s[i], r.s[j]) > 60.0 for j, _, _ in out):
+                out.append((i, -1 if r.curvature[i] > 0 else 1, float(k[i])))
+        return out
+
+    def crowd_spots(self) -> list[tuple[Route, int, int, float]]:
+        """Where spectators stand (route, sample, side, length along the road), in priority order: jump landings
+        and beside bridges, an imported track's named viewing spots (both sides, the longer bank outside), then
+        the outside of the sharpest corners. The wall plan puts a barrier in front of each; dressing places the
+        crowds there."""
+        spots: list[tuple[Route, int, int, float]] = []
+        for j in self.model.get("jumps", []):
+            r = self.by_id[j["route"]]
+            i = r.index_at((float(j["endS"]) + 25.0) % r.length if r.closed else min(float(j["endS"]) + 25.0, r.length))
+            spots += [(r, i, 1, 30.0), (r, i, -1, 30.0)]
+        for b in self.bridges:
+            u = b.under
+            for off in (-45.0, 45.0):
+                k = u.index_at((b.s_under + off) % u.length if u.closed else min(max(b.s_under + off, 0.0), u.length))
+                spots.append((u, k, 1 if off > 0 else -1, 24.0))
+        named = (self.imported or {}).get("viewingSpots") or []
+        for spot in named:
+            i = self.main.index_at(float(spot["sM"]) % self.main.length)
+            out = -1 if self.main.curvature[i] > 0 else 1
+            spots += [(self.main, i, out, 50.0), (self.main, i, -out, 34.0)]
+        n_max = (int(min(14, max(4, round(self.main.length / 260.0)))) + len(self.bridges) * 2
+                 + len(self.model.get("jumps", [])) * 2 + 2 * len(named))
+        corners = self.corner_apexes()
+        for i, side, k in corners[:max(0, n_max - len(spots))]:
+            spots.append((self.main, i, side, 30.0 + min(20.0, k * 2000.0)))
+        return spots[:n_max]
+
     def wall_plan(self) -> dict[tuple[int, int], dict]:
-        """Where the containment wall runs, per (route, side): the wall line follows the road WALL_OFFSET out
-        where containment is needed (the inside of corners tighter than WALL_CORNER_RADIUS, the grid sector and
-        wherever a set-back line would come near another road, each WALL_NEAR_DILATE further along the road) and
-        WALL_SETBACK out
-        elsewhere, behind open run-off, moving between the two over WALL_RAMP. ``ok`` marks the samples that
-        carry a wall (no other road within the line's offset, not on a bridge, no fold on tight insides).
-        Shared by the collision walls (``build_walls``) and the barrier props (``dressing``)."""
+        """Where a barrier (collision wall + stock barrier props) runs, per (route, side). Not round the whole lap:
+        open grass run-off first, and a barrier only where one is needed, each at its own distance from the road
+        edge (the nearest wins, moving between them at WALL_RAMP_SLOPE metres out per metre along):
+
+        - **dividers** between close sections of track (another road within DIVIDER_GAP straight out): along the
+          middle of the gap, built by one of the two facing edges (``road_gaps``);
+        - the **grid sector** (pit wall, grandstand) and **under bridges**: WALL_OFFSET;
+        - in front of **crowds** (``crowd_spots``) and the paddock: CROWD_WALL;
+        - outside **fast corners** (apex radius FAST_CORNER_RADIUS): FAST_CORNER_WALL, behind the run-off;
+        - where the **ground drops away** more than DROP_H within DROP_PROBE of the edge: WALL_OFFSET.
+
+        ``ok`` marks the samples that carry a wall (not on a bridge, the line clear of other roads, no fold on
+        tight insides); ``offset`` the wall line's distance from the edge, ``ai_margin`` how far the AI route
+        (and with it the reset-free area) may reach beyond the edge on that side. Shared by the collision walls
+        (``build_walls``), the barrier props (``dressing``) and the AI routes (``layout``)."""
         if getattr(self, "_wall_plan", None) is not None:
             return self._wall_plan
         plan: dict[tuple[int, int], dict] = {}
         slots = self.model.get("grid", {}).get("slots", [])
+        gaps = self.road_gaps()
+        spots = self.crowd_spots()
         for r in self.routes:
-            grid = np.zeros(r.n, dtype=bool)
-            if r.is_main and slots:
+            near = np.zeros(r.n, dtype=bool)
+            if r.is_main and slots:  # the grid, the start/finish and the paddock beside them (dressing.paddock)
                 d = r.signed_s(r.s, 0.0)
-                grid = (d >= -25.0) & (d <= max(float(q["s"]) for q in slots) + 15.0)
+                near = (d >= -70.0) & (d <= max(float(max(q["s"] for q in slots)) + 15.0, 130.0))
             for b in self.bridges:  # under a bridge the wall stays inside the pillars
                 if b.under is r:
                     reach = (b.over.width / 2.0 + C.BRIDGE_STRUCT_EXTRA) / max(math.sin(math.radians(b.angle_deg)), 0.3)
-                    grid = grid | (r.s_dist(r.s, b.s_under) <= reach + 20.0)
+                    near = near | (r.s_dist(r.s, b.s_under) <= reach + 20.0)
+            fast = {1: np.zeros(r.n, dtype=bool), -1: np.zeros(r.n, dtype=bool)}
+            for c in self.corner_runs(r, max_radius=C.FAST_CORNER_MAX_RADIUS, min_turn_deg=C.FAST_CORNER_MIN_TURN_DEG):
+                if c["radius"] < C.FAST_CORNER_RADIUS:
+                    continue
+                s_in, s_ap, s_out = (float(r.s[c[k]]) for k in ("i_in", "i_apex", "i_out"))
+                d = r.signed_s(r.s, s_ap)
+                before = r.s_dist(s_ap, s_in)
+                after = r.s_dist(s_out, s_ap)
+                fast[-c["inside"]] |= (d >= -0.5 * before) & (d <= after + 40.0)
             for side in (1, -1):
-                # the inside of a tight corner (a set-back line would fold there), and the grid sector
-                near = (r.curvature * side > 1.0 / C.WALL_CORNER_RADIUS) | grid
-                near &= self.svalid[r.index]
-                far_line = self._side_points(r, side, C.WALL_SETBACK)
-                ok_far = self._edge_ok(r, far_line, C.WALL_SETBACK + 0.5)
-                ok_near = self._edge_ok(r, self._side_points(r, side, C.WALL_OFFSET), C.WALL_OFFSET + 0.5)
-                need = near | (ok_near & ~ok_far)
-                ds = self._near_s(r, need)
-                t = smoothstep((ds - C.WALL_NEAR_DILATE) / C.WALL_RAMP)
-                offset = C.WALL_OFFSET + (C.WALL_SETBACK - C.WALL_OFFSET) * t
+                edge = r.left if side > 0 else r.right
+                g = gaps[(r.index, side)]
+                reasons: list[tuple[np.ndarray, np.ndarray]] = []  # (mask, offset per sample)
+                div = np.isfinite(g["gap"]) & g["owner"]
+                reasons.append((div, np.maximum(g["gap"] / 2.0, C.DIVIDER_MIN)))
+                reasons.append((near & self.svalid[r.index], np.full(r.n, C.WALL_OFFSET)))
+                crowd = np.zeros(r.n, dtype=bool)
+                for sr, i, sside, length in spots:
+                    if sr is r and sside == side:
+                        crowd |= r.s_dist(r.s, r.s[i]) <= length / 2.0 + C.CROWD_WALL_EXTEND
+                reasons.append((crowd, np.full(r.n, C.CROWD_WALL)))
+                reasons.append((fast[side], np.full(r.n, C.FAST_CORNER_WALL)))
+                probe = edge.copy()
+                probe[:, :2] += r.nl * side * C.DROP_PROBE
+                drop = (edge[:, 2] - self.terrain(probe)) > C.DROP_H
+                drop &= ~np.isfinite(g["gap"])  # a lower road beside this one is a divider's job
+                reasons.append((drop, np.full(r.n, C.WALL_OFFSET)))
+                offset = np.full(r.n, np.inf)
+                has = np.zeros(r.n, dtype=bool)
+                for mask, off in reasons:
+                    mask = mask & self.svalid[r.index]
+                    if not mask.any():
+                        continue
+                    has |= mask
+                    offset = np.minimum(offset, self._cone(r, mask, off, C.WALL_RAMP_SLOPE))
+                offset = np.where(np.isfinite(offset), offset, C.CROWD_WALL)
                 line = self._side_points(r, side, offset)
-                ok = self._edge_ok(r, line, offset + 0.5)
+                ok = has & self._edge_ok(r, line, 0.5)
                 # Drop folds: on the inside of a tight corner the offset line can run backwards.
                 nxt = np.roll(line[:, :2], -1, axis=0) if r.closed else np.vstack([line[1:, :2], line[-1:, :2]])
                 prv = np.roll(line[:, :2], 1, axis=0) if r.closed else np.vstack([line[:1, :2], line[:-1, :2]])
                 tan = nxt - prv
                 ok &= (tan * r.tangent).sum(1) > 0.2 * np.maximum(np.linalg.norm(tan, axis=1), 1e-9)
                 line[:, 2] = self.terrain(line)
+                # the AI route covers the grass run-off, up to the wall and half way to another road
+                runoff = C.AI_ROUTE_MARGIN["none" if self.walls == "none" else "walls"]
+                margin = np.full(r.n, runoff)
+                margin = np.where(ok, np.minimum(margin, offset - 0.8), margin)
+                margin = np.minimum(margin, g["gap"] / 2.0 - 0.5)
                 plan[(r.index, side)] = {"route": r, "side": side, "offset": offset, "line": line,
-                                         "out": r.nl * side, "ok": ok, "near": t < 0.5}
+                                         "out": r.nl * side, "ok": ok, "divider": div & ok,
+                                         "ai_margin": np.maximum(self._cone(r, np.ones(r.n, bool), margin, 0.5), 0.5)}
         self._wall_plan = plan
         return plan
+
+    def _cone(self, r: Route, mask: np.ndarray, value: np.ndarray, slope: float) -> np.ndarray:
+        """min over masked samples j of value[j] + slope * |s_i - s_j| (inf without any): a value that changes by
+        at most ``slope`` per metre along the road."""
+        idx = np.nonzero(mask)[0]
+        if not len(idx):
+            return np.full(r.n, np.inf)
+        v = np.asarray(value, dtype=np.float64)[idx]
+        out = np.empty(r.n)
+        for a in range(0, r.n, 256):
+            out[a:a + 256] = (v[None, :] + slope * r.s_dist(r.s[a:a + 256, None], r.s[idx][None, :])).min(1)
+        return out
 
     def wall_runs(self) -> list[dict]:
         """The wall line as continuous runs: route id, side, points (N, 3; z = terrain), outward unit normals,
@@ -1113,8 +1470,8 @@ class TrackGeometry:
 
     def build_base(self) -> list[Mesh]:
         meshes = [self.build_road()]
-        kerbs, shoulders = self.build_kerbs_and_shoulders()
-        meshes += [m for m in (kerbs, shoulders, self.build_edge_decals(), self.build_transition_decals())
+        kerbs, shoulders, limits = self.build_roadside()
+        meshes += [m for m in (kerbs, limits, shoulders, self.build_edge_decals(), self.build_transition_decals())
                    if not m.empty]
         meshes += self.build_walls()
         meshes += self.build_bridges()
