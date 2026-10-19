@@ -20,6 +20,14 @@
   "viewingSpots": ["The Mountain", "The Hairpin", "Hall Bends"],
   "expectedCornerOrder": ["Coppice", "Charlies", "Park Straight", "Park", "Chris Curve", "The Gooseneck", "Mansfield", "Woodland", "The Mountain", "Hall Bends", "The Hairpin", "Barn"],
   "expectedCornerOrderNote": "Clockwise full circuit as the track guides describe it: Coppice (fast uphill left at the end of the start straight), Charlies, Park Straight, Park, Chris Curve, the Gooseneck, the steep drop to Mansfield, the Woodland chicane, the Mountain (a short steep climb), Hall Bends, the Hairpin, Barn.",
+  "kerbs": [
+    { "corner": "Coppice", "exit": true, "source": "track guides: riders run along the left-hand kerb out of Coppice to set up Charlies (motorbikestoday.com Cadwell guide)" },
+    { "corner": "Charlies", "exit": true, "green": true, "source": "traxion.gg iRacing Cadwell guide: raised outside kerb on the exit of Charlies, a track-limits strike" },
+    { "corner": "Park", "apex": true, "source": "motorbikestoday.com Cadwell guide: the kerb on the inside of Park Corner is fairly high" },
+    { "corner": "The Gooseneck", "entry": true, "apex": true, "exit": true, "green": true, "source": "traxion.gg iRacing Cadwell guide: hug the right-hand kerb in, the left-hand kerb on power; one wheel over the exit kerb invalidates the lap" },
+    { "corner": "Hall Bends", "entry": true, "apex": true, "source": "motorbikestoday.com Cadwell guide: riders go over the entry kerbs to straight-line Hall Bends" }
+  ],
+  "kerbsNote": "OSM has no kerb or run-off features at Cadwell (Overpass 2026-10-19: barrier=kerb, kerb=*, area:highway=*, racing:kerb none) and the 1 m DTM can't resolve 5 cm kerbs; these overrides come from track guides, every other corner gets the geometric apex/exit kerbs.",
   "options": {
     "surface": "tarmac",
     "kerbs": true,

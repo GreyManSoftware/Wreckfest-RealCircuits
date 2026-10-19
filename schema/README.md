@@ -29,6 +29,7 @@ TrackSpec
 │     ├─ centreline[16–10000] { x, y, z, bankDeg }  metres, x east, y north; closed; point 0 on the start line
 │     ├─ terrain?   { originX, originY, cellM, nx, ny, z[(nx+1)(ny+1) ≤ 250000] }  ground heights (nodes)
 │     ├─ woodland[≤500] { points[3–2000] {x, y} } · corners[≤60], viewingSpots[≤20] { name, sM }
+│     ├─ kerbs[≤60] { corner, sM, entry?, apex?, exit?, green?, source }  real-data kerb overrides per corner
 └─ options   all required (the schema has the UI defaults)
    lapLengthKm 0.8–5 (1.5) · widthM 8–20 (12) · surface tarmac|gravel|mixed|sand (mixed) · kerbs (true)
    walls concrete|tyres|none (tyres) · elevation flat|gentle|hilly|custom|imported (gentle)

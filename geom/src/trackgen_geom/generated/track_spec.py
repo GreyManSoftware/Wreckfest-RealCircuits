@@ -495,6 +495,46 @@ class NamedSpot:
 
 
 @dataclass(kw_only=True)
+class KerbOverride:
+    """Real-world kerbs and track-limit strips at one corner of an imported track (from OSM, LIDAR or a track guide), overriding the builder's geometric placement (apex kerb inside, exit kerb outside, a green strip beyond the exit kerb on fast corners) at the corner nearest sM."""
+
+    corner: str
+    s_m: float
+    entry: bool | None = None
+    apex: bool | None = None
+    exit: bool | None = None
+    green: bool | None = None
+    source: str
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> KerbOverride:
+        return cls(
+            corner=str(data["corner"]),
+            s_m=float(data["sM"]),
+            entry=None if data.get("entry") is None else bool(data["entry"]),
+            apex=None if data.get("apex") is None else bool(data["apex"]),
+            exit=None if data.get("exit") is None else bool(data["exit"]),
+            green=None if data.get("green") is None else bool(data["green"]),
+            source=str(data["source"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["corner"] = self.corner
+        out["sM"] = self.s_m
+        if self.entry is not None:
+            out["entry"] = self.entry
+        if self.apex is not None:
+            out["apex"] = self.apex
+        if self.exit is not None:
+            out["exit"] = self.exit
+        if self.green is not None:
+            out["green"] = self.green
+        out["source"] = self.source
+        return out
+
+
+@dataclass(kw_only=True)
 class HorizonProfile:
     """The distant skyline seen from the start line, beyond the far ground (from a regional DTM): per azimuth step, clockwise from north (+y), the highest terrain's elevation angle and whether the horizon there is open sea. The builder paints the #horizon texture from it (e.g. Snowdonia from Anglesey)."""
 
@@ -553,6 +593,7 @@ class ImportedTrack:
     woodland: list[WoodlandArea] | None = None
     corners: list[NamedSpot] | None = None
     viewing_spots: list[NamedSpot] | None = None
+    kerbs: list[KerbOverride] | None = None
     main_layout_name: str | None = None
     alt_layouts: list[ImportedAltLayout] | None = None
     sea_level_m: float | None = None
@@ -568,6 +609,7 @@ class ImportedTrack:
             woodland=None if data.get("woodland") is None else [WoodlandArea.from_dict(v0) for v0 in data["woodland"]],
             corners=None if data.get("corners") is None else [NamedSpot.from_dict(v0) for v0 in data["corners"]],
             viewing_spots=None if data.get("viewingSpots") is None else [NamedSpot.from_dict(v0) for v0 in data["viewingSpots"]],
+            kerbs=None if data.get("kerbs") is None else [KerbOverride.from_dict(v0) for v0 in data["kerbs"]],
             main_layout_name=None if data.get("mainLayoutName") is None else str(data["mainLayoutName"]),
             alt_layouts=None if data.get("altLayouts") is None else [ImportedAltLayout.from_dict(v0) for v0 in data["altLayouts"]],
             sea_level_m=None if data.get("seaLevelM") is None else float(data["seaLevelM"]),
@@ -588,6 +630,8 @@ class ImportedTrack:
             out["corners"] = [v0.to_dict() for v0 in self.corners]
         if self.viewing_spots is not None:
             out["viewingSpots"] = [v0.to_dict() for v0 in self.viewing_spots]
+        if self.kerbs is not None:
+            out["kerbs"] = [v0.to_dict() for v0 in self.kerbs]
         if self.main_layout_name is not None:
             out["mainLayoutName"] = self.main_layout_name
         if self.alt_layouts is not None:
@@ -899,6 +943,7 @@ __all__ = [
     "ImportedTrack",
     "Jump",
     "JumpSize",
+    "KerbOverride",
     "MainLoop",
     "MarkerFeature",
     "Meta",

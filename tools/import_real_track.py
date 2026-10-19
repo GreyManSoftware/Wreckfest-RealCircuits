@@ -572,6 +572,21 @@ def corner_order_problem(names: list[str], expected: list[str] | None) -> str | 
     return None
 
 
+def kerb_overrides(items: list[dict], corners: list[dict]) -> list[dict]:
+    """The recipe's per-corner kerb data (``kerbs``: corner name, entry/apex/exit/green flags, source) placed at
+    the named corner's sM, for ``sketch.imported.kerbs``. Real data only (OSM kerb features, a clear LIDAR
+    ridge, a track guide); corners without an entry get the builder's geometric kerbs."""
+    at = {c["name"]: c["sM"] for c in corners}
+    out = []
+    for k in items:
+        if k["corner"] not in at:
+            raise ValueError(f"kerbs: no labelled corner {k['corner']!r} (labels: {sorted(at)})")
+        o = {"corner": k["corner"], "sM": at[k["corner"]], "source": k["source"]}
+        o.update({f: bool(k[f]) for f in ("entry", "apex", "exit", "green") if f in k})
+        out.append(o)
+    return out
+
+
 def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = None, log=print) -> tuple[dict, dict]:
     """The TrackSpec and a report dict (lengths, heights, grades, camber, data checks)."""
     cell = float(cell or recipe.get("terrainCellM", 6.0))
@@ -746,6 +761,8 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         "corners": corners,
         "viewingSpots": spots,
     }
+    if recipe.get("kerbs"):
+        imported["kerbs"] = kerb_overrides(recipe["kerbs"], corners)
     if alt_specs:
         imported["mainLayoutName"] = recipe.get("mainLayoutName", "Main")
         imported["altLayouts"] = alt_specs
