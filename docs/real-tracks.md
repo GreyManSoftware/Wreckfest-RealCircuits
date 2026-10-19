@@ -83,3 +83,34 @@ Crowd banks at the Mountain, the Hairpin and Hall Bends. Renders: `.local\render
 
 Unverified: the start/finish position (estimated from the pit lane), the width (not published; one value for the
 whole lap), and how the camber and the Mountain's crest drive in game.
+
+## RealAnglesey (Anglesey Circuit / Trac Môn, International + Coastal, 2026-10-19)
+
+One base scene with two layouts (`realanglesey_race` = International, `realanglesey_coastal` = Coastal). Data
+phase, sources and the environment brief: `docs/real-tracks/anglesey.md`. Recipe `tools/real_tracks/anglesey.json`,
+sample `geom/tests/samples/realanglesey.json`, report `.local\realanglesey\report.json`.
+
+| | International | Coastal |
+|---|---|---|
+| Lap (built TrackModel) | 3,286.8 m (−0.28 % vs 3,296 m measured; −2.8 % vs the published 3,380 m) | 2,463.8 m (−0.33 % vs 2,472 m; −1.2 % vs 2,494 m) |
+| Shared with the other layout | start/finish to the Corkscrew (s 0–2,171 m) and the Bus Stop to the line | branch 137.2 m from the Corkscrew (s 2,170.6) to the Bus Stop (s 3,130.8) |
+| Height | 11.1–29.8 m ODN (range 18.8 m), climb 31.7 m per lap | same range, climb 26.5 m |
+| Steepest (10 m) | +8.1 % (to Rocket), −8.2 % (into the Corkscrew) | −9.7 % (Corkscrew link) |
+| Camber | up to 5.7° (the Banking, into the corner), p95 3.9° | branch up to 3.4° |
+| Fit to the DTM | centre RMS 0.013 m (max 0.06 m), inner edges 0.015 m | branch centre RMS 0.025 m, edges 0.037 m |
+| Rules | valid: maxGradePct 9.8, maxBankDeg 5.7, grid 3.0 % (≤ 4), min radius 13.6 m | |
+
+Width 12 m (OSM `width` on three ways), clockwise, start/finish at OSM node "Start/Finish". Environment
+`coastal`: sea plane at 0 m ODN (`seaLevelM` −11 relative to the 11 m datum) over the ground below it, rocks and a
+cliff face on the shore, stone field walls, gorse clumps, three farmsteads, concrete barrier rows (prop_barrier7a/7c, which stock fields13 uses by the hundred; not the static tyre walls), crowds at
+the Corkscrew, the Rocket and the Banking, and a `#horizon` painted from the DTM skyline (Snowdonia 90–140°, the
+Llŷn hills to the south, open sea to the south-west). The terrain heightfield is 10 m cells over the circuit
+± 1 km (coarse, so the far ground carries the real coast).
+
+Game data checked for the sea: Wreckfest 1 has no sea material. The only water is the animated
+`water2#saw33#texture_animation` (levels/crm `water2_c5`, a cartoon pool caustic) and fields13's mud-puddle
+`#blend` (`ground_water_fields13_c`); neither reads as sea, so the sea is a generated blue-grey texture on a flat
+`#noshadow` plane. Stone walls: stock `prop_stone_wall_01/02` (3.4 × 1.6 × 1.6 m) exist and are used.
+
+Unverified in game: the sea plane and the painted horizon, the second layout's checkpoints and AI, how 12 m
+and the Banking's camber drive. Not installed yet (waiting for the vertex-buffer fix).

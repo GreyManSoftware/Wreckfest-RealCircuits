@@ -47,10 +47,12 @@
   "widthM": 12.0,
   "clockwise": true,
   "viewingSpots": ["Corkscrew", "Rocket", "Banking"],
+  "expectedCornerOrder": ["Target", "Banking", "Church", "School", "Rocket", "Peel", "Seamans", "Corkscrew", "Tom Pryce Straight", "Hairpin", "Bus Stop"],
+  "expectedCornerOrderNote": "Driving order of the named corners (clockwise). Seamans is the downhill left at the start of the Corkscrew way (not named in OSM, so not labelled).",
   "options": {
     "surface": "tarmac",
     "kerbs": true,
-    "walls": "tyres",
+    "walls": "concrete",
     "environment": "coastal",
     "gridSize": 16,
     "weathers": ["morning", "midday", "afternoon"],
