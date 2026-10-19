@@ -1,0 +1,42 @@
+{
+  "name": "Anglesey Circuit (Trac Môn)",
+  "slug": "anglesey",
+  "centre_wgs84": [53.1886, -4.4966],
+  "raw_dir": "E:/Source/wreckfest/.local/realtracks/anglesey/raw",
+  "out_dir": "E:/Source/wreckfest/.local/realtracks/anglesey/processed",
+  "dtm": "dtm_1m",
+  "dtm_far": "dtm_8m_12km",
+  "dtm_horizon": "dtm_32m_horizon",
+  "start_finish_node": 11458386749,
+  "default_width_m": 12.0,
+  "published": {
+    "international": {"length_m": 3380, "turns": 11, "source": "Wikipedia 'Anglesey Circuit'; racingcircuits.info (2.100 mi / 3.380 km)"},
+    "coastal": {"length_m": 2494, "turns": 10, "source": "Wikipedia 'Anglesey Circuit'; racingcircuits.info (1.550 mi / 2.494 km)"}
+  },
+  "_comment": "Each layout is an ordered list of OSM raceway way ids in the direction of travel (all ways are oneway=yes and drawn in the racing direction). [way, from_node, to_node] takes only the part of a way between two of its nodes.",
+  "layouts": {
+    "international": [
+      892471227, 892471212, 892471213, 892471214, 892471215, 892471211, 892471216, 892471217,
+      892471218, 892471219, 892471220, 892471221, 892471222, 892471223, 892471224,
+      892471225, 892471226, 108374689, 892471229
+    ],
+    "coastal": [
+      892471227, 892471212, 892471213, 892471214, 892471215, 892471211, 892471216, 892471217,
+      892471218, 892471219, 892471220, 892471221, 892471222, 892471223,
+      [892471224, 1243679964, 1243679987], 108374690, [892471229, 2704893227, 11457491218]
+    ]
+  },
+  "corner_ways": {
+    "Target": 892471212,
+    "Banking": 892471214,
+    "Church": 892471211,
+    "School": 892471217,
+    "Rocket": [892471219, 892471220],
+    "Peel": 892471222,
+    "Corkscrew": 892471224,
+    "Corkscrew (Coastal link)": 108374690,
+    "Tom Pryce Straight": 892471225,
+    "Hairpin": 892471226,
+    "Bus Stop": 892471229
+  }
+}
