@@ -218,7 +218,7 @@ def main() -> None:
     bscene.set_specs(specs)
     bscene.MOD_ROOT[:] = [mod_root]
     bpy.context.scene.name = f"{slug}_base"
-    groups = {"road": ("road", "kerb", "shoulder", "decal"), "walls": ("wall",), "bridges": ("bridge",),
+    groups = {"road": ("road", "kerb", "limits", "shoulder", "decal"), "walls": ("wall",), "bridges": ("bridge",),
               "terrain": ("terrain",), "backdrop": ("backdrop",), "helpers": ("helper",)}
     for group, kinds in groups.items():
         coll = bscene.collection(group)
@@ -279,6 +279,10 @@ def main() -> None:
         "junctions": getattr(geo, "stitched", []),
         "bridges": [{"id": b.id, "over": b.over.id, "under": b.under.id, "sOver": b.s_over, "sUnder": b.s_under,
                      "structureSamples": int(b.structure.sum())} for b in geo.bridges],
+        "kerbs": getattr(geo, "kerb_report", []),
+        "barriers": {f"{p['route'].id}:{'l' if side > 0 else 'r'}": {
+            "wallShare": round(float(p["ok"].mean()), 3), "dividerShare": round(float(p["divider"].mean()), 3)}
+            for (_ri, side), p in geo.wall_plan().items()},
         "props": len(props),
         "scenery": {"file": "scenery.json", "counts": scenery.counts(), "total": len(scenery.placements),
                     "info": scenery.info, "backdrop": backdrop_info},

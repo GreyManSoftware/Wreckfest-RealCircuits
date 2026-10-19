@@ -115,9 +115,8 @@ def check_on_road(scene: str, lay, xref, base_road: Road) -> None:
     cps = []
     for o in lay.objects:
         if o.name.startswith("#checkpoint") and o.tris:
-            v = to_world(o, np.array(o.tris).reshape(-1, 3))
-            mid = (v.min(0) + v.max(0)) / 2.0
-            cps.append((o.name, np.array([mid[0], mid[1], v[:, 2].min() + C.CHECKPOINT_BELOW])))
+            # the object's origin is the road centre it spans (the plane's sides differ with the run-off margins)
+            cps.append((o.name, to_world(o, [(0.0, 0.0, 0.0)])[0]))
     report("checkpoint centres", cps, 2.0)
     ai = []
     for o in lay.objects:
@@ -155,7 +154,8 @@ class Surface:
 
 def check_road_flush(full, model: dict, manifest: dict) -> None:
     """Road and grass meet like stock tracks: on the exported base, the terrain 2 m outside a plain road edge
-    (away from other roads) lies 0-15 cm below the edge (no lip, no step up), and between 2 and 15 m out it
+    (away from other roads) lies 0-20 cm below the edge (no lip, no step up; the camber continues 1.5 m past a
+    low edge), and between 2 and 15 m out it
     doesn't dip more than 0.3 m below both the edge and the ground 30 m out (no ditch or embankment look).
     RealCadwell sat on a 0.5-1 m lip (2026-10-19): the terrain took the lowest road within ~10 m along a
     graded road."""
@@ -207,8 +207,8 @@ def check_road_flush(full, model: dict, manifest: dict) -> None:
                     dips += 1
     steps = np.array(steps)
     lo, hi = (np.percentile(steps, 2), np.percentile(steps, 98)) if len(steps) else (0, 0)
-    check(n > 20 and -0.02 <= lo and hi <= 0.15,
-          "base: terrain 2 m outside the road edge lies 0-15 cm below it (flush, stock-like)",
+    check(n > 20 and -0.02 <= lo and hi <= 0.20,
+          "base: terrain 2 m outside the road edge lies 0-20 cm below it (flush, stock-like; a cambered low side runs on)",
           f"{n} probes, edge - terrain p2 {lo:.3f} m, median {np.median(steps):.3f} m, p98 {hi:.3f} m")
     check(n > 20 and dips <= 0.02 * n, "base: no ditch beside the road (terrain 2-15 m out not 0.3 m below the "
           "edge and the ground 30 m out)", f"{dips} of {n} probes dip")

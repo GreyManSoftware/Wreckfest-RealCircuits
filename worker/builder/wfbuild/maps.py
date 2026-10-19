@@ -227,6 +227,18 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
                          ("clutter_t", clutter, clutter_a)):
         write_tga(os.path.join(out_dir, f"{slug}_{name}.tga"), rgb, a)
         paths[name] = rel_path(slug, name)
+    # green track-limit paint (no stock plain-green road paint exists; prop_curb1_green is a kerb): worn
+    # green-painted asphalt, tiling, 256 px per TEX_TILE["limits"] metres
+    t = 256
+    tile_noise = lambda what, feat: Noise2D(seed_for(slug, what), (0.0, 0.0, 1.0), feat, 2).grid(t)  # noqa: E731
+    wear = tile_noise("limits-wear", 0.25)
+    grain = np.random.default_rng(seed_for(slug, "limits-grain")).random((t, t))
+    base = np.array([52.0, 118.0, 60.0])
+    shade = 1.0 + (wear - 0.5) * 0.25 + (grain - 0.5) * 0.12
+    asphalt = smooth01((wear - 0.78) / 0.1)[:, :, None]  # a few patches where the paint has worn to the asphalt
+    limits = base[None, None, :] * shade[:, :, None] * (1 - asphalt) + 70.0 * asphalt * shade[:, :, None]
+    write_tga(os.path.join(out_dir, f"{slug}_limits_c.tga"), limits)
+    paths["limits_c"] = rel_path(slug, "limits_c")
     stats = {k: [round(float(v), 1) for v in arr.reshape(-1, 3).mean(0)]
              for k, arr in (("blendTerrain", blend_terrain), ("colorTerrain", color_terrain), ("clutter", clutter))}
     return {"frame": [round(v, 3) for v in fr], "res": n, "pixelM": round(px, 3), "paths": paths, "meanRGB": stats,

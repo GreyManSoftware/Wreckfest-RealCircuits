@@ -328,20 +328,7 @@ class Planner:
     # -------------------------------------------------------------------------------------- features
     def corners(self) -> list[tuple[int, int, float]]:
         """Main-route corner apexes (index, outside side, |curvature|), sharpest first, at least 60 m apart."""
-        r = self.main
-        k = np.abs(r.curvature)
-        w = 12
-        cand = []
-        for i in range(r.n):
-            win = [(i + o) % r.n for o in range(-w, w + 1)] if r.closed else range(max(0, i - w), min(r.n, i + w + 1))
-            if k[i] > 1.0 / 150.0 and k[i] >= max(k[j] for j in win):
-                cand.append(i)
-        cand.sort(key=lambda i: -k[i])
-        out: list[tuple[int, int, float]] = []
-        for i in cand:
-            if all(r.s_dist(r.s[i], r.s[j]) > 60.0 for j, _, _ in out):
-                out.append((i, -1 if r.curvature[i] > 0 else 1, float(k[i])))
-        return out
+        return self.geo.corner_apexes()
 
     def straights(self) -> list[tuple[int, float]]:
         """Main-route straights (middle index, length), longest first."""
@@ -473,36 +460,10 @@ class Planner:
         return len(self.sc.placements) - n0
 
     def viewing_spots(self, corners) -> None:
-        g = self.geo
-        spots: list[tuple[object, int, int, float]] = []
-        # an imported track's named viewing spots first (e.g. Cadwell's Mountain, Hairpin, Hall Bends): banks of
-        # spectators on both sides, the longer one on the outside of the bend
-        named = (getattr(g, "imported", None) or {}).get("viewingSpots") or []
-        for spot in named:
-            i = self.main.index_at(float(spot["sM"]) % self.main.length)
-            out = -1 if self.main.curvature[i] > 0 else 1
-            spots.append((self.main, i, out, 50.0))
-            spots.append((self.main, i, -out, 34.0))
-        for i, side, k in corners:
-            spots.append((self.main, i, side, 30.0 + min(20.0, k * 2000.0)))
-        for j in g.model.get("jumps", []):
-            r = g.by_id[j["route"]]
-            i = r.index_at((float(j["endS"]) + 25.0) % r.length if r.closed else min(float(j["endS"]) + 25.0, r.length))
-            spots.insert(0, (r, i, 1, 30.0))
-            spots.insert(1, (r, i, -1, 30.0))
-        for b in g.bridges:
-            u = b.under
-            i = u.index_at(b.s_under)
-            for off in (-45.0, 45.0):
-                k = u.index_at((b.s_under + off) % u.length if u.closed else min(max(b.s_under + off, 0.0), u.length))
-                spots.insert(0, (u, k, 1 if off > 0 else -1, 24.0))
-            del i
-        n_max = (int(min(14, max(4, round(self.main.length / 260.0)))) + len(g.bridges) * 2
-                 + len(g.model.get("jumps", [])) * 2 + 2 * len(named))
+        """Crowds at the geometry's crowd spots (jump landings, beside bridges, named viewing spots, the outside of
+        the sharpest corners), each behind the barrier the wall plan puts in front of it."""
         done = 0
-        for r, i, side, length in spots:
-            if done >= n_max:
-                break
+        for r, i, side, length in self.geo.crowd_spots():
             if self.crowd(r, i, side, length) > 4:
                 done += 1
         self.sc.info["viewingSpots"] = done
@@ -914,7 +875,8 @@ class Planner:
                              # categories allowed closer to a road edge than edgeMinM: [min, max] metres (the
                              # barrier row on the wall line, corner markers in front of it; under bridge decks
                              # barriers pass beneath the deck)
-                             "nearRoadM": {"barriers": [C.WALL_OFFSET - 1.0, C.WALL_SETBACK + 2.0],
+                             "nearRoadM": {"barriers": [C.DIVIDER_MIN - 1.0,
+                                                        max(C.CROWD_WALL, C.FAST_CORNER_WALL) + 2.0],
                                            "cornerMarkers": [C.SHOULDER_W, None]},
                              "treeThreshold": round(self.tree_thr, 4)})
         return self.sc

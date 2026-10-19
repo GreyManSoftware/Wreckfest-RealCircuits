@@ -66,16 +66,52 @@ class LayoutBuilder:
         self.model = geo.model
         self.main = geo.main
         self.slug = self.model["slug"]
-        self.margin = C.AI_ROUTE_MARGIN["none" if geo.walls == "none" else "walls"]
         self.alts = sorted((r for r in geo.routes if not r.is_main), key=lambda r: -r.ai_index)
         self.joins = sorted({int(j["sampleIndex"]) for r in self.alts for j in (r.start_join, r.end_join) if j})
         self.warnings: list[str] = []
 
     # ------------------------------------------------------------------------------- sector lines
+    def _margins(self, r: Route) -> tuple[np.ndarray, np.ndarray]:
+        """How far the blue AI route reaches beyond the left and right road edges at each sample of r: over the
+        grass run-off, short of a wall and half way to another road (geometry.wall_plan ``ai_margin``). An
+        imported layout's composite route takes them from the route samples it was assembled from."""
+        cache = self.__dict__.setdefault("_margin_cache", {})
+        if id(r) in cache:
+            return cache[id(r)]
+        plan = self.geo.wall_plan()
+        if self.geo.by_id.get(r.id) is r:
+            out = (plan[(r.index, 1)]["ai_margin"].copy(), plan[(r.index, -1)]["ai_margin"].copy())
+        else:
+            ix = self.geo.index
+            ml, mr = np.empty(r.n), np.empty(r.n)
+            for k in range(r.n):
+                j = int(np.argmin(np.hypot(*(ix.xy - r.p[k, :2]).T)))
+                src = self.geo.routes[int(ix.ri[j])]
+                ml[k] = plan[(src.index, 1)]["ai_margin"][int(ix.si[j])]
+                mr[k] = plan[(src.index, -1)]["ai_margin"][int(ix.si[j])]
+            out = (ml, mr)
+        cache[id(r)] = out
+        return out
+
+    def _narrow_folds(self, r: Route, seq: list[int], direction: int) -> None:
+        """Where the wide blue route would make a sector fold (round a hairpin), narrow its run-off margins
+        there (and either side) until every sector is a convex quad, rather than dropping sector lines."""
+        ml, mr = self._margins(r)
+        for _ in range(8):
+            bad = [k for k, (a, b) in enumerate(itertools.pairwise(seq))
+                   if not self._quad_ok(self._dline(r, a, "route", direction), self._dline(r, b, "route", direction))]
+            if not bad:
+                return
+            for k in bad:
+                for i in r.window(seq[k], 3 * C.AI_SECTOR_SAMPLES):
+                    ml[i] = max(0.5, ml[i] * 0.7)
+                    mr[i] = max(0.5, mr[i] * 0.7)
+
     def _halfwidths(self, r: Route, i: int, kind: str) -> tuple[float, float]:
         hw = r.w[i] / 2.0
         if kind == "route":
-            hl = hr = hw + self.margin
+            ml, mr = self._margins(r)
+            hl, hr = hw + float(ml[i]), hw + float(mr[i])
         elif kind == "safe":
             hl = hr = hw - C.AI_SAFE_INSET
         else:
@@ -186,6 +222,7 @@ class LayoutBuilder:
         ``#ai_route_main`` wherever bgeometry would otherwise store the route the other way (needs_otherway):
         a forward layout can need it and a reverse one can do without it."""
         seq = self.main_sequence(i_line, direction)
+        self._narrow_folds(self.main, seq, direction)
         fixed = {0, len(seq) - 1} | {k for k, i in enumerate(seq) if i in self.joins}
         seq = self._valid_sequence(seq, lambda i, kind: self._dline(self.main, i, kind, direction), fixed)
         route_lines = [self._dline(self.main, i, "route", direction) for i in seq]

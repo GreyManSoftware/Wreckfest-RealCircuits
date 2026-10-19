@@ -81,11 +81,12 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
     for k, p in enumerate(P):
         if p["category"] == "barriers":
             dd = np.hypot(*(rxy - xy[k]).T) - rhw
-            if dd.min() < C.WALL_OFFSET - 1.0:
+            if dd.min() < C.DIVIDER_MIN - 1.0:
                 dd[rz - p["position"][2] > 3.0] = np.inf
             d[k] = float(dd.min())
     # the barrier row stands on the wall line and the corner markers in front of it; everything else behind
-    lanes = {"gantry": (-np.inf, np.inf), "barriers": (C.WALL_OFFSET - 1.0, C.WALL_SETBACK + 2.0),
+    lanes = {"gantry": (-np.inf, np.inf),
+             "barriers": (C.DIVIDER_MIN - 1.0, max(C.CROWD_WALL, C.FAST_CORNER_WALL) + 2.0),
              "cornerMarkers": (C.SHOULDER_W, np.inf)}
     on_road = [f"{p['asset']} {d[k]:.1f} m" for k, p in enumerate(P)
                if not (lanes.get(p["category"], (pl.edge_min - 1.3, np.inf))[0] <= d[k]
@@ -123,6 +124,97 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
               f"{bad} of {len(sp)} facing away")
     check(len(gantry) <= 1, "scenery: at most one start/finish gantry", f"{len(gantry)}")
     print(f"INFO scenery: {sc['total']} placements {sc['counts']}")
+
+
+def _segments_cross(p0, p1, a, b) -> np.ndarray:
+    """2D: does segment p0-p1 cross any of the segments a[k]-b[k]?"""
+    d = p1 - p0
+    e = b - a
+    den = d[0] * e[:, 1] - d[1] * e[:, 0]
+    w = a - p0
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t = (w[:, 0] * e[:, 1] - w[:, 1] * e[:, 0]) / den
+        u = (w[:, 0] * d[1] - w[:, 1] * d[0]) / den
+    return bool(np.any((np.abs(den) > 1e-12) & (t >= 0) & (t <= 1) & (u >= 0) & (u <= 1)))
+
+
+def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict) -> None:
+    """Kerbs, track limits and barriers as on real circuits (Chris, 2026-10-19): kerbs only at corners (apex
+    and exit), green strips only beside kerbs and flush; barriers not round the whole lap; a continuous
+    collision wall between every pair of close sections; the AI route reaching over the run-off."""
+    from wfbuild.geometry import TrackGeometry
+
+    geo = TrackGeometry(model, spec)
+    opts = spec["options"]
+    # --- kerbs: only near corners, nowhere near continuous
+    if opts.get("kerbs") and "track_kerbs" in obs:
+        far, total, kerbed = 0, 0, 0
+        for (ri, side), (kw, gw) in geo.kerb_plan().items():
+            r = geo.routes[ri]
+            near = np.zeros(r.n, dtype=bool)
+            for c in geo.corner_runs(r):  # a corner from 30 m before its entry to 40 m past its exit
+                d_in = r.signed_s(r.s, float(r.s[c["i_in"]]))
+                span = float(r.s_dist(r.s[c["i_out"]], r.s[c["i_in"]]))
+                near |= (d_in >= -30.0) & (d_in <= span + 40.0)
+            total += r.n
+            kerbed += int((kw > 0).sum())
+            far += int(((kw > 0) & ~near).sum())
+        check(far == 0 and kerbed <= 0.45 * total, "base: kerbs only at corners (apex and exit), not along straights",
+              f"{kerbed / max(total, 1):.0%} of the edges kerbed; {far} kerbed samples away from any corner")
+        uv = obs["track_kerbs"].data.uv_layers[0].data
+        us = np.array([d.uv[0] for d in uv])
+        check(float(us.max() - us.min()) > 0.5 or len(us) < 8,
+              "base: kerb UVs run along the road (red/white blocks along it, not across)")
+        check(("track_limits" in obs) == any((gw > 0).any() for _kw, gw in geo.kerb_plan().values()),
+              "base: green track-limit strips built where the kerb plan has them")
+        kerbs, _sh, lim = geo.build_roadside()
+        if not lim.empty:
+            kset = {key(v, 3) for v in kerbs.verts}
+            lv = np.array(lim.verts)
+            inner = [v for v in lim.verts if key(v, 3) in kset]
+            check(len(inner) >= len(lim.faces), "base: green track-limit strips start at the kerbs' outer edge "
+                  "(shared vertices)", f"{len(inner)} shared vertices, {len(lim.faces)} faces")
+            outer = np.array([v for v in lim.verts if key(v, 3) not in kset])
+            if len(outer):  # flush: the strip's outer edge sits just above the grass
+                dz = outer[:, 2] - geo.terrain(outer)
+                check(float(np.percentile(dz, 2)) >= -0.02 and float(np.percentile(dz, 98)) <= 0.12,
+                      "base: green strips meet the grass flush (0-12 cm above it)",
+                      f"p2 {np.percentile(dz, 2):.3f}, p98 {np.percentile(dz, 98):.3f} m")
+            del lv
+    # --- barriers: not round the whole lap (walls: none has none)
+    plan = geo.wall_plan()
+    if geo.walls != "none":
+        share = max(float(p["ok"].mean()) for p in plan.values())
+        check(share <= 0.7,"base: no continuous barrier round the lap (grass run-off first; barriers where needed)",
+              f"largest share of one side with a barrier {share:.0%}")
+        # every close pair of sections has a continuous collision wall between them
+        segs = []
+        for o in obs.values():
+            if o.type == "MESH" and o.name.startswith("walls_"):
+                V = world_verts(o)
+                for f in faces_of(o):
+                    for a, b in zip(f, f[1:] + f[:1]):
+                        segs.append((V[a][:2], V[b][:2]))
+        A = np.array([s[0] for s in segs]).reshape(-1, 2)
+        B = np.array([s[1] for s in segs]).reshape(-1, 2)
+        open_, pairs = [], 0
+        for (ri, side), g in geo.road_gaps().items():
+            r = geo.routes[ri]
+            edge = r.left if side > 0 else r.right
+            for i in np.nonzero(np.isfinite(g["gap"]))[0][::2]:
+                ends = np.array([edge[i, :2] + r.nl[i] * side * 0.3, edge[i, :2] + r.nl[i] * side * (g["gap"][i] - 0.3)])
+                p0, p1 = to_scene(ends, manifest)
+                pairs += 1
+                near = (np.minimum(A[:, 0], B[:, 0]) <= max(p0[0], p1[0]) + 1) & (np.maximum(A[:, 0], B[:, 0]) >= min(p0[0], p1[0]) - 1) \
+                    & (np.minimum(A[:, 1], B[:, 1]) <= max(p0[1], p1[1]) + 1) & (np.maximum(A[:, 1], B[:, 1]) >= min(p0[1], p1[1]) - 1)
+                if not len(A) or not _segments_cross(p0, p1, A[near], B[near]):
+                    open_.append(f"{r.id}:{'l' if side > 0 else 'r'}@{r.s[i]:.0f}m gap {g['gap'][i]:.1f}")
+        check(not open_ or len(open_) <= max(2, pairs // 50),
+              f"base: a collision wall divides every pair of close sections (gap < {C.DIVIDER_GAP:.0f} m)",
+              f"{pairs} probes across gaps, {len(open_)} open: {open_[:4]}")
+    # the AI route covers the grass run-off (cars off the tarmac aren't reset at once)
+    med = float(np.median(np.concatenate([p["ai_margin"] for p in plan.values()])))
+    check(med >= 8.0, "base: the AI route reaches over the grass run-off", f"median margin {med:.1f} m beyond the edge")
 
 
 def read_tga(path: str) -> np.ndarray:
@@ -332,6 +424,7 @@ def check_base(out: str, slug: str, model: dict, spec: dict, manifest: dict) -> 
     missing = [n for n in names if not os.path.isfile(os.path.join(WF, "data/art/objects", n + ".scne"))]
     check(not missing, "base: every prop exists in the game data", ", ".join(missing))
     check_scenery(out, model, spec, manifest, len(props))
+    check_roadside(obs, model, spec, manifest)
     check_maps(out, model, spec, manifest)
     # bounds
     worst = max(float(np.abs(world_verts(o)[:, :2]).max()) for o in meshes if len(o.data.vertices))
