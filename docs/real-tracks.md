@@ -113,4 +113,9 @@ Game data checked for the sea: Wreckfest 1 has no sea material. The only water i
 `#noshadow` plane. Stone walls: stock `prop_stone_wall_01/02` (3.4 × 1.6 × 1.6 m) exist and are used.
 
 Unverified in game: the sea plane and the painted horizon, the second layout's checkpoints and AI, how 12 m
-and the Banking's camber drive. Not installed yet (waiting for the vertex-buffer fix).
+and the Banking's camber drive. Not installed yet (waiting for confirmation that RealCadwell loads and for the
+imported-track direction fix; rebuild after that lands).
+
+Zip `E:\WreckfestMods\realanglesey.zip` (two events, RealAnglesey International and RealAnglesey Coastal; 3,896
+subscenes, 6.97 M vertices with every subscene, within the stock limits). Renders:
+`.local\renders\realanglesey-{oblique,horizon,driver,driver-corkscrew,driver-banking,driver-rocket,driver-school}.png`.
