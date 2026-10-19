@@ -90,9 +90,9 @@ def package(spec: dict, manifest: dict, preview_svg: str, project: str, sizes: d
     # Generated blend/colour/clutter maps (bimage'd by the pipeline); the materials reference them by mod path
     tex_dir = os.path.join(src_track, "textures")
     if os.path.isdir(tex_dir):
-        for name in sorted(os.listdir(tex_dir)):
-            if name.endswith(".bmap"):
-                shutil.copyfile(os.path.join(tex_dir, name), p(*track_rel, "textures", name))
+        for fname in sorted(os.listdir(tex_dir)):  # not "name": that is the track's display name below
+            if fname.endswith(".bmap"):
+                shutil.copyfile(os.path.join(tex_dir, fname), p(*track_rel, "textures", fname))
     # The scenery placement manifest (for the web preview), beside the zip
     scenery = os.path.join(work, "scenes", "scenery.json")
     if os.path.isfile(scenery):
