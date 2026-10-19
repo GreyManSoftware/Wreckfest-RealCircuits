@@ -62,7 +62,9 @@ The same slug always gives the same file (seeded by the slug).
   4.5 and 14 m from the road edge) with the environment's concrete or tyre style. No barriers when walls are none.
 - Nothing else within `edgeMinM - 1` m of any road edge (`edgeMinM` = 14.5 m with walls, i.e. behind the set-back
   barrier, or run-off + 2 m without walls), except the start/finish gantry and the corner markers (dynamic tyre
-  stacks and bales, at least 3 m out, in front of the near barrier).
+  stacks and bales, at least 3 m out, in front of the near barrier). `info.nearRoadM` lists these exceptions as
+  `{category: [min, max]}` metres from the road edge (`max` null = unbounded); readers checking clearance should
+  use it rather than `edgeMinM` alone.
 - No-go discs: bridge decks and ramps (+25 m), jump take-off to landing + 40 m, and the grid sector (line - 25 m to
   the back row + 15 m), where only the gantry, flags, staff and the start grandstand may stand. The barrier row is
   exempt (containment runs past jumps and the grid).

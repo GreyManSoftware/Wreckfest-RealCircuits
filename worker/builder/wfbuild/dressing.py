@@ -740,6 +740,11 @@ class Planner:
         self.foliage()
         self._heights()
         self.sc.info.update({"corners": len(corners), "straights": len(straights), "edgeMinM": self.edge_min,
+                             # categories allowed closer to a road edge than edgeMinM: [min, max] metres (the
+                             # barrier row on the wall line, corner markers in front of it; under bridge decks
+                             # barriers pass beneath the deck)
+                             "nearRoadM": {"barriers": [C.WALL_OFFSET - 1.0, C.WALL_SETBACK + 2.0],
+                                           "cornerMarkers": [C.SHOULDER_W, None]},
                              "treeThreshold": round(self.tree_thr, 4)})
         return self.sc
 
