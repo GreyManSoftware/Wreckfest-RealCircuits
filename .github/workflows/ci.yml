@@ -60,7 +60,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: geom/pyproject.toml
-      - run: python -m pip install -e ".[service,test]"
+      - run: python -m pip install -e ".[service,test]" -e ../worker/builder
       - run: python -m pytest
 
   compose:

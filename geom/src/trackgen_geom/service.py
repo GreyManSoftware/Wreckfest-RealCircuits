@@ -10,8 +10,9 @@ documented in ``geom/README.md`` and ``src/Api/README.md``.
 Environment:
 
 - ``GEOM_MAX_BODY_BYTES`` (default 8 MiB): larger request bodies get 413.
-- ``GEOM_COMPUTE_TIMEOUT_S`` (default 15): a build that takes longer gets 503. Python can't kill a
-  thread, so the timed-out build keeps its pool thread until it finishes.
+- ``GEOM_COMPUTE_TIMEOUT_S`` (default 15): a build (for ``/scenery``, the build plus the scenery plan)
+  that takes longer gets 503. Python can't kill a thread, so the timed-out work keeps its pool thread
+  until it finishes.
 - ``GEOM_MAX_CONCURRENCY`` (default 2): build threads; further requests wait (inside the timeout).
 """
 
@@ -33,6 +34,7 @@ from fastapi.responses import JSONResponse, Response
 from . import __version__, rules
 from .model import to_plain
 from .pipeline import GeometryIssue, Result, build_track_model
+from .scenery import SceneryUnavailable, plan_scenery
 from .terrain import terrain_grid
 
 __all__ = ["app", "settings"]
@@ -156,21 +158,29 @@ async def _read_spec(request: Request) -> Any:
     return payload["spec"]
 
 
+async def _compute(what: str, timeout_s: float, fn: Any, *args: Any) -> Any:
+    """Run ``fn(*args)`` in the thread pool within ``timeout_s`` (503 ``compute-timeout`` past it)."""
+    loop = asyncio.get_running_loop()
+    future = loop.run_in_executor(_executor, fn, *args)
+    try:
+        return await asyncio.wait_for(future, timeout=max(0.0, timeout_s))
+    except TimeoutError:
+        log.warning(f"{what} timed out", extra={"timeoutS": settings.compute_timeout_s})
+        raise ServiceError(
+            503, "compute-timeout", f"The geometry {what} took longer than {settings.compute_timeout_s:g} s."
+        ) from None
+    except SceneryUnavailable as exc:
+        log.error("scenery planner unavailable", extra={"error": str(exc)})
+        raise ServiceError(503, "scenery-unavailable", "The scenery planner is not installed.") from None
+    except Exception:
+        log.exception(f"{what} failed")
+        raise ServiceError(500, "internal-error", "Internal error in the geometry service.") from None
+
+
 async def _build(spec: Any) -> Result:
     """Run the build in the thread pool, bounded by the compute timeout."""
-    loop = asyncio.get_running_loop()
     start = time.perf_counter()
-    future = loop.run_in_executor(_executor, build_track_model, spec)
-    try:
-        result = await asyncio.wait_for(future, timeout=settings.compute_timeout_s)
-    except TimeoutError:
-        log.warning("build timed out", extra={"timeoutS": settings.compute_timeout_s})
-        raise ServiceError(
-            503, "compute-timeout", f"The geometry build took longer than {settings.compute_timeout_s:g} s."
-        ) from None
-    except Exception:
-        log.exception("build failed")
-        raise ServiceError(500, "internal-error", "Internal error in the geometry service.") from None
+    result: Result = await _compute("build", settings.compute_timeout_s, build_track_model, spec)
     log.info(
         "build",
         extra={
@@ -296,3 +306,27 @@ async def model(request: Request) -> JSONResponse:
     loop = asyncio.get_running_loop()
     grid = await loop.run_in_executor(_executor, terrain_grid, model_dict)
     return JSONResponse({**_body(result), "model": model_dict, "terrain": grid})
+
+
+@app.post("/scenery")
+async def scenery(request: Request) -> JSONResponse:
+    """The builder's scenery plan for the 3D view: ``{"version", "scenery": trackgen-scenery/1 manifest}``.
+
+    Separate from ``/model`` because the planner takes 0.3-3 s: the editor shows the model first and asks for
+    the scenery only while its scenery layer is on. The build and the plan share one compute timeout.
+    """
+    spec = await _read_spec(request)
+    start = time.perf_counter()
+    result = _checked(await _build(spec))
+    assert result.model is not None
+    remaining = settings.compute_timeout_s - (time.perf_counter() - start)
+    manifest = await _compute("scenery plan", remaining, plan_scenery, spec, result.model.to_dict())
+    log.info(
+        "scenery",
+        extra={
+            "slug": manifest.get("slug"),
+            "total": manifest.get("total"),
+            "computeMs": round((time.perf_counter() - start) * 1000, 1),
+        },
+    )
+    return JSONResponse({"version": __version__, "scenery": manifest})
