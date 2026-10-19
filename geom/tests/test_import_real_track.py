@@ -41,6 +41,25 @@ def test_stitch_joins_ways_in_order_and_checks_continuity() -> None:
         irt.stitch(osm, [1, 3, 2])
     with pytest.raises(ValueError, match="doesn't close"):
         irt.stitch(_osm([(1, [1, 2, 3]), (2, [3, 4])]), [1, 2])
+    # [way, from, to] takes part of a way (an alternative layout leaving it half way)
+    osm = _osm([(1, [1, 2, 3, 4]), (2, [2, 5, 6]), (3, [6, 1])])
+    pts, _ = irt.stitch(osm, [[1, 1, 2], 2, 3])
+    assert len(pts) == 4
+
+
+def test_branch_of_cuts_the_part_that_leaves_the_main_lap() -> None:
+    # main: a 200 x 100 m rectangle-ish loop; alt: the same loop cut short by a chord across the middle
+    t = np.linspace(0, 2 * math.pi, 400, endpoint=False)
+    main = irt.resample_closed(np.column_stack([100 * np.cos(t), 50 * np.sin(t)]), 2.0)
+    keep = main[:, 0] < 0.0
+    alt = np.vstack([main[keep], np.column_stack([np.zeros(20), np.linspace(-50, 50, 20)])])
+    alt = irt.resample_closed(alt[np.argsort(np.arctan2(alt[:, 1], alt[:, 0] - 30))], 2.0)
+    br = irt.branch_of(alt, main, 2.0)
+    for end in (br[0], br[-1]):
+        assert np.min(np.hypot(*(main - end).T)) < 1e-6  # ends lie on main points
+    assert np.max(np.min(np.hypot(br[:, None, 0] - main[None, :, 0], br[:, None, 1] - main[None, :, 1]), axis=1)) > 20
+    with pytest.raises(ValueError, match="doesn't share"):
+        irt.branch_of(main + 500.0, main, 2.0)
 
 
 def _road_dtm(offset: float, bank: float) -> irt.Dtm:
