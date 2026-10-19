@@ -64,7 +64,7 @@ def allowed_assets(name: str | None) -> set[str]:
     out: set[str] = set()
     for v in table()["common"].values():
         out.update(v)
-    for k in ("trees", "bushes", "ground_props", "buildings", "cornerMarkers", "saplings"):
+    for k in ("trees", "parkTrees", "bushes", "ground_props", "buildings", "cornerMarkers", "saplings"):
         out.update(e.get(k, []))
     out.update(e.get("foliage", {}).get("groups", []))
     for row in e.get("barriers", {}).values():

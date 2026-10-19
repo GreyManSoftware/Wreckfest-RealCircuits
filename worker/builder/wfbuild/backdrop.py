@@ -66,6 +66,8 @@ class Backdrop:
         self.phase = 0.5 + 0.5 * periodic_noise(seed_for(self.slug, "hills-phase"), segments, 4)
         self.hill_amp = tuple(float(v) for v in self.e.get("farHills", (2.0, 12.0)))
         self.rng = np.random.default_rng(seed_for(self.slug, "backdrop"))
+        # an imported track's real ground continues into the far ground as far as its heightfield reaches
+        self.real_extent = getattr(geo.ground, "extent", None) if getattr(geo, "real_ground", False) else None
 
     def point(self, k: int, off: float) -> np.ndarray:
         return self.c + self.u[k] * (self.d_rect[k] + off)
@@ -84,7 +86,15 @@ class Backdrop:
         roll = 0.55 + 0.45 * math.sin(2.0 * math.pi * (2.3 * t + self.phase[k]))
         z_hill = self.base_z + 1.0 + amp * (0.5 + 0.5 * self.hills[k]) * roll + 3.0 * self.hills2[k] * t
         blend = smooth(min(1.0, t / 0.1))
-        return float(self.edge_z[k] + 0.4) * (1 - blend) + z_hill * blend
+        z = float(self.edge_z[k] + 0.4) * (1 - blend) + z_hill * blend
+        if self.real_extent is not None:
+            p = self.point(k, min(t * self.h_off[k], self.room[k]))
+            x0, x1, y0, y1 = self.real_extent
+            inside = min(p[0] - x0, x1 - p[0], p[1] - y0, y1 - p[1])
+            w = smooth(inside / C.REAL_GROUND_FADE)
+            if w > 0:
+                z = float(self.geo.ground(p[None, :])[0]) * w + z * (1 - w)
+        return z
 
     def ground_at(self, k: float, t: float) -> float:
         """ground_z at a fractional ray index (linear between rays)."""
