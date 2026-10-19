@@ -102,7 +102,7 @@ sample `geom/tests/samples/realanglesey.json`, report `.local\realanglesey\repor
 
 Width 12 m (OSM `width` on three ways), clockwise, start/finish at OSM node "Start/Finish". Environment
 `coastal`: sea plane at 0 m ODN (`seaLevelM` −11 relative to the 11 m datum) over the ground below it, rocks and a
-cliff face on the shore, stone field walls, gorse clumps, three farmsteads, concrete barrier rows (prop_barrier7a/7c, which stock fields13 uses by the hundred; not the static tyre walls), crowds at
+cliff face on the shore, stone field walls, gorse clumps, three farmsteads, light concrete barrier rows (stock prop_barrier8_dirty, about 2,500 vertices each, so the base stays within the stock vertex budget: 6.97 M of 10 M with every subscene), crowds at
 the Corkscrew, the Rocket and the Banking, and a `#horizon` painted from the DTM skyline (Snowdonia 90–140°, the
 Llŷn hills to the south, open sea to the south-west). The terrain heightfield is 10 m cells over the circuit
 ± 1 km (coarse, so the far ground carries the real coast).

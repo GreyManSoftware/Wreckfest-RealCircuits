@@ -251,7 +251,9 @@
                 "(stock bushes), grey rock on the foreshore and outcrops, stone field walls, a few farmsteads, no forest and",
                 "no background tree cards. With an imported track's seaLevelM the ground below it is sea: a flat generated sea",
                 "plane over the terrain and far ground, rocks and cliffs along the shore. The horizon is painted from the",
-                "imported horizon profile when there is one (horizonFromProfile), else the stock fields vista."],
+                "imported horizon profile when there is one (horizonFromProfile), else the stock fields vista.",
+                "Barriers are the light stock barrier8_dirty props (~2,500 vertices each; fields14 uses ~230): a real lap has",
+                "~7 km of barrier line, and barrier7a/c (11,900 each) would exceed the stock vertex budget."],
    "stock": "fields13",
    "terrainSurface": "offroadfoliage",
    "clutterGroup": "fields13",
@@ -294,7 +296,7 @@
    "ground_props": ["prop_rock_large3", "prop_rock_large4", "prop_rock_large5"],
    "buildings": ["building_barn1", "prop_house01", "prop_building_storage_b"],
    "cornerMarkers": ["prop_tirepile_black07", "prop_tirepile_black09", "prop_tirepile_red07"],
-   "barriers": {"concrete": ["prop_barrier7a_small_colmod", "prop_barrier7c_small_colmod"], "tyres": ["prop_tirebarrier02", "prop_tirebarrier04"]},
+   "barriers": {"concrete": ["prop_barrier8_dirty_side1", "prop_barrier8_dirty2_side1"], "tyres": ["prop_tirebarrier02", "prop_tirebarrier04"]},
    "crowdFence": "prop_fence_wood5"
   },
   "gravel_pit": {
