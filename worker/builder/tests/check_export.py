@@ -5,7 +5,8 @@ usage: python check_export.py OUT_DIR PROJECT_ROOT
 Reads OUT_DIR/manifest.json and OUT_DIR/model.json, then PROJECT_ROOT/data/track/<slug>/<scene>.bgo3 with
 bgo_read: object names, kinds and CustomData survive the export, subscene references resolve to the base
 scene and to stock props, curves are not exported, materials keep their name#surface and texture paths,
-and every .scne is non-empty; the built base .scne stays within the stock scene limits (scne_read.LIMITS).
+and every .scne is non-empty; the built base .scne stays within the stock scene limits (scne_read.LIMITS);
+every layout has its minimap track data (<scene>.tcat) and the compiled AI route the minimap draws matches it.
 Exits non-zero on any failure.
 """
 from __future__ import annotations
@@ -22,6 +23,7 @@ import bgo_read
 import scne_read
 import numpy as np
 from wfbuild import config as C
+from wfbuild import tcat
 
 failures: list[str] = []
 
@@ -227,6 +229,47 @@ def check_driving_order(scene: str, scne: str) -> None:
           f"checkpoint sectors {secs[:12]}; stored otherway {lay.main_otherway()}")
 
 
+def check_minimap(scene: str, scne: str, track: str, info: dict | None) -> None:
+    """The in-race minimap: Wreckfest 1 draws it from the layout's compiled AI routes, set up from the layout's
+    track data, which the game looks for as <scene dir>/<scene>.tcat (wfbuild/tcat.py). Checks that the .tcat
+    resolves beside the .scne and parses (v20, stock layout), lists every compiled AI route with nothing hidden
+    from the minimap and a non-zero zoom, and that the compiled main route - what the minimap draws, in world
+    x/y seen from above - covers the layout's own road: its bounds within 15 m of the layout's centreline,
+    the same direction of travel (signed area) and the lap length within 5 %."""
+    path = os.path.join(track, scene + ".tcat")
+    if not os.path.isfile(path):
+        check(False, f"{scene}: minimap track data {scene}.tcat beside the .scne", "missing")
+        return
+    raw = open(path, "rb").read()
+    try:
+        td = tcat.read(scne_read.unbag(raw))
+    except ValueError as e:
+        check(False, f"{scene}: minimap track data parses", str(e))
+        return
+    check(tcat.header(raw) == (1, "tcat", tcat.VERSION) and td["zoomFactor"] > 0 and td["highlightRange"] > 0,
+          f"{scene}: minimap track data {scene}.tcat resolves (v{tcat.VERSION}, zoom {td['zoomFactor']}, "
+          f"highlight {td['highlightRange']})")
+    lay = scne_read.read_layout(scne)
+    check(len(td["routes"]) == len(lay.routes) and all(r["flags"] == 0 for r in td["routes"]),
+          f"{scene}: track data lists every AI route, none hidden from the minimap",
+          f"{len(td['routes'])} entries, {len(lay.routes)} compiled routes")
+    if not info or "minimap" not in info:
+        check(False, f"{scene}: manifest has the layout's minimap outline")
+        return
+    want = info["minimap"]
+    mids = np.array([((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0) for a, b in lay.routes[0]])
+    q = np.roll(mids, -1, axis=0)
+    area = 0.5 * float(np.sum(mids[:, 0] * q[:, 1] - q[:, 0] * mids[:, 1]))
+    length = float(np.sum(np.hypot(*(q - mids).T)))
+    got = [*mids.min(0), *mids.max(0)]
+    off = max(abs(a - b) for a, b in zip(got, want["bounds"]))
+    check(off <= 15.0 and np.sign(area) == np.sign(want["signedAreaM2"])
+          and abs(length - want["lengthM"]) <= 0.05 * want["lengthM"],
+          f"{scene}: minimap (compiled main AI route) matches the layout's bounds, direction and length",
+          f"bounds off by {off:.1f} m; {'anti' if area > 0 else ''}clockwise as driven "
+          f"(layout {'anti' if want['signedAreaM2'] > 0 else ''}clockwise); {length:.0f} m vs {want['lengthM']:.0f} m")
+
+
 def main() -> None:
     out, root = sys.argv[1], sys.argv[2]
     with open(os.path.join(out, "manifest.json"), encoding="utf-8") as f:
@@ -275,6 +318,7 @@ def main() -> None:
                 check(v <= lim, f"{scene}: {what} within the stock limit", f"{v:,} (limit {lim:,})")
         if not scene.endswith("_base") and os.path.isfile(scne):
             check_driving_order(scene, scne)
+            check_minimap(scene, scne, track, next((l for l in manifest["layouts"] if l["name"] == scene), None))
         b = bgo_read.read(bgo_path, tris=not scene.endswith("_base"))
         unresolved = sorted({f"{m.name}: {t.path}" for m in b.materials for t in m.textures
                              if not texture_exists(t.path, root)})
