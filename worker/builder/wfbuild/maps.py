@@ -11,7 +11,7 @@ frame's south edge as in Blender) under ``<root>/data/track/<slug>/textures/``; 
 | ``<slug>_blend_road_c`` | R main surface, G variant patches, B worn edge / dirt | road (slot 6) |
 | ``<slug>_color_terrain_c`` | soft-light colour, 128 neutral: environment tint, wear near the road, crop tints | terrain, shoulders (slot 9) |
 | ``<slug>_color_road_c`` | grey 128 +- noise, darker racing line, dusty edges | road (slot 9) |
-| ``<slug>_clutter_t`` | G grass 5-80 m from the road (stock fields13), R bushes, B flowers, alpha 128 | terrain (slot 11) |
+| ``<slug>_clutter_t`` | G grass 5-80 m from the road (stock fields13), R bushes, B flowers, alpha 128; thinned to the stock budget (``config.CLUTTER_MAX_*``) | terrain (slot 11) |
 """
 from __future__ import annotations
 
@@ -67,6 +67,18 @@ def zone_mask(zones, fr, n: int) -> np.ndarray:
         d = np.hypot(gx - z.x, gy - z.y)
         m = np.maximum(m, smooth01((z.r - d) / max(z.r * 0.35, 3.0)))
     return m
+
+
+def clutter_density(mask: np.ndarray, size_m: float, window_m: float = C.CLUTTER_WINDOW_M) -> tuple[float, float]:
+    """(hectares at full density, highest mean within a window_m square) of a clutter mask (n x n [x channels],
+    0..1, channels summed) over a square frame of size_m. Also used by the export checks on the built .bmap."""
+    m = mask.sum(axis=2) if mask.ndim == 3 else mask
+    n = m.shape[0]
+    px = size_m / n
+    w = int(min(n, max(1, round(window_m / px))))
+    c = np.pad(m.astype(np.float64), ((1, 0), (1, 0))).cumsum(0).cumsum(1)
+    s = c[w:, w:] - c[:-w, w:] - c[w:, :-w] + c[:-w, :-w]
+    return float(m.sum() * px * px / 1e4), float(s.max() / (w * w))
 
 
 def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
@@ -186,7 +198,11 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
     grass = np.maximum(grass, 0.35 * smooth01((dj - lo) / 3.0) * smooth01((n_mid - 0.55) / 0.1) * (1 - r) * (1 - b))
     bushes = band * smooth01((n_mid - 0.66) / 0.08) * (1 - r) * 0.6
     flowers = band * smooth01((n_fine - 0.72) / 0.1) * (1 - r) * 0.6
-    clutter = np.stack([bushes, grass, flowers], axis=2) * 255.0
+    clutter = np.stack([bushes, grass, flowers], axis=2)
+    # keep within the stock clutter budget (config.CLUTTER_MAX_*): thin the whole mask evenly
+    ha, local = clutter_density(clutter, size)
+    clutter_scale = min(1.0, C.CLUTTER_MAX_HA / max(ha, 1e-9), C.CLUTTER_MAX_LOCAL / max(local, 1e-9))
+    clutter = clutter * clutter_scale * 255.0
     clutter_a = np.full((n, n), float(e.get("clutterAlpha", 128)))
 
     out_dir = os.path.join(root, "data", "track", slug, "textures")
@@ -198,4 +214,6 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
         paths[name] = rel_path(slug, name)
     stats = {k: [round(float(v), 1) for v in arr.reshape(-1, 3).mean(0)]
              for k, arr in (("blendTerrain", blend_terrain), ("colorTerrain", color_terrain), ("clutter", clutter))}
-    return {"frame": [round(v, 3) for v in fr], "res": n, "pixelM": round(px, 3), "paths": paths, "meanRGB": stats}
+    return {"frame": [round(v, 3) for v in fr], "res": n, "pixelM": round(px, 3), "paths": paths, "meanRGB": stats,
+            "clutter": {"fullDensityHa": round(ha * clutter_scale, 2), "localMax": round(local * clutter_scale, 3),
+                        "scale": round(clutter_scale, 3)}}

@@ -102,6 +102,13 @@ MAP_RES = 1024                # blend / colour / clutter maps, square over the t
 FIELD_PX_MIN = 2.0            # distance-field resolution (metres per pixel, at least)
 FIELD_CAP = 160.0             # distances beyond this are clamped
 GRASS_BAND = (5.0, 80.0)      # clutter grass from this far to this far outside the road edge (stock fields13)
+# Clutter budget. The game builds the clutter (grass, bushes, flowers scattered by the clutter mask) into vertex
+# buffers when it sets up the scene; the visuals-v2 masks (mean 0.29-0.39, ~11-32 ha at full density) crashed
+# the game with "Out of vertex buffer memory" (bagmodelsetup.cpp). Stock clutter masks (R+G+B over the map
+# frame): 3.6-7.2 ha at full density, at most 0.13-0.24 mean within any 400 m window (worker/docs/visual-assets.md).
+CLUTTER_MAX_HA = 5.0          # sum of the mask (R+G+B, 0..1) x pixel area
+CLUTTER_MAX_LOCAL = 0.18      # highest mean of the mask within a CLUTTER_WINDOW_M square
+CLUTTER_WINDOW_M = 400.0
 
 # --- edge decal ------------------------------------------------------------------------------------
 EDGE_DECAL_OUT = 0.3          # the decal's broken asphalt edge sits this far outside the road edge
