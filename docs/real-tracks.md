@@ -116,6 +116,10 @@ Built `E:\WreckfestMods\realcadwell.zip` (6.7 MB; barriers on 27-29 % of each si
 RealAnglesey got the same rebuild (geometric kerbs: no OSM, LIDAR or guide data on kerbs there):
 `E:\WreckfestMods\realanglesey.zip`, renders `.local\renders\realanglesey-v2-*.png`, installed.
 
+**Minimap (2026-10-20):** both circuits had no in-race minimap: the mods shipped no `.tcat`, which the game needs
+to set the minimap up (it draws the compiled AI route; there is no minimap image). Every layout now gets a
+generated `.tcat` (worker README, "Track data and the minimap"); both zips rebuilt.
+
 ## RealAnglesey (Anglesey Circuit / Trac Môn, International + Coastal, 2026-10-19)
 
 One base scene with two layouts (`realanglesey_race` = International, `realanglesey_coastal` = Coastal). Data

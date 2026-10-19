@@ -54,6 +54,8 @@ export_and_build() {
         done
         if (( bad == 0 && nt > 0 )); then echo "PASS: bimage $nt generated maps"; else echo "FAIL: bimage ($bad failed)"; rc=1; fi
     fi
+    # Track data (.tcat, one per layout) beside the layout scenes, as the pipeline ships it (check_export)
+    cp "$dir/mod/data/track/$slug/"*.tcat "$track/" 2>/dev/null || true
     for scene in $(scenes_of "$dir"); do
         if ! "${BLENDER[@]}" --python "$T/export_scene.py" -- "$dir/$scene.blend" "$track/$scene.bgo3" \
             > "$dir/export_$scene.log" 2>&1; then
