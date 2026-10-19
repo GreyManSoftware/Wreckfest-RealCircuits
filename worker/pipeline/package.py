@@ -4,7 +4,7 @@ Tree for slug S with layouts S_race (and S_race_reverse):
     modinfo.modi, preview.jpg, build-report.json
     data/property/event/S/S.envi, S_race.evse[, S_race_reverse.evse]
     data/property/weather/S/S.weli                     (stock .weat paths only)
-    data/track/S/S_base.scne, S_race.scne[, S_race.tcat], ...
+    data/track/S/S_base.scne, S_race.scne, S_race.tcat (generated, or the recorded upload), ...
     data/track/S/menu/event_S_race_{loading_1920x1200,results_812x162,small_250x116}_raw.bmap
     data/menu/textures/env_S_{large_832x386,small_250x116}_raw.bmap
     data/menu/textures/event_S_race_small_250x116_raw.bmap
@@ -35,7 +35,9 @@ UNVERIFIED = [
     "Weathers reference stock .weat files of other tracks through the .weli (no .weat is copied).",
     "Menu images: names and power-of-two canvases (content top-left at the named size) copied from the "
     "example mod; bimage -auto chose the format.",
-    "Without a recorded .tcat per layout the game makes its own grid and trackside cameras.",
+    "Generated .tcat per layout (track data, v20 like stock: no trackside cameras, one route entry per AI "
+    "route, grid generation off so the start points are the grid): the game sets up the in-race minimap "
+    "from it; a recorded .tcat upload replaces it.",
 ]
 
 
@@ -105,7 +107,14 @@ def package(spec: dict, manifest: dict, preview_svg: str, project: str, sizes: d
     if os.path.isfile(scenery):
         shutil.copyfile(scenery, os.path.join(out_dir, "scenery.json"))
 
-    # .tcat uploads beside their layout .scne
+    # Track data: the builder's generated .tcat per layout (the game sets up the in-race minimap from it;
+    # wfbuild/tcat.py), then any recorded upload beside its layout .scne, which replaces the generated one
+    gen_tcat = os.path.join(work, "scenes", "mod", *track_rel)
+    for lay in layouts:
+        src = os.path.join(gen_tcat, f"{lay['name']}.tcat")
+        if not os.path.isfile(src):
+            raise BuildError(f"no generated track data (.tcat) for layout {lay['name']}")
+        shutil.copyfile(src, p(*track_rel, f"{lay['name']}.tcat"))
     tcat_report = {}
     for api_name, path in sorted(tcats.items()):
         target = _layout_for_tcat(api_name, slug, layouts)
@@ -140,7 +149,8 @@ def package(spec: dict, manifest: dict, preview_svg: str, project: str, sizes: d
                     weli=weli_rel)
         f.save(p("data", "property", "event", slug, f"{lay['name']}.evse"))
         events.append({"event": lay["name"], "title": title, "scne": scne, "reverse": lay["reverse"],
-                       "scneBytes": sizes.get(lay["name"]), "tcat": tcat_report.get(lay["name"])})
+                       "scneBytes": sizes.get(lay["name"]),
+                       "tcat": f"uploaded ({tcat_report[lay['name']]})" if lay["name"] in tcat_report else "generated"})
 
     f = bw.BagWrite()
     f.modi_file(name=name, preview="preview.jpg", desc=desc, tagbits=8)  # visibility 2 = private; 8 = track
