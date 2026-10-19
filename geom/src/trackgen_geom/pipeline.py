@@ -30,6 +30,7 @@ from .model import (
     GridSlot,
     Join,
     JumpRecord,
+    LayoutRecord,
     Route,
     Sample,
     TrackModel,
@@ -354,9 +355,57 @@ class _Builder:
             self.warn("imported-lap-length", f"The imported centreline is {self.lap:.0f} m; lapLengthKm ({want:.0f} m) is ignored.")
         self.routes = [self.main]
         self.alt_gaps = {}
-        self.by_id = {"main": self.main}
+        alts = _unique_by_id(self.imported.get("altLayouts") or [], "imported-layout", self.warnings)
+        for k, alt in enumerate(alts):
+            r = self._imported_branch(alt, -(k + 1))
+            if r is None:
+                continue
+            self.routes.append(r)
+            s0, s1 = float(self.main.s[r.start_join]), float(self.main.s[r.end_join])
+            self.layouts.append(LayoutRecord(alt["id"], alt["name"], s0 + r.length + (self.lap - s1), [
+                {"route": "main", "fromS": 0.0, "toS": s0},
+                {"route": r.id, "fromS": 0.0, "toS": r.length},
+                {"route": "main", "fromS": s1, "toS": self.lap},
+            ]))
+        if self.layouts:
+            name = self.imported.get("mainLayoutName") or "Main"
+            self.layouts.insert(0, LayoutRecord("main", name, self.lap, [{"route": "main", "fromS": 0.0, "toS": self.lap}]))
+        self.by_id = {r.id: r for r in self.routes}
+
+    def _imported_branch(self, alt: Mapping[str, Any], ai_index: int) -> _Route | None:
+        """An imported alternative layout's branch: an open route whose ends are snapped to the nearest main
+        centreline points (used as given otherwise). The branch must leave and rejoin the main route after the
+        start/finish line in driving order, so every layout shares the line and the grid."""
+        pts = np.array([[p["x"], p["y"]] for p in alt["centreline"]], dtype=np.float64)
+        z = np.array([p["z"] for p in alt["centreline"]], dtype=np.float64)
+        bank = np.radians([p["bankDeg"] for p in alt["centreline"]])
+        m = self.main
+        i0 = int(np.argmin(np.hypot(*(m.pts - pts[0]).T)))
+        i1 = int(np.argmin(np.hypot(*(m.pts - pts[-1]).T)))
+        gap0, gap1 = float(np.hypot(*(m.pts[i0] - pts[0]))), float(np.hypot(*(m.pts[i1] - pts[-1])))
+        if not m.s[i0] < m.s[i1]:
+            self.warn("imported-layout-unsupported",
+                      f"Layout {alt['id']} must leave and rejoin the main centreline after the start/finish line; "
+                      "it is left out.")
+            return None
+        pts[0], pts[-1] = m.pts[i0], m.pts[i1]
+        z[0], z[-1] = m.imported_z[i0], m.imported_z[i1]
+        bank[0], bank[-1] = m.bank[i0], m.bank[i1]
+        keep = np.concatenate([[True], np.hypot(*np.diff(pts, axis=0).T) > 1e-6])
+        pts, z, bank = pts[keep], z[keep], bank[keep]
+        if len(pts) < 3:
+            self.warn("imported-layout-unsupported", f"Layout {alt['id']}'s branch is degenerate; it is left out.")
+            return None
+        r = _Route(alt["id"], pts, False, ai_index)
+        r.start_join, r.end_join = i0, i1
+        r.finalize()
+        r.imported_z = z
+        r.bank = bank
+        self.alt_gaps[alt["id"]] = (gap0, gap1)
+        return r
 
     def _routes(self) -> None:
+        self.layouts: list[LayoutRecord] = []
         if self.imported:
             self._imported_routes()
             return
@@ -661,7 +710,8 @@ class _Builder:
             # The road heights are the imported ones; they play the part of custom elevation's marker profile
             # (the grid grade fact reads it), on flat preset ground.
             self.controls = {}
-            self.main.m = self.main.imported_z.copy()
+            for r in self.routes:
+                r.m = r.imported_z.copy()
             return
         for mk in _unique_by_id(self.sketch.get("elevationMarkers", []), "elevation-marker", self.warnings):
             route = self.by_id.get(mk.get("route", "main"))
@@ -1103,6 +1153,7 @@ class _Builder:
             first_sector_length_m=first_sector,
             elevation_markers=marker_records,
             warnings=[f"{w.code}: {w.message}" for w in self.warnings],
+            layouts=self.layouts,
         )
         facts: dict[str, Any] = {
             "firstSectorLengthM": _round(first_sector),

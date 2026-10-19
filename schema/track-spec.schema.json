@@ -289,6 +289,28 @@
         }
       }
     },
+    "ImportedAltLayout": {
+      "title": "Imported alternative layout",
+      "description": "Another real layout that shares the base scene: the main centreline with one section replaced by this branch. The branch is open, in driving order, and starts and ends on the main centreline (its first and last points are snapped to the nearest main points). The layout's lap is the main centreline up to the branch start, the branch, then the main centreline from the branch end; it shares the main start/finish line and grid.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "centreline"],
+      "properties": {
+        "id": {
+          "description": "Layout id (also the layout's scene name suffix); not main.",
+          "type": "string",
+          "pattern": "^(?!main$)[a-z][a-z0-9_]{0,23}$"
+        },
+        "name": { "description": "Display name, e.g. Coastal.", "type": "string", "minLength": 1, "maxLength": 40 },
+        "centreline": {
+          "description": "The branch from where it leaves the main centreline to where it rejoins it, points about 1-10 m apart.",
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 5000,
+          "items": { "$ref": "#/$defs/ImportedPoint" }
+        }
+      }
+    },
     "ImportedTrack": {
       "title": "Imported track",
       "description": "A real-world track: the exact centreline (closed, in driving order, point 0 on the start/finish line) with per-point heights and camber, plus optionally the surrounding terrain, woodland and named places. It replaces the drawn main loop, and the lap length is the centreline's.",
@@ -323,6 +345,25 @@
           "maxItems": 20,
           "items": { "$ref": "#/$defs/NamedSpot" },
           "default": []
+        },
+        "mainLayoutName": {
+          "description": "Display name of the main centreline's layout when there are alternative layouts (e.g. International).",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "altLayouts": {
+          "description": "Further real layouts sharing the base scene (e.g. Anglesey's Coastal beside the International). Each gets its own layout (start points, checkpoints, AI routes).",
+          "type": "array",
+          "maxItems": 4,
+          "items": { "$ref": "#/$defs/ImportedAltLayout" },
+          "default": []
+        },
+        "seaLevelM": {
+          "description": "Sea surface height (relative to datumM) when the ground runs down to the sea: terrain below it is under water and the far ground becomes sea.",
+          "type": "number",
+          "minimum": -200,
+          "maximum": 500
         }
       }
     },
@@ -389,9 +430,9 @@
     },
     "Environment": {
       "title": "Environment",
-      "description": "Environment preset (stock textures and props). parkland: lush grass, deciduous woods and grass banks.",
+      "description": "Environment preset (stock textures and props). parkland: lush grass, deciduous woods and grass banks. coastal: open, windswept coastal grassland with gorse, rocks along the shore, stone walls and the sea.",
       "type": "string",
-      "enum": ["gravel_pit", "farmland", "forest", "industrial", "sandpit", "parkland"]
+      "enum": ["gravel_pit", "farmland", "forest", "industrial", "sandpit", "parkland", "coastal"]
     },
     "Weather": {
       "title": "Weather",

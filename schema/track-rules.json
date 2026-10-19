@@ -166,6 +166,29 @@
       }
     },
     {
+      "id": "imported-alt-layout-ids-unique",
+      "title": "Imported layout ids are unique",
+      "evaluatedBy": "engine",
+      "forEach": { "path": "sketch.imported.altLayouts", "as": "layout" },
+      "effect": {
+        "type": "require",
+        "assert": {
+          "==": [
+            {
+              "count": {
+                "over": { "var": "sketch.imported.altLayouts" },
+                "as": "other",
+                "where": { "==": [{ "var": "$other.id" }, { "var": "$layout.id" }] }
+              }
+            },
+            1
+          ]
+        },
+        "severity": "error",
+        "message": "Imported layout id {$layout.id} is used more than once."
+      }
+    },
+    {
       "id": "crossing-ids-unique",
       "title": "Crossing ids are unique",
       "evaluatedBy": "engine",
@@ -673,7 +696,7 @@
       "title": "Sand only in sandy presets",
       "description": "Provisional: sand surfaces are only offered in the sandpit and gravel pit presets.",
       "evaluatedBy": "engine",
-      "when": { "in": [{ "var": "options.environment" }, ["farmland", "forest", "industrial", "parkland"]] },
+      "when": { "in": [{ "var": "options.environment" }, ["farmland", "forest", "industrial", "parkland", "coastal"]] },
       "effect": {
         "type": "disable",
         "option": "surface",

@@ -52,7 +52,7 @@ class Elevation(StrEnum):
 
 
 class Environment(StrEnum):
-    """Environment preset (stock textures and props). parkland: lush grass, deciduous woods and grass banks."""
+    """Environment preset (stock textures and props). parkland: lush grass, deciduous woods and grass banks. coastal: open, windswept coastal grassland with gorse, rocks along the shore, stone walls and the sea."""
 
     GRAVEL_PIT = "gravel_pit"
     FARMLAND = "farmland"
@@ -60,6 +60,7 @@ class Environment(StrEnum):
     INDUSTRIAL = "industrial"
     SANDPIT = "sandpit"
     PARKLAND = "parkland"
+    COASTAL = "coastal"
 
 
 class Weather(StrEnum):
@@ -494,6 +495,30 @@ class NamedSpot:
 
 
 @dataclass(kw_only=True)
+class ImportedAltLayout:
+    """Another real layout that shares the base scene: the main centreline with one section replaced by this branch. The branch is open, in driving order, and starts and ends on the main centreline (its first and last points are snapped to the nearest main points). The layout's lap is the main centreline up to the branch start, the branch, then the main centreline from the branch end; it shares the main start/finish line and grid."""
+
+    id: str
+    name: str
+    centreline: list[ImportedPoint]
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> ImportedAltLayout:
+        return cls(
+            id=str(data["id"]),
+            name=str(data["name"]),
+            centreline=[ImportedPoint.from_dict(v0) for v0 in data["centreline"]],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["id"] = self.id
+        out["name"] = self.name
+        out["centreline"] = [v0.to_dict() for v0 in self.centreline]
+        return out
+
+
+@dataclass(kw_only=True)
 class ImportedTrack:
     """A real-world track: the exact centreline (closed, in driving order, point 0 on the start/finish line) with per-point heights and camber, plus optionally the surrounding terrain, woodland and named places. It replaces the drawn main loop, and the lap length is the centreline's."""
 
@@ -504,6 +529,9 @@ class ImportedTrack:
     woodland: list[WoodlandArea] | None = None
     corners: list[NamedSpot] | None = None
     viewing_spots: list[NamedSpot] | None = None
+    main_layout_name: str | None = None
+    alt_layouts: list[ImportedAltLayout] | None = None
+    sea_level_m: float | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> ImportedTrack:
@@ -515,6 +543,9 @@ class ImportedTrack:
             woodland=None if data.get("woodland") is None else [WoodlandArea.from_dict(v0) for v0 in data["woodland"]],
             corners=None if data.get("corners") is None else [NamedSpot.from_dict(v0) for v0 in data["corners"]],
             viewing_spots=None if data.get("viewingSpots") is None else [NamedSpot.from_dict(v0) for v0 in data["viewingSpots"]],
+            main_layout_name=None if data.get("mainLayoutName") is None else str(data["mainLayoutName"]),
+            alt_layouts=None if data.get("altLayouts") is None else [ImportedAltLayout.from_dict(v0) for v0 in data["altLayouts"]],
+            sea_level_m=None if data.get("seaLevelM") is None else float(data["seaLevelM"]),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -531,6 +562,12 @@ class ImportedTrack:
             out["corners"] = [v0.to_dict() for v0 in self.corners]
         if self.viewing_spots is not None:
             out["viewingSpots"] = [v0.to_dict() for v0 in self.viewing_spots]
+        if self.main_layout_name is not None:
+            out["mainLayoutName"] = self.main_layout_name
+        if self.alt_layouts is not None:
+            out["altLayouts"] = [v0.to_dict() for v0 in self.alt_layouts]
+        if self.sea_level_m is not None:
+            out["seaLevelM"] = self.sea_level_m
         return out
 
 
@@ -828,6 +865,7 @@ __all__ = [
     "Environment",
     "GeometryFacts",
     "Heightfield",
+    "ImportedAltLayout",
     "ImportedPoint",
     "ImportedTrack",
     "Jump",
