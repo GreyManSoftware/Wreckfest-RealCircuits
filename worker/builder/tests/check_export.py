@@ -5,7 +5,8 @@ usage: python check_export.py OUT_DIR PROJECT_ROOT
 Reads OUT_DIR/manifest.json and OUT_DIR/model.json, then PROJECT_ROOT/data/track/<slug>/<scene>.bgo3 with
 bgo_read: object names, kinds and CustomData survive the export, subscene references resolve to the base
 scene and to stock props, curves are not exported, materials keep their name#surface and texture paths,
-and every .scne is non-empty. Exits non-zero on any failure.
+and every .scne is non-empty; the built base .scne stays within the stock scene limits (scne_read.LIMITS).
+Exits non-zero on any failure.
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import bgo_read
+import scne_read
 import numpy as np
 from wfbuild import config as C
 
@@ -158,6 +160,12 @@ def main() -> None:
         scne = os.path.join(track, scene + ".scne")
         check(os.path.isfile(scne) and os.path.getsize(scne) > 0, f"{scene}: .scne built",
               f"{os.path.getsize(scne) if os.path.isfile(scne) else 0} bytes")
+        if scene.endswith("_base") and os.path.isfile(scne):
+            # what the game loads, read back from the built .scne: draw batches, vertices with every prop
+            # instance, clutter, all below the stock-observed limits (more crashed the game: "Out of vertex
+            # buffer memory", 2026-10-19)
+            for what, v, lim in scne_read.limits(scne, [root, WF]):
+                check(v <= lim, f"{scene}: {what} within the stock limit", f"{v:,} (limit {lim:,})")
         b = bgo_read.read(bgo_path, tris=not scene.endswith("_base"))
         unresolved = sorted({f"{m.name}: {t.path}" for m in b.materials for t in m.textures
                              if not texture_exists(t.path, root)})
