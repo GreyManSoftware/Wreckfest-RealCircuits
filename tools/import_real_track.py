@@ -46,9 +46,12 @@ EA_WCS = ("https://environment.data.gov.uk/spatialdata/lidar-composite-digital-t
 EA_COVERAGE = "13787b9a-26a4-4775-8523-806d13af58fc__Lidar_Composite_Elevation_DTM_1m"
 DEFAULT_CACHE_ROOT = Path(r"E:\Source\wreckfest\.local")  # downloads go to <root>/<slug>/ (gitignored)
 # rule min-corner-radius for real tracks: widthM / 2 + this (real hairpins such as Cadwell's Club Hairpin are kept)
-IMPORTED_MIN_INNER_EDGE_RADIUS_M = float(json.loads(
-    (Path(__file__).resolve().parents[1] / "schema" / "track-rules.json").read_text(encoding="utf-8")
-)["constants"]["importedMinInnerEdgeRadiusM"])
+_RULE_CONSTANTS = json.loads(
+    (Path(__file__).resolve().parents[1] / "schema" / "track-rules.json").read_text(encoding="utf-8"))["constants"]
+IMPORTED_MIN_INNER_EDGE_RADIUS_M = float(_RULE_CONSTANTS["importedMinInnerEdgeRadiusM"])
+# rule imported-max-bank: the fitted camber is clamped to it (Oulton Park's Shell Oils hairpin fits 10.9 degrees;
+# the report keeps the unclamped maximum, bankFittedMaxDeg)
+IMPORTED_MAX_BANK_DEG = float(_RULE_CONSTANTS["importedMaxBankDeg"])
 
 # Centreline heights in mm: at 2 m spacing, cm rounding alone moves a step's grade by up to 0.5 % (Brands Hatch's
 # grid, a steady ~3.7 % climb, read 4.01 % against the 4 % imported-grid-level rule).
@@ -335,7 +338,9 @@ def stitch(osm: dict, lap: list) -> tuple[list[tuple[float, float]], list[tuple[
         if prev_end is not None and nodes[0] != prev_end:
             raise ValueError(f"way {wid} doesn't start where the previous way ends ({nodes[0]} != {prev_end})")
         first = nodes[0] if first is None else first
-        marks.append((wid, len(pts), w.get("tags", {}).get("name", "")))
+        # index of the way's first point (after the first way, the previous way's last point, which it shares;
+        # it was the way's second point until 2026-10-20, which put a 2-node way's start at its far end)
+        marks.append((wid, max(len(pts) - 1, 0), w.get("tags", {}).get("name", "")))
         seq = [(g["lat"], g["lon"]) for g in geom]
         pts.extend(seq if not pts else seq[1:])
         prev_end = nodes[-1]
@@ -721,7 +726,8 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     z_raw_centre = dtm.sample(p[:, 0], p[:, 1])
     z = gauss_closed(a, 4.0 / step)
     slope = gauss_closed(b, 10.0 / step)
-    bank = np.degrees(np.arctan(slope))
+    bank_fit = np.degrees(np.arctan(slope))
+    bank = np.clip(bank_fit, -IMPORTED_MAX_BANK_DEG, IMPORTED_MAX_BANK_DEG)
     datum = math.floor(float(z.min()))
 
     # 4. Local frame: x east, y north, metres on the ground, centred on the line's bounding box.
@@ -747,7 +753,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         if np.isnan(ab).any():
             raise RuntimeError(f"the DTM has gaps under layout {alt['id']}")
         zb = gauss_open(ab, 4.0 / step)
-        bank_b = np.degrees(np.arctan(gauss_open(bb, 10.0 / step)))
+        bank_b = np.clip(np.degrees(np.arctan(gauss_open(bb, 10.0 / step))), -IMPORTED_MAX_BANK_DEG, IMPORTED_MAX_BANK_DEG)
         loc_b = (br - centre) / k_scale
         alt_specs.append({"id": alt["id"], "name": alt["name"],
                           "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), Z_DECIMALS),
@@ -894,7 +900,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         "maxUpGradePct20m": round(float(grade.max()) * 100, 1), "maxDownGradePct20m": round(float(grade.min()) * 100, 1),
         "maxUpGradePct10m": round(float(g10.max()) * 100, 1), "maxDownGradePct10m": round(float(g10.min()) * 100, 1),
         "maxUpAtS": round(float(s[int(np.argmax(grade))]), 1), "maxDownAtS": round(float(s[int(np.argmin(grade))]), 1),
-        "bankMaxDeg": round(float(np.abs(bank).max()), 2), "bankP95Deg": round(float(np.percentile(np.abs(bank), 95)), 2),
+        "bankMaxDeg": round(float(np.abs(bank).max()), 2), "bankFittedMaxDeg": round(float(np.abs(bank_fit).max()), 2), "bankP95Deg": round(float(np.percentile(np.abs(bank), 95)), 2),
         "bankMeanDeg": round(float(np.abs(bank).mean()), 2), "datumM": datum,
         "terrainGrid": [nx + 1, ny + 1], "terrainCellM": cell, "seaCells": sea_cells, "woods": len(wood_polys),
         "corners": corners,

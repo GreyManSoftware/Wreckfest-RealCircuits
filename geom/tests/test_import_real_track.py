@@ -38,6 +38,7 @@ def test_stitch_joins_ways_in_order_and_checks_continuity() -> None:
     osm = _osm([(1, [1, 2, 3]), (2, [3, 4]), (3, [4, 1])])
     pts, marks = irt.stitch(osm, [1, 2, 3])
     assert len(pts) == 4 and [m[0] for m in marks] == [1, 2, 3]
+    assert [m[1] for m in marks] == [0, 2, 3]  # each way's first point (shared with the previous way's last)
     with pytest.raises(ValueError, match="doesn't start"):
         irt.stitch(osm, [1, 3, 2])
     with pytest.raises(ValueError, match="doesn't close"):
