@@ -812,8 +812,10 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     for alt in recipe.get("altLayouts", []):
         ll_a, marks_a = stitch(osm, alt["lap"])
         bng_a = np.array([to_bng(x, y) for x, y in ll_a])
-        if (signed_area(bng_a) < 0) != clockwise:
-            raise ValueError(f"layout {alt['id']} runs the other way round from the main lap")
+        # a layout normally winds the same way as the main lap; one that doesn't says so (Snetterton's 100 is the
+        # 300's infield loop, driven the same way but anticlockwise as a loop): "clockwise": false
+        if (signed_area(bng_a) < 0) != bool(alt.get("clockwise", clockwise)):
+            raise ValueError(f"layout {alt['id']} runs the other way round from the main lap (or its recipe's clockwise)")
         pa, shift_a, eased_a = fit_loop(bng_a, dtm, width, step)
         br = branch_of(pa, p, step, core=non_main_span(ll_a, marks_a, recipe["lap"]))
         alt_branches.append(br)

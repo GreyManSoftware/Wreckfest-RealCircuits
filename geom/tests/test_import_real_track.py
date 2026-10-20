@@ -193,7 +193,7 @@ def test_imported_sample_drives_the_recipes_corner_order_in_every_layout(recipe_
         src = alts.get(lay.id, recipe) if lay else recipe
         xy = _lap(model, secs)
         if recipe.get("clockwise") is not None:
-            assert (irt.signed_area(xy) < 0) == bool(recipe["clockwise"]), lay.id if lay else "main"
+            assert (irt.signed_area(xy) < 0) == bool(src.get("clockwise", recipe["clockwise"])), lay.id if lay else "main"
         if src.get("publishedLapLengthM"):
             lap = lay.lap_length_m if lay else model.lap_length_m
             assert abs(lap / src["publishedLapLengthM"] - 1.0) <= 0.03, (src.get("id"), lap)
