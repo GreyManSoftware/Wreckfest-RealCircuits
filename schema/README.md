@@ -79,9 +79,15 @@ importer: `docs/real-tracks.md`.
 An imported track can carry **alternative layouts** that share its base scene (`imported.altLayouts`, e.g.
 Anglesey's Coastal beside the International; the main one is named by `mainLayoutName`). Each is an open branch
 centreline from where it leaves the main centreline to where it rejoins it (ends snapped to the nearest main
-points; it must not bypass the start/finish line). The geometry core builds it as an alternative route (`aiIndex`
--1, -2, ...) and lists every layout in the TrackModel's `layouts` (lap length, sections in driving order); the
-builder makes one layout per entry with the shared start/finish line and grid. Ids are unique
+points). Its lap is the branch plus the main centreline from the branch end round to the branch start. Without
+`startFinish` it shares the main start/finish line and grid, so its lap must pass the main line; with
+`startFinish` (`{x, y}`, projected onto its lap; e.g. Cadwell Park's Club finishes just after Mansfield, Anglesey's
+National on its own straight) it has its own line and a grid ahead of it. The geometry core builds it as an
+alternative route (`aiIndex` -1, -2, ...) and lists every layout in the TrackModel's `layouts` (lap length,
+sections in driving order from its line, and for an own line `startFinish` {route, s, position, heading} and its
+own `grid`); the builder makes one layout per entry. `firstSectorLengthM` and `gridMaxGradePct` cover every grid.
+A real track's corners need only `widthM / 2 + importedMinInnerEdgeRadiusM` (2 m) of radius (`min-corner-radius`):
+real hairpins are kept, and junctions with other layouts' branches don't end the main first sector. Ids are unique
 (`imported-alt-layout-ids-unique`) and not `main`. `imported.seaLevelM` (datum-relative) marks ground below it as
 sea: the `coastal` environment floods it and turns the far ground into sea.
 
@@ -231,7 +237,7 @@ Result shape (field case differs per language): `schemaValid`, `valid`, `schemaE
 | `imported-max-bank` | geometry | imported: `maxBankDeg` ≤ `importedMaxBankDeg` (10°) |
 | `imported-grid-level` | geometry | imported: `gridMaxGradePct` ≤ `importedGridMaxGradePct` (4%) |
 | `layout-within-bounds` | geometry | `maxAbsCoordinateM ≤ 2000` |
-| `min-corner-radius` | geometry | `minCornerRadiusM ≥ widthM / 2 + minInnerEdgeRadiusM` (6 m) |
+| `min-corner-radius` | geometry | `minCornerRadiusM ≥ widthM / 2 + minInnerEdgeRadiusM` (6 m; imported: `importedMinInnerEdgeRadiusM`, 2 m) |
 | `sandpit-no-tarmac` | engine | disables `surface=tarmac` in the sandpit (`mixed` is still offered) |
 | `sand-surface-environments` | engine | disables `surface=sand` in farmland, forest, industrial, parkland and coastal (provisional) |
 | `sand-no-kerbs` | engine | hides `kerbs=true` on sand |

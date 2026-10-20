@@ -636,11 +636,35 @@ def test_imported_alt_layout_shares_the_base_as_a_branch() -> None:
     assert result.facts["altRoutes"]["short"] == {"startGapM": 0.0, "endGapM": 0.0}
     # drawn and single-layout imported tracks keep the model format without "layouts"
     assert "layouts" not in build_track_model(imported_vector()).model.to_dict()
-    # a branch that would bypass the start/finish line is left out
+    assert short.grid is None and short.start_finish is None  # shares the main line and grid
+    assert "grid" not in m.to_dict()["layouts"][1]
+    # a branch that would bypass the start/finish line is left out...
     alt = spec["sketch"]["imported"]["altLayouts"][0]
     alt["centreline"] = alt["centreline"][::-1]
     bad = build_track_model(spec)
     assert "imported-layout-unsupported" in [w.code for w in bad.warnings] and bad.model.layouts == []
+    # ...unless the layout has its own start/finish line (Cadwell Park's Club, Anglesey's National): then its lap
+    # (main from the branch end round to the branch start, which may pass main s = 0 or not) starts there and
+    # it gets its own grid on that lap
+    s0, s1 = br.start_join.s, br.end_join.s
+    mid = next(q for q in main.samples if q.s >= s0 + 15.0)  # room for the grid before the branch
+    alt["startFinish"] = {"x": mid.x, "y": mid.y}
+    own = build_track_model(spec)
+    assert own.valid, [v.message for v in own.rule_result.violations]
+    lay = own.model.layouts[1]
+    assert [s["route"] for s in lay.sections] == ["main", "short", "main"]
+    assert lay.sections[0]["fromS"] == pytest.approx(mid.s, abs=0.5) == lay.sections[-1]["toS"]
+    assert lay.lap_length_m == pytest.approx((s1 - s0) + own.model.route("short").length_m, abs=0.5)
+    assert lay.start_finish["route"] == "main" and lay.start_finish["s"] == pytest.approx(mid.s, abs=0.5)
+    assert len(lay.grid.slots) == spec["options"]["gridSize"]
+    pole = max(lay.grid.slots, key=lambda q: q.s)
+    assert 0 < pole.s < s1 - mid.s  # ahead of the line, before the branch
+    assert own.model.to_dict()["layouts"][1]["grid"]["size"] == spec["options"]["gridSize"]
+    # the line may lie on the branch too
+    bq = own.model.route("short").samples[len(own.model.route("short").samples) // 2]
+    alt["startFinish"] = {"x": bq.x, "y": bq.y}
+    on_branch = build_track_model(spec).model.layouts[1]
+    assert on_branch.sections[0]["route"] == "short" and on_branch.start_finish["route"] == "short"
 
 
 def test_steep_imported_road_fails_the_imported_grade_rule() -> None:

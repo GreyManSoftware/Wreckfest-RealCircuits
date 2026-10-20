@@ -197,13 +197,18 @@ class CanvasTransform:
 @dataclass
 class LayoutRecord:
     """A layout of an imported track with alternative layouts (``sketch.imported.altLayouts``). The main layout
-    is the main route; an alternative one drives the main route up to ``sections``' branch start, the branch
-    route, then the main route from the branch end. All layouts share the start/finish line and grid."""
+    is the main route; an alternative one drives its branch route and the main route from the branch end round
+    to the branch start, listed as ``sections`` in driving order from the layout's start/finish line. A layout
+    without ``start_finish``/``grid`` shares the main line (main s = 0) and the model's grid; one with its own
+    line (``altLayouts[].startFinish``) has it at ``start_finish`` (``route``, ``s`` along that route,
+    ``position``, ``heading``) and its own ``grid`` (slot ``s`` along the layout's lap from its line)."""
 
     id: str
     name: str
     lap_length_m: float
     sections: list[dict[str, Any]]  # [{"route", "fromS", "toS"}] in driving order from the start/finish line
+    start_finish: dict[str, Any] | None = None
+    grid: Grid | None = None
 
 
 @dataclass
@@ -234,6 +239,10 @@ class TrackModel:
         d = to_plain(self)
         if not self.layouts:
             d.pop("layouts")  # drawn tracks: unchanged format
+        for lay in d.get("layouts", []):
+            for k in ("startFinish", "grid"):
+                if lay.get(k) is None:
+                    lay.pop(k, None)  # layouts sharing the main line and grid
         return d
 
     def to_json(self, indent: int | None = None) -> str:

@@ -6,6 +6,7 @@
     "gridSlotWidthM": 4.5,
     "maxAbsCoordinateM": 2000,
     "minInnerEdgeRadiusM": 6,
+    "importedMinInnerEdgeRadiusM": 2,
     "flatCrossingJumpClearanceM": 30,
     "bridgeRampMinLengthM": 50,
     "attachmentToleranceM": 2,
@@ -662,12 +663,21 @@
     {
       "id": "min-corner-radius",
       "title": "Corners not too tight for the width",
-      "description": "The tightest centreline radius must be at least half the width plus minInnerEdgeRadiusM.",
+      "description": "The tightest centreline radius must be at least half the width plus minInnerEdgeRadiusM (importedMinInnerEdgeRadiusM for a real track: its real hairpins, e.g. Cadwell Park's Club Hairpin, are kept).",
       "evaluatedBy": "geometry",
       "requires": ["facts.minCornerRadiusM"],
       "let": {
         "needM": {
-          "+": [{ "/": [{ "var": "options.widthM" }, 2] }, { "var": "constants.minInnerEdgeRadiusM" }]
+          "+": [
+            { "/": [{ "var": "options.widthM" }, 2] },
+            {
+              "if": [
+                { "exists": { "var": "sketch.imported" } },
+                { "var": "constants.importedMinInnerEdgeRadiusM" },
+                { "var": "constants.minInnerEdgeRadiusM" }
+              ]
+            }
+          ]
         }
       },
       "effect": {
