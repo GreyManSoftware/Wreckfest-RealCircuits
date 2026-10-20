@@ -148,6 +148,8 @@ HORIZON_REPEATS = 4           # vista texture repeats around the ring
 BACKDROP_LIMIT = LIMIT_M - 10.0
 TREE_CARD_HEIGHT = (28.0, 40.0)
 TREE_CARD_QUAD = 8.0          # card strips are built from 8 m quads (stock foliage_bgrforest00N)
+LAKE_CELL_M = 4.0             # imported lakes: water plane cell size
+LAKE_REACH_M = 8.0            # ...over ground below the water level up to this far outside the lake outline
 REAL_GROUND_FADE = 120.0      # imported tracks: the far ground follows the real heightfield, fading to hills over this
 TREE_CARD_SINK = 5.0          # card feet are buried this deep in the far-ground hills (soft base)
 

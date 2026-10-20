@@ -474,6 +474,31 @@ class WoodlandArea:
 
 
 @dataclass(kw_only=True)
+class Lake:
+    """Open water inside the terrain (metres, imported frame): a flat water surface at levelM over the polygon; the terrain under it lies below that level."""
+
+    name: str | None = None
+    level_m: float
+    points: list[MetrePoint]
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Lake:
+        return cls(
+            name=None if data.get("name") is None else str(data["name"]),
+            level_m=float(data["levelM"]),
+            points=[MetrePoint.from_dict(v0) for v0 in data["points"]],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.name is not None:
+            out["name"] = self.name
+        out["levelM"] = self.level_m
+        out["points"] = [v0.to_dict() for v0 in self.points]
+        return out
+
+
+@dataclass(kw_only=True)
 class NamedSpot:
     """A named place along the imported centreline."""
 
@@ -595,6 +620,7 @@ class ImportedTrack:
     centreline: list[ImportedPoint]
     terrain: Heightfield | None = None
     woodland: list[WoodlandArea] | None = None
+    lakes: list[Lake] | None = None
     corners: list[NamedSpot] | None = None
     viewing_spots: list[NamedSpot] | None = None
     kerbs: list[KerbOverride] | None = None
@@ -611,6 +637,7 @@ class ImportedTrack:
             centreline=[ImportedPoint.from_dict(v0) for v0 in data["centreline"]],
             terrain=None if data.get("terrain") is None else Heightfield.from_dict(data["terrain"]),
             woodland=None if data.get("woodland") is None else [WoodlandArea.from_dict(v0) for v0 in data["woodland"]],
+            lakes=None if data.get("lakes") is None else [Lake.from_dict(v0) for v0 in data["lakes"]],
             corners=None if data.get("corners") is None else [NamedSpot.from_dict(v0) for v0 in data["corners"]],
             viewing_spots=None if data.get("viewingSpots") is None else [NamedSpot.from_dict(v0) for v0 in data["viewingSpots"]],
             kerbs=None if data.get("kerbs") is None else [KerbOverride.from_dict(v0) for v0 in data["kerbs"]],
@@ -630,6 +657,8 @@ class ImportedTrack:
             out["terrain"] = self.terrain.to_dict()
         if self.woodland is not None:
             out["woodland"] = [v0.to_dict() for v0 in self.woodland]
+        if self.lakes is not None:
+            out["lakes"] = [v0.to_dict() for v0 in self.lakes]
         if self.corners is not None:
             out["corners"] = [v0.to_dict() for v0 in self.corners]
         if self.viewing_spots is not None:
@@ -948,6 +977,7 @@ __all__ = [
     "Jump",
     "JumpSize",
     "KerbOverride",
+    "Lake",
     "MainLoop",
     "MarkerFeature",
     "Meta",

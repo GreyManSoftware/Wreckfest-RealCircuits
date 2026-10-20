@@ -230,6 +230,7 @@
    "colour": {"mean": [108, 148, 84], "std": 14, "grassGreen": 22, "canopyShade": 20, "wear": 8},
    "fields": false,
    "horizon": {"c": "tex:fields_vistaplane_c5", "fog": "tex:fields_vistaplane_fog"},
+   "lake": {"_comment": "an imported track's lakes (sketch.imported.lakes): a flat generated dark green-brown water texture", "colour": [58, 74, 70], "tileM": 40.0},
    "farGround": "forest:filler_forest04_1_c",
    "treeCards": ["tex:foliage_bgrforest4_c5", "tex:foliage_bgrforest5_c5", "tex:foliage_bgrforest3_c5"],
    "cardBands": [{"t": 0.92, "coverage": 0.85, "height": [18, 26]}, {"t": 0.8, "coverage": 0.45, "height": [14, 20]}],

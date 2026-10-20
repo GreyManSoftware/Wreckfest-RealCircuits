@@ -74,6 +74,9 @@ class Backdrop:
         # a horizon painted from the imported skyline profile (e.g. Snowdonia), centred on the drivers' eye level
         self.profile = imp.get("horizon") if self.e.get("horizonFromProfile") else None
         self.eye_z = float(geo.main.p[0, 2]) + 1.5
+        # lakes (an imported track's sketch.imported.lakes, environments with "lake"): flat water planes
+        self.lakes_in = list(imp.get("lakes") or []) if self.e.get("lake") else []
+        self.n_lakes = 0
         self.generated: dict[str, str] = {}
 
     def point(self, k: int, off: float) -> np.ndarray:
@@ -187,6 +190,54 @@ class Backdrop:
                             [((m.verts[i][0] - self.c[0]) / tile, (m.verts[i][1] - self.c[1]) / tile) for i in ids])
         return m
 
+    def lake_planes(self) -> list[Mesh]:
+        """Flat water over an imported track's lakes: LAKE_CELL_M cells within the real heightfield whose ground lies
+        below the lake's level and whose centre is inside its outline or within LAKE_REACH_M of it (the importer
+        sinks the heightfield under the outline below the level; the bank above the level hides the plane's
+        stepped edge). No collision. UV1 in metres / tile."""
+        if not self.lakes_in:
+            return []
+        # within the real heightfield (the terrain, and the far ground that follows the real ground beyond it)
+        x0, x1, y0, y1 = self.real_extent or self.geo.extent
+        cell, reach = C.LAKE_CELL_M, C.LAKE_REACH_M
+        tile = float(self.e["lake"].get("tileM", 40.0))
+        out = []
+        for k, lake in enumerate(self.lakes_in):
+            poly = np.array([[q["x"], q["y"]] for q in lake["points"]], dtype=np.float64)
+            lvl = float(lake["levelM"])
+            lo = np.maximum(poly.min(0) - reach, [x0, y0])
+            hi = np.minimum(poly.max(0) + reach, [x1, y1])
+            if (hi - lo < cell).any():
+                continue
+            xs = np.arange(lo[0], hi[0] + 1e-9, cell)
+            ys = np.arange(lo[1], hi[1] + 1e-9, cell)
+            gx, gy = np.meshgrid(xs, ys)
+            z = np.asarray(self.geo.ground(np.column_stack([gx.ravel(), gy.ravel()])), dtype=np.float64).reshape(gx.shape)
+            wet = z < lvl
+            cw = wet[:-1, :-1] | wet[1:, :-1] | wet[:-1, 1:] | wet[1:, 1:]
+            cen = np.column_stack([(gx[:-1, :-1] + cell / 2).ravel(), (gy[:-1, :-1] + cell / 2).ravel()])
+            near = _in_polygon(cen, poly) | (_ring_distance(cen, poly) < reach)
+            keep = cw.ravel() & near
+            if not keep.any():
+                continue
+            m = Mesh(f"backdrop_lake{k}#lofi", "", kind="backdrop")
+            vid: dict[tuple[int, int], int] = {}
+
+            def v(j: int, i: int) -> int:
+                if (j, i) not in vid:
+                    vid[(j, i)] = m.vert((float(xs[i]), float(ys[j]), lvl))
+                return vid[(j, i)]
+
+            nxc = len(xs) - 1
+            for c in np.flatnonzero(keep):
+                j, i = divmod(int(c), nxc)
+                ids = (v(j, i), v(j, i + 1), v(j + 1, i + 1), v(j + 1, i))
+                m.oriented_face(ids, "lake", np.array([0.0, 0.0, 1.0]),
+                                [((m.verts[q][0] - self.c[0]) / tile, (m.verts[q][1] - self.c[1]) / tile) for q in ids])
+            out.append(m)
+        self.n_lakes = len(out)
+        return out
+
     def textures(self, root: str) -> dict[str, str]:
         """Generated backdrop textures (TGA under <root>/data/track/<slug>/textures, bimage'd by the pipeline like
         the maps): the painted skyline ``<slug>_horizon_c5`` from the imported horizon profile and the sea
@@ -233,10 +284,10 @@ class Backdrop:
             alpha = np.where(is_sea[None, :], np.where(V <= sea_line, 255.0, 0.0), alpha)
             maps.write_tga(f"{out_dir}/{self.slug}_horizon_c5.tga", rgb, alpha)
             self.generated["horizon"] = rel("horizon_c5")
-        if self.sea is not None:
+        for key in (["sea"] if self.sea is not None else []) + (["lake"] if self.n_lakes else []):
             # seamless (integer-frequency) ripples and swell, so the tile repeats without seams
             n = 256
-            rng = np.random.default_rng(seed_for(self.slug, "sea"))
+            rng = np.random.default_rng(seed_for(self.slug, key))
             t = np.arange(n) / n * 2 * math.pi
             gx, gy = np.meshgrid(t, t)
             nz = np.zeros((n, n))
@@ -246,10 +297,10 @@ class Backdrop:
                     continue
                 nz += rng.normal() / math.hypot(fx, fy) * np.cos(fx * gx + fy * gy + rng.uniform(0, 2 * math.pi))
             nz /= max(float(np.abs(nz).max()), 1e-9)
-            base = np.array(self.e["sea"]["colour"], dtype=np.float64)
+            base = np.array(self.e[key]["colour"], dtype=np.float64)
             rgb = base[None, None, :] * (1.0 + 0.1 * nz[:, :, None])
-            maps.write_tga(f"{out_dir}/{self.slug}_sea_c.tga", rgb)
-            self.generated["sea"] = rel("sea_c")
+            maps.write_tga(f"{out_dir}/{self.slug}_{key}_c.tga", rgb)
+            self.generated[key] = rel(f"{key}_c")
         return dict(self.generated)
 
     def cards(self) -> tuple[list[Mesh], int]:
@@ -348,6 +399,7 @@ class Backdrop:
         sea = self.sea_plane()
         if sea is not None:
             meshes.append(sea)
+        meshes += self.lake_planes()
         cards, n_tex = self.cards()
         meshes += cards
         dist = self.d_rect + self.h_off
@@ -363,8 +415,34 @@ class Backdrop:
         }
         if self.sea is not None:
             info["seaLevelM"] = self.sea
+        if self.n_lakes:
+            info["lakes"] = self.n_lakes
         if self.profile:
             info["horizonTexture"] = "generated from the imported horizon profile"
             info["horizonMidZ"] = round(self.eye_z, 2)
         self.n_textures = n_tex
         return meshes, info
+
+
+def _in_polygon(pts: np.ndarray, poly: np.ndarray) -> np.ndarray:
+    """Even-odd point-in-polygon for many points."""
+    x, y = pts[:, 0][:, None], pts[:, 1][:, None]
+    x0, y0 = poly[:, 0][None, :], poly[:, 1][None, :]
+    x1, y1 = np.roll(poly[:, 0], -1)[None, :], np.roll(poly[:, 1], -1)[None, :]
+    cond = (y0 > y) != (y1 > y)
+    xc = x0 + (y - y0) * (x1 - x0) / np.where(np.abs(y1 - y0) < 1e-12, 1e-12, y1 - y0)
+    return (np.sum(cond & (x < xc), axis=1) % 2) == 1
+
+
+def _ring_distance(pts: np.ndarray, ring: np.ndarray, chunk: int = 2048) -> np.ndarray:
+    """Distance from each point to a closed polyline."""
+    a = ring
+    ab = np.roll(ring, -1, axis=0) - a
+    ll = np.maximum(np.einsum("sk,sk->s", ab, ab), 1e-12)
+    out = np.empty(len(pts))
+    for s in range(0, len(pts), chunk):
+        p = pts[s:s + chunk]
+        t = np.clip(((p[:, None, :] - a[None, :, :]) * ab[None, :, :]).sum(-1) / ll[None, :], 0.0, 1.0)
+        q = a[None, :, :] + t[:, :, None] * ab[None, :, :]
+        out[s:s + chunk] = np.min(np.hypot(q[..., 0] - p[:, None, 0], q[..., 1] - p[:, None, 1]), axis=1)
+    return out
