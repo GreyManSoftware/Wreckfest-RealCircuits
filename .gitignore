@@ -71,3 +71,6 @@ build/
 !.vscode/extensions.json
 Thumbs.db
 .DS_Store
+
+# Claude Code sub-agent worktrees
+.claude/worktrees/
