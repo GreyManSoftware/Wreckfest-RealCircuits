@@ -22,7 +22,7 @@ layouts; lengths from Wikipedia unless noted, to verify per circuit under the st
 | – | Anglesey (`anglesey`, not MSV) | International 3.380 km, Coastal 2.494 km, National 1.931 km, Club 1.287 km | built 2026-10-20 |
 | 2 | Brands Hatch (`brandshatch`) | Grand Prix 3.916 km, Indy 1.944 km (MSV) | built 2026-10-20: GP 3,903 m (−0.3 %), Indy 1,930 m (−0.7 %); [details](real-tracks/brandshatch.md) |
 | 3 | Oulton Park (`oultonpark`) | International 4.307 km, Island 3.616 km, Fosters 2.656 km (MSV) | built 2026-10-20: 4,317 m (+0.2 %), 3,564 m (−1.4 %), 2,676 m (+0.8 %); [details](real-tracks/oultonpark.md) |
-| 4 | Snetterton | 300 4.779 km, 200 3.219 km, 100 1.577 km | |
+| 4 | Snetterton (`snetterton`) | 300 4.779 km, 200 3.219 km, 100 1.577 km (MSV) | built 2026-10-20: 4,789 m (+0.2 %), 3,195 m (−0.8 %), 1,556 m (−1.3 %); the 100's own line is estimated; [details](real-tracks/snetterton.md) |
 | 5 | Donington Park | Grand Prix 4.020 km, National 3.149 km | |
 | 6 | Bedford Autodrome | GT, South West, SEN, West, South, North, East (MSV / PalmerSport list; lengths conflict between sources: check MSV's own Bedford page) | |
 | 7 | Circuito de Navarra | Full 4.313 km, Medium 2.693 km, Short 1.391 km (since 2024) | outside the UK: needs a Spanish open DTM in `load_dtm` |
@@ -100,6 +100,16 @@ Recipe extras (Anglesey, `tools/real_tracks/anglesey.json`):
   environment floods below it.
 - `horizon`: the distant skyline (3-45 km, 32 m DTM overview) for a painted `#horizon` texture (Wales only).
 - `terrainCellM`: heightfield cell (default 6 m; 10 m for a wide coastal margin).
+- `lakes` (`{"minAreaM2", "depthM"}`, Oulton Park): OSM `natural=water` polygons in the terrain box, clear of the
+  road, become `sketch.imported.lakes` (level from the LIDAR water surface; the heightfield under them sunk `depthM`);
+  environments with `lake` (parkland, airfield) lay a flat water plane there and keep scenery off it.
+- `altLayouts[].clockwise`: a layout that winds the other way as a loop while driving the shared roads the same way
+  (Snetterton 100, the 300's infield loop): `false`. Alt layout ids start with a letter (`c200`, `c100`).
+- Heights are written in mm (cm rounding moved a 2 m step's grade by 0.5 %), and the fitted camber is clamped to
+  the 10° imported-bank rule (the report keeps `bankFittedMaxDeg`; Oulton Park's Shell Oils hairpin fits 10.9°).
+
+Environments for real tracks: `parkland` (Cadwell Park, Brands Hatch, Oulton Park), `coastal` (Anglesey), `airfield`
+(Snetterton: flat, open, few trees, arable land beyond; for other airfield circuits too).
 
 Every recipe (2026-10-19, after Cadwell Park drove backwards):
 
