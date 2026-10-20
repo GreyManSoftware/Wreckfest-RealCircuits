@@ -107,7 +107,7 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
     # how deep inside the trees: 0 at a wood's edge, 1 well inside (the planner's seeded clusters, or an imported
     # track's real woods)
     canopy = planner.canopy_grid(n)
-    if env_name == "parkland":
+    if env_name in ("parkland", "airfield"):
         # lush grass in the open; forest floor only well inside the woods, ragged at its edge
         b = smooth01((canopy - 0.35 + (n_fine - 0.5) * 0.5) / 0.3) * smooth01((d - 12.0) / 8.0)
     elif env_name == "forest":
@@ -127,7 +127,7 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
             shore = smooth01((planner.sea + 3.0 + (n_fine - 0.5) * 2.5 - zg) / 1.5)
             b = np.maximum(b, np.maximum(shore, steep * smooth01((planner.sea + 14.0 - zg) / 4.0)))
             b = b * smooth01((d - 8.0) / 6.0)
-    elif env_name == "sandpit":
+    elif env_name in ("sandpit", "arid"):
         b = smooth01((n_big - 0.5) / 0.12) * smooth01((d - 25.0) / 15.0)
     elif env_name == "gravel_pit":
         b = smooth01((n_mid - 0.58) / 0.1) * smooth01((d - 15.0) / 10.0)

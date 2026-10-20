@@ -240,7 +240,7 @@ Result shape (field case differs per language): `schemaValid`, `valid`, `schemaE
 | `layout-within-bounds` | geometry | `maxAbsCoordinateM ≤ 2000` |
 | `min-corner-radius` | geometry | `minCornerRadiusM ≥ widthM / 2 + minInnerEdgeRadiusM` (6 m; imported: `importedMinInnerEdgeRadiusM`, 2 m) |
 | `sandpit-no-tarmac` | engine | disables `surface=tarmac` in the sandpit (`mixed` is still offered) |
-| `sand-surface-environments` | engine | disables `surface=sand` in farmland, forest, industrial, parkland and coastal (provisional) |
+| `sand-surface-environments` | engine | disables `surface=sand` in farmland, forest, industrial, parkland, coastal and airfield (provisional) |
 | `sand-no-kerbs` | engine | hides `kerbs=true` on sand |
 
 The elevation rules only apply when there are height markers (without them the bridge climb is always the standard

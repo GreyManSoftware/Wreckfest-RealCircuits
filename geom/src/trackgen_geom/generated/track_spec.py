@@ -52,7 +52,7 @@ class Elevation(StrEnum):
 
 
 class Environment(StrEnum):
-    """Environment preset (stock textures and props). parkland: lush grass, deciduous woods and grass banks. coastal: open, windswept coastal grassland with gorse, rocks along the shore, stone walls and the sea."""
+    """Environment preset (stock textures and props). parkland: lush grass, deciduous woods and grass banks. coastal: open, windswept coastal grassland with gorse, rocks along the shore, stone walls and the sea. airfield: open, flat grass between airfield circuits, no field parcels or trees in the open. arid: dry northern-Spain scrubland, sand and rock, a few pines, bare hills."""
 
     GRAVEL_PIT = "gravel_pit"
     FARMLAND = "farmland"
@@ -61,6 +61,8 @@ class Environment(StrEnum):
     SANDPIT = "sandpit"
     PARKLAND = "parkland"
     COASTAL = "coastal"
+    AIRFIELD = "airfield"
+    ARID = "arid"
 
 
 class Weather(StrEnum):

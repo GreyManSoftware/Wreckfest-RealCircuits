@@ -724,7 +724,7 @@
       "title": "Sand only in sandy presets",
       "description": "Provisional: sand surfaces are only offered in the sandpit and gravel pit presets.",
       "evaluatedBy": "engine",
-      "when": { "in": [{ "var": "options.environment" }, ["farmland", "forest", "industrial", "parkland", "coastal"]] },
+      "when": { "in": [{ "var": "options.environment" }, ["farmland", "forest", "industrial", "parkland", "coastal", "airfield"]] },
       "effect": {
         "type": "disable",
         "option": "surface",
