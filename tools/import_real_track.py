@@ -587,7 +587,8 @@ def node_bng(osm: dict, node: int) -> np.ndarray:
 
 
 def branch_of(alt: np.ndarray, main: np.ndarray, step: float, blend_m: float = 30.0,
-              core: tuple[float, float] | None = None, off_m: float = 1.0) -> np.ndarray:
+              core: tuple[float, float] | None = None, off_m: float = 1.0,
+              join_within_m: float | None = None) -> np.ndarray:
     """The part of a fitted alternative lap that leaves the main line, with its ends moved onto the nearest main
     points (the move fades out over ``blend_m``). ``core``: the fractions of the lap (from its first point)
     where it runs on ways the main lap doesn't use (``non_main_span``); the branch is that span grown at both
@@ -620,6 +621,11 @@ def branch_of(alt: np.ndarray, main: np.ndarray, step: float, blend_m: float = 3
                 cur = None
     ext = int(round(10.0 / step))
     idx = [(k0 + k) % n for k in range(best[0] - ext, best[1] + ext + 1)]
+    if join_within_m:  # a shallow merge: join where the line first comes within join_within_m of the main one
+        while len(idx) > 2 * ext + 2 and d[idx[-1]] <= join_within_m and d[idx[-2]] <= join_within_m:
+            idx.pop()
+        while len(idx) > 2 * ext + 2 and d[idx[0]] <= join_within_m and d[idx[1]] <= join_within_m:
+            idx.pop(0)
     b = alt[idx].copy()
     s = arc(b)
     for end, w in ((0, np.clip(1.0 - s / blend_m, 0.0, 1.0)), (-1, np.clip(1.0 - (s[-1] - s) / blend_m, 0.0, 1.0))):
@@ -815,7 +821,10 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         pa, shift_a, eased_a = fit_loop(bng_a, dtm, width, step, max_shift)
         # branchOffM: how far off the main line a layout's line counts as its own (default 1 m; unregistered OSM
         # lines on shared ways match exactly but are sampled out of phase, up to 1 m apart vertex to vertex)
-        br = branch_of(pa, p, step, core=non_main_span(ll_a, ids_a, main_ids), off_m=float(recipe.get("branchOffM", 1.0)))
+        # joinWithinM (per layout): a branch that runs beside the main road for a while before it merges (Bedford
+        # SEN's return beside the south straight, paved between) joins where it first comes within this distance
+        br = branch_of(pa, p, step, core=non_main_span(ll_a, ids_a, main_ids), off_m=float(recipe.get("branchOffM", 1.0)),
+                       join_within_m=alt.get("joinWithinM"))
         nl_b = normals_open(br)
         ab, bb, res_b = cross_fit(dtm, br, nl_b, offs)
         if np.isnan(ab).any():
