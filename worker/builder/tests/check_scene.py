@@ -419,6 +419,19 @@ def check_base(out: str, slug: str, model: dict, spec: dict, manifest: dict) -> 
     cards = [n for n in obs if n.startswith("backdrop_cards_")]
     check("backdrop_ground#lofi" in obs and "backdrop_horizon#lofi" in obs and (bool(cards) == want_cards),
           "base: backdrop far ground, #horizon and background cards (per environment)", f"{len(cards)} card strips")
+    # imported lakes: flat water at each lake's level, nothing placed on the water
+    lakes = (spec["sketch"].get("imported") or {}).get("lakes") or []
+    if lakes and e.get("lake"):
+        from wfbuild.backdrop import _in_polygon
+        planes = [o for n, o in obs.items() if n.startswith("backdrop_lake")]
+        levels = {round(float(lk["levelM"]), 2) for lk in lakes}
+        zs = {round(float(v), 2) for o in planes for v in world_verts(o)[:, 2]}
+        check(bool(planes) and zs <= levels, "base: flat water planes at the imported lakes' levels",
+              f"{len(planes)} planes at {sorted(zs)} (lakes {sorted(levels)})")
+        pos = np.array([p["position"][:2] for p in load_json(os.path.join(out, "scenery.json"))["placements"]])
+        wet = sum(int(_in_polygon(pos, np.array([[q["x"], q["y"]] for q in lk["points"]])).sum()) for lk in lakes) \
+            if len(pos) else 0
+        check(wet == 0, "scenery: nothing placed on a lake", f"{wet} placements on the water")
     # props: stock subscenes allowed for this environment, existing in the game
     props = [o for o in obs.values() if o.name.startswith("#xref ")]
     names = sorted({re.sub(r"\.\d+$", "", o.name)[len("#xref ob/"):-len(".scne")] for o in props})

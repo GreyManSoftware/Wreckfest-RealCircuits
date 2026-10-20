@@ -30,7 +30,7 @@ def _layers(layers: list[dict], uv_tile: float) -> list[tuple]:
 
 def build(env_name: str | None, slug: str, maps: dict, n_cards: int, generated: dict | None = None) -> dict[str, dict]:
     """Material specs keyed like the builder's mesh material keys. ``generated`` holds the backdrop's own
-    textures (data paths without extension): "horizon" (a painted skyline) and "sea"."""
+    textures (data paths without extension): "horizon" (a painted skyline), "sea" and "lake"."""
     generated = generated or {}
     name = envs.env_name(env_name)
     e = envs.env(name)
@@ -86,6 +86,10 @@ def build(env_name: str | None, slug: str, maps: dict, n_cards: int, generated: 
         specs["sea"] = {"name": f"sea_{name}#noshadow",
                         "slots": [(1, generated["sea"] + TGA, 1, (1.0, 1.0)),
                                   (9, "data/art/textures/default_zero_spec_s" + TGA, 1, (1.0, 1.0))]}
+    if generated.get("lake"):
+        specs["lake"] = {"name": f"lake_{name}#noshadow",
+                         "slots": [(1, generated["lake"] + TGA, 1, (1.0, 1.0)),
+                                   (9, "data/art/textures/default_zero_spec_s" + TGA, 1, (1.0, 1.0))]}
     specs["far_ground"] = {"name": f"far_ground_{name}#noshadow",
                            "slots": [(1, _t(e["farGround"]), 1, (1.0, 1.0)),
                                      (9, "data/art/textures/default_zero_spec_s" + TGA, 1, (1.0, 1.0))]}

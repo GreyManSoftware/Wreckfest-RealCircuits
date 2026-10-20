@@ -20,7 +20,7 @@ PRESET_FAMILIES: dict[str, tuple[str, ...]] = {
     "sandpit": ("sandpit/sandpit3", "sandpit/sandpit1", "sandpit/sandpit2"),
     "parkland": ("fields/fields13", "forest/forest11", "fields/fields14"),
     "coastal": ("fields/fields14", "fields/fields13", "fields/gravel1"),
-    "airfield": ("fields/fields13", "fields/fields14", "fields/fields08"),
+    "airfield": ("fields/fields14", "fields/fields13", "fields/fields08"),
     "arid": ("sandpit/sandpit3", "sandpit/sandpit1", "fields/gravel1"),
 }
 

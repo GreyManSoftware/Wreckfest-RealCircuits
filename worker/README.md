@@ -372,7 +372,7 @@ Shipped besides the scenes: the five generated maps as `data/track/<slug>/textur
 The schema's weathers are time-of-day slots. `pipeline/weather.py` maps them per environment preset to stock `.weat` files (listed from the mounted `data/property/weather/`), checking that each exists; a slot falls back to the nearest time of day (morning → sunrise, evening → sunset) or to another family. Paths below are under `data/property/weather/`:
 
 `parkland` uses fields13, then forest11, then fields14 (its slots match farmland's where fields13 has them). `coastal` uses fields14, then fields13, then gravel1.
-`airfield` uses fields13, then fields14, then fields08; `arid` sandpit3, then sandpit1, then gravel1.
+`airfield` uses fields14, then fields13, then fields08; `arid` sandpit3, then sandpit1, then gravel1.
 
 | Slot | gravel_pit | farmland | forest | industrial | sandpit |
 |---|---|---|---|---|---|

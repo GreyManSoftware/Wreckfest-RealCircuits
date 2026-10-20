@@ -274,6 +274,18 @@
         "points": { "type": "array", "minItems": 3, "maxItems": 2000, "items": { "$ref": "#/$defs/MetrePoint" } }
       }
     },
+    "Lake": {
+      "title": "Lake",
+      "description": "Open water inside the terrain (metres, imported frame): a flat water surface at levelM over the polygon; the terrain under it lies below that level.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["points", "levelM"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "levelM": { "description": "Water surface height, relative to datumM.", "type": "number", "minimum": -200, "maximum": 500 },
+        "points": { "type": "array", "minItems": 3, "maxItems": 2000, "items": { "$ref": "#/$defs/MetrePoint" } }
+      }
+    },
     "NamedSpot": {
       "title": "Named spot",
       "description": "A named place along the imported centreline.",
@@ -368,6 +380,13 @@
           "description": "The surrounding ground. Without it the ground away from the road is level at the mean road height."
         },
         "woodland": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/WoodlandArea" }, "default": [] },
+        "lakes": {
+          "description": "Lakes and ponds (e.g. Oulton Park's lake): flat water over the terrain.",
+          "type": "array",
+          "maxItems": 40,
+          "items": { "$ref": "#/$defs/Lake" },
+          "default": []
+        },
         "corners": {
           "description": "Corner and section names (labels).",
           "type": "array",
@@ -474,7 +493,7 @@
     },
     "Environment": {
       "title": "Environment",
-      "description": "Environment preset (stock textures and props). parkland: lush grass, deciduous woods and grass banks. coastal: open, windswept coastal grassland with gorse, rocks along the shore, stone walls and the sea. airfield: open, flat grass between airfield circuits, no field parcels or trees in the open. arid: dry northern-Spain scrubland, sand and rock, a few pines, bare hills.",
+      "description": "Environment preset (stock textures and props). parkland: lush grass, deciduous woods and grass banks. coastal: open, windswept coastal grassland with gorse, rocks along the shore, stone walls and the sea. airfield: a flat, open former airfield: short dry grass, few trees, arable fields beyond, a low horizon. arid: dry northern-Spain scrubland, sand and rock, a few pines, bare hills.",
       "type": "string",
       "enum": ["gravel_pit", "farmland", "forest", "industrial", "sandpit", "parkland", "coastal", "airfield", "arid"]
     },

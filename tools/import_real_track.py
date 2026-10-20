@@ -46,9 +46,16 @@ EA_WCS = ("https://environment.data.gov.uk/spatialdata/lidar-composite-digital-t
 EA_COVERAGE = "13787b9a-26a4-4775-8523-806d13af58fc__Lidar_Composite_Elevation_DTM_1m"
 DEFAULT_CACHE_ROOT = Path(r"E:\Source\wreckfest\.local")  # downloads go to <root>/<slug>/ (gitignored)
 # rule min-corner-radius for real tracks: widthM / 2 + this (real hairpins such as Cadwell's Club Hairpin are kept)
-IMPORTED_MIN_INNER_EDGE_RADIUS_M = float(json.loads(
-    (Path(__file__).resolve().parents[1] / "schema" / "track-rules.json").read_text(encoding="utf-8")
-)["constants"]["importedMinInnerEdgeRadiusM"])
+_RULE_CONSTANTS = json.loads(
+    (Path(__file__).resolve().parents[1] / "schema" / "track-rules.json").read_text(encoding="utf-8"))["constants"]
+IMPORTED_MIN_INNER_EDGE_RADIUS_M = float(_RULE_CONSTANTS["importedMinInnerEdgeRadiusM"])
+# rule imported-max-bank: the fitted camber is clamped to it (Oulton Park's Shell Oils hairpin fits 10.9 degrees;
+# the report keeps the unclamped maximum, bankFittedMaxDeg)
+IMPORTED_MAX_BANK_DEG = float(_RULE_CONSTANTS["importedMaxBankDeg"])
+
+# Centreline heights in mm: at 2 m spacing, cm rounding alone moves a step's grade by up to 0.5 % (Brands Hatch's
+# grid, a steady ~3.7 % climb, read 4.01 % against the 4 % imported-grid-level rule).
+Z_DECIMALS = 3
 
 ATTRIBUTION = ("Layout and woodland (c) OpenStreetMap contributors, ODbL 1.0. Heights: Environment Agency "
                "LIDAR Composite DTM 1 m, (c) Environment Agency copyright and/or database right 2022, "
@@ -146,14 +153,25 @@ def _get(url: str, data: bytes | None = None, timeout: float = 120.0) -> bytes:
 
 
 def fetch_osm(bbox: list[float], cache: Path) -> dict:
-    path = cache / "osm.json"
-    if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
     s, w, n, e = bbox
     b = f"({s},{w},{n},{e})"
     q = (f'[out:json][timeout:90];(way["highway"="raceway"]{b};way["landuse"="forest"]{b};'
          f'way["natural"="wood"]{b};relation["natural"="wood"]{b};relation["landuse"="forest"]{b};);'
          "out body geom;")
+    return _overpass_cached(q, cache / "osm.json", cache)
+
+
+def fetch_osm_water(bbox: list[float], cache: Path) -> dict:
+    """Open water (natural=water ways and multipolygons) over ``bbox``, one cached Overpass request."""
+    s, w, n, e = bbox
+    b = f"({s},{w},{n},{e})"
+    q = f'[out:json][timeout:90];(way["natural"="water"]{b};relation["natural"="water"]{b};);out body geom;'
+    return _overpass_cached(q, cache / "osm-water.json", cache)
+
+
+def _overpass_cached(q: str, path: Path, cache: Path) -> dict:
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
     last = None
     for url in OVERPASS:
         try:
@@ -371,7 +389,9 @@ def stitch_nodes(osm: dict, lap: list) -> tuple[list[tuple[float, float]], list[
         if prev_end is not None and nodes[0] != prev_end:
             raise ValueError(f"way {wid} doesn't start where the previous way ends ({nodes[0]} != {prev_end})")
         first = nodes[0] if first is None else first
-        marks.append((wid, len(pts), w.get("tags", {}).get("name", "")))
+        # index of the way's first point (after the first way, the previous way's last point, which it shares;
+        # it was the way's second point until 2026-10-20, which put a 2-node way's start at its far end)
+        marks.append((wid, max(len(pts) - 1, 0), w.get("tags", {}).get("name", "")))
         seq = [(g["lat"], g["lon"]) for g in geom]
         pts.extend(seq if not pts else seq[1:])
         ids.extend(nodes if not ids else nodes[1:])
@@ -389,6 +409,63 @@ def stitch(osm: dict, lap: list) -> tuple[list[tuple[float, float]], list[tuple[
     (closed loop, first point not repeated) and (way id, first point index, name)."""
     pts, marks, _ = stitch_nodes(osm, lap)
     return pts, marks
+
+
+def water_polygons(osm: dict) -> list[tuple[str, list[tuple[float, float]]]]:
+    """(name, outer ring lat/lon) of every natural=water way or multipolygon outer ring."""
+    out = []
+    for e in osm["elements"]:
+        t = e.get("tags", {})
+        if t.get("natural") != "water":
+            continue
+        if e["type"] == "way" and e.get("geometry"):
+            out.append((t.get("name", ""), [(g["lat"], g["lon"]) for g in e["geometry"]]))
+        elif e["type"] == "relation":
+            for m in e.get("members", []):
+                if m.get("role") == "outer" and m.get("geometry"):
+                    out.append((t.get("name", ""), [(g["lat"], g["lon"]) for g in m["geometry"]]))
+    return out
+
+
+def lakes_from(water: list[tuple[str, np.ndarray]], dtm: "Dtm", road: np.ndarray, min_area: float,
+               clear_m: float) -> list[dict]:
+    """Lakes (BNG polygons) for the spec: at least ``min_area`` m2 and no road sample within ``clear_m`` of the
+    polygon (inside it or close to its shore). The level is the median DTM inside (LIDAR returns the flat water
+    surface there), else the 10th percentile along the shore where the DTM has no data on the water."""
+    out = []
+    for name, poly in water:
+        if len(poly) > 2 and np.allclose(poly[0], poly[-1]):
+            poly = poly[:-1]
+        if len(poly) < 3 or abs(signed_area(poly)) < min_area:
+            continue
+        near = road[(road[:, 0] > poly[:, 0].min() - clear_m) & (road[:, 0] < poly[:, 0].max() + clear_m)
+                    & (road[:, 1] > poly[:, 1].min() - clear_m) & (road[:, 1] < poly[:, 1].max() + clear_m)]
+        if len(near) and (point_in_polygon(near, poly).any() or _min_dist_to_ring(near, poly) < clear_m):
+            continue
+        xs = np.arange(poly[:, 0].min(), poly[:, 0].max(), 2.0)
+        ys = np.arange(poly[:, 1].min(), poly[:, 1].max(), 2.0)
+        gx, gy = np.meshgrid(xs, ys)
+        pts = np.column_stack([gx.ravel(), gy.ravel()])
+        pts = pts[point_in_polygon(pts, poly)] if len(pts) else pts
+        z = dtm.sample(pts[:, 0], pts[:, 1]) if len(pts) else np.array([np.nan])
+        if np.isfinite(z).mean() >= 0.5:
+            level = float(np.nanmedian(z))
+        else:
+            shore = dtm.sample(poly[:, 0], poly[:, 1])
+            if not np.isfinite(shore).any():
+                continue
+            level = float(np.nanpercentile(shore, 10))
+        out.append({"name": name, "poly": poly, "level": level, "areaM2": abs(signed_area(poly))})
+    return out
+
+
+def _min_dist_to_ring(pts: np.ndarray, ring: np.ndarray) -> float:
+    a, b = ring, np.roll(ring, -1, axis=0)
+    ab = b - a
+    t = np.clip(np.einsum("pk,sk->ps", pts, ab) - np.einsum("sk,sk->s", a, ab)[None, :], 0.0, None)
+    t = np.minimum(t / np.maximum(np.einsum("sk,sk->s", ab, ab), 1e-12)[None, :], 1.0)
+    q = a[None, :, :] + t[:, :, None] * ab[None, :, :]
+    return float(np.min(np.hypot(*(q - pts[:, None, :]).transpose(2, 0, 1))))
 
 
 def woods(osm: dict) -> list[list[tuple[float, float]]]:
@@ -691,17 +768,10 @@ def non_main_span(ll: list[tuple[float, float]], ids: list[int], main_ids: list[
         raise ValueError("the alternative layout leaves the main lap more than once")
     p = np.array([to_bng(a, b) for a, b in ll])
     s = arc(np.vstack([p, p[:1]]))
-    # one point on from the run's first and last points, as the earlier way-based span did (it read each item's
-    # mark, the point after the shared junction node), so existing samples don't change; branch_of grows the
-    # core while the line stays off the main one anyway
-    # (at most 25 m on, the most any earlier recipe used: Bedford's long airfield segments would carry the core hundreds of metres along a shared
-    # straight)
+    # from the run's first point (where it leaves the main lap) to its last (where it rejoins), as the way-based
+    # span with the way-start fix (4e47b37) gives for laps made of whole ways
     st, en = runs[0]
-    a = 0 if st == 0 else st + 1
-    b = n if en + 1 >= n else min(en + 2, n)
-    sa = min(float(s[a]), float(s[st]) + 25.0) if a > st else float(s[a])
-    sb = min(float(s[b]), float(s[min(en + 1, n)]) + 25.0)
-    return sa / float(s[-1]), sb / float(s[-1])
+    return float(s[st] / s[-1]), float(s[min(en + 1, n)] / s[-1])
 
 
 def corner_order_problem(names: list[str], expected: list[str] | None) -> str | None:
@@ -799,7 +869,8 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     z_raw_centre = dtm.sample(p[:, 0], p[:, 1])
     z = gauss_closed(a, 4.0 / step)
     slope = gauss_closed(b, 10.0 / step)
-    bank = np.degrees(np.arctan(slope))
+    bank_fit = np.degrees(np.arctan(slope))
+    bank = np.clip(bank_fit, -IMPORTED_MAX_BANK_DEG, IMPORTED_MAX_BANK_DEG)
     datum = math.floor(float(z.min()))
 
     # 4. Local frame: x east, y north, metres on the ground, centred on the line's bounding box.
@@ -812,12 +883,14 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
 
     # 4b. Alternative layouts sharing the base: fit each whole lap the same way, keep the part that leaves the
     # main line (its ends moved onto it), with its own heights and camber.
-    alt_specs, alt_reports = [], []
+    alt_specs, alt_reports, alt_branches = [], [], []
     for alt in recipe.get("altLayouts", []):
         ll_a, marks_a, ids_a = stitch_nodes(osm, alt["lap"])
         bng_a = np.array([to_bng(x, y) for x, y in ll_a])
-        if (signed_area(bng_a) < 0) != clockwise:
-            raise ValueError(f"layout {alt['id']} runs the other way round from the main lap")
+        # a layout normally winds the same way as the main lap; one that doesn't says so (Snetterton's 100 is the
+        # 300's infield loop, driven the same way but anticlockwise as a loop): "clockwise": false
+        if (signed_area(bng_a) < 0) != bool(alt.get("clockwise", clockwise)):
+            raise ValueError(f"layout {alt['id']} runs the other way round from the main lap (or its recipe's clockwise)")
         pa, shift_a, eased_a = fit_loop(bng_a, dtm, width, step, max_shift)
         # branchOffM: how far off the main line a layout's line counts as its own (default 1 m; unregistered OSM
         # lines on shared ways match exactly but are sampled out of phase, up to 1 m apart vertex to vertex)
@@ -825,15 +898,16 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         # SEN's return beside the south straight, paved between) joins where it first comes within this distance
         br = branch_of(pa, p, step, core=non_main_span(ll_a, ids_a, main_ids), off_m=float(recipe.get("branchOffM", 1.0)),
                        join_within_m=alt.get("joinWithinM"))
+        alt_branches.append(br)
         nl_b = normals_open(br)
         ab, bb, res_b = cross_fit(dtm, br, nl_b, offs)
         if np.isnan(ab).any():
             raise RuntimeError(f"the DTM has gaps under layout {alt['id']}")
         zb = gauss_open(ab, 4.0 / step)
-        bank_b = np.degrees(np.arctan(gauss_open(bb, 10.0 / step)))
+        bank_b = np.clip(np.degrees(np.arctan(gauss_open(bb, 10.0 / step))), -IMPORTED_MAX_BANK_DEG, IMPORTED_MAX_BANK_DEG)
         loc_b = (br - centre) / k_scale
         alt_specs.append({"id": alt["id"], "name": alt["name"],
-                          "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), 2),
+                          "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), Z_DECIMALS),
                                           "bankDeg": round(float(bk), 2)} for (x, y), zv, bk in zip(loc_b, zb, bank_b)]})
         if alt.get("startFinish"):  # the layout's own line, snapped onto the fitted road (main or branch)
             q_sf = start_finish_point(alt["startFinish"], osm)
@@ -890,6 +964,27 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     zz = np.where(np.isnan(zz), (float(sea) - 3.0) if sea is not None else np.nanmean(zz), zz)
     origin = (np.array([e0, n0]) - centre) / k_scale
 
+    # 5b. Lakes (recipe "lakes": {"minAreaM2", "depthM"}): OSM open water in the terrain box, away from the road;
+    # the terrain nodes inside lie depthM below the water level (the LIDAR DTM is the water surface there).
+    lake_list = []
+    if recipe.get("lakes"):
+        lk = recipe["lakes"]
+        lat_m = 1.0 / 111_000.0
+        lon_m = lat_m / max(math.cos(math.radians(lat_c)), 1e-6)
+        s_, w_, n_, e_ = recipe["bbox"]
+        wbox = [s_ - margin * lat_m, w_ - margin * lon_m, n_ + margin * lat_m, e_ + margin * lon_m]
+        water = [(nm, np.array([to_bng(a_, b_) for a_, b_ in ring])) for nm, ring in water_polygons(fetch_osm_water(wbox, cache))]
+        water = [(nm, w) for nm, w in water if (w.max(0) > lo).all() and (w.min(0) < hi).all()]
+        roads = np.vstack([p] + [np.asarray(b_) for b_ in alt_branches])
+        lake_list = lakes_from(water, dtm, roads, float(lk.get("minAreaM2", 2000.0)), width / 2.0 + 4.0)
+        depth = float(lk.get("depthM", 1.0))
+        gx_, gy_ = np.meshgrid(ex, ny_)
+        nodes = np.column_stack([gx_.ravel(), gy_.ravel()])
+        for lake in lake_list:
+            ins = point_in_polygon(nodes, lake["poly"]).reshape(zz.shape)
+            zz = np.where(ins, np.minimum(zz, lake["level"] - depth), zz)
+            lake["carvedNodes"] = int(ins.sum())
+
     # 6. Woods (OSM) within the terrain grid, names and viewing spots along the line.
     box_lo, box_hi = (lo - centre) / k_scale, (hi - centre) / k_scale
     wood_polys = []
@@ -932,12 +1027,16 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     imported = {
         "source": ATTRIBUTION_WALES if recipe.get("dtm") == "wales" else ATTRIBUTION,
         "datumM": datum,
-        "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), 2),
+        "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), Z_DECIMALS),
                         "bankDeg": round(float(bk), 2)} for (x, y), zv, bk in zip(loc, z, bank)],
         "terrain": {"originX": round(float(origin[0]), 2), "originY": round(float(origin[1]), 2),
                     "cellM": round(cell / k_scale, 4), "nx": nx, "ny": ny,
                     "z": [round(float(v - datum), 2) for v in zz.ravel()]},
         "woodland": [{"points": [{"x": round(float(x), 1), "y": round(float(y), 1)} for x, y in w]} for w in wood_polys],
+        **({"lakes": [{**({"name": lk_["name"][:60]} if lk_["name"] else {}), "levelM": round(lk_["level"] - datum, 2),
+                       "points": [{"x": round(float(x), 1), "y": round(float(y), 1)}
+                                  for x, y in (lk_["poly"][:: max(1, math.ceil(len(lk_["poly"]) / 2000))] - centre) / k_scale]}
+                      for lk_ in lake_list]} if lake_list else {}),
         "corners": corners,
         "viewingSpots": spots,
     }
@@ -979,9 +1078,11 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         "maxUpGradePct20m": round(float(grade.max()) * 100, 1), "maxDownGradePct20m": round(float(grade.min()) * 100, 1),
         "maxUpGradePct10m": round(float(g10.max()) * 100, 1), "maxDownGradePct10m": round(float(g10.min()) * 100, 1),
         "maxUpAtS": round(float(s[int(np.argmax(grade))]), 1), "maxDownAtS": round(float(s[int(np.argmin(grade))]), 1),
-        "bankMaxDeg": round(float(np.abs(bank).max()), 2), "bankP95Deg": round(float(np.percentile(np.abs(bank), 95)), 2),
+        "bankMaxDeg": round(float(np.abs(bank).max()), 2), "bankFittedMaxDeg": round(float(np.abs(bank_fit).max()), 2), "bankP95Deg": round(float(np.percentile(np.abs(bank), 95)), 2),
         "bankMeanDeg": round(float(np.abs(bank).mean()), 2), "datumM": datum,
         "terrainGrid": [nx + 1, ny + 1], "terrainCellM": cell, "seaCells": sea_cells, "woods": len(wood_polys),
+        "lakes": [{"name": lk_["name"], "areaM2": round(lk_["areaM2"]), "levelM": round(lk_["level"], 2),
+                   "carvedNodes": lk_["carvedNodes"]} for lk_ in lake_list],
         "corners": corners,
     }
     if alt_reports:

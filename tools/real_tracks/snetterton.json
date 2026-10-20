@@ -1,0 +1,93 @@
+{
+  "description": "Recipe for tools/import_real_track.py: Snetterton (Norfolk, UK), MSV. The 300 circuit with the 200 and 100 circuits sharing its base: all three current layouts (MSV's circuit-layouts page lists exactly these three; Wikipedia and racingcircuits.info give the same three, 2011 to date).",
+  "name": "Snetterton",
+  "trackDescription": "Snetterton, 300 (4.78 km), 200 (3.22 km) and 100 (1.58 km) circuits from OpenStreetMap, with heights, camber and terrain from the Environment Agency LIDAR Composite DTM (1 m). A flat former wartime airfield in open Norfolk farmland.",
+  "bbox": [52.455, 0.930, 52.473, 0.965],
+  "terrainMarginM": 400,
+  "lap": [
+    159636496, 159636490, 159636493, 159636492, 161975520, 232356866, 232356870, 232356862, 232356869, 232356863,
+    232356867, 232356865, 232356868, 232356872, 159636489, 159636497, 232356871, 232356864, 145755937, 159636487,
+    159636494, 159636488, 161975521, 159636491
+  ],
+  "mainLayoutName": "300",
+  "layoutSource": "MSV official map 'Snetterton 300 Circuit' (snetterton.co.uk/about/circuit-layouts, 'SN Map_300 Circuit'): Senna Straight - Riches - Wilson - Palmer - Agostini - Hamilton - Oggies - Williams - Bentley Straight - Brundle - Nelson - Bomb Hole - Coram - Murrays; 2.969 mi / 4.779 km (Wikipedia, racingcircuits.info; MSV '3 miles').",
+  "directionSource": "MSV official 300 map: the arrow beside the chequered flag on Senna Straight points west towards Riches (clockwise); driver61.com Snetterton 300 guide: turn 1 Riches, turn 2 Montreal (now Wilson), turn 3 Palmer ... turn 12 Murrays.",
+  "startFinish": { "node": 1717542072, "note": "OSM node 'Start/finish line' (raceway=start-finish) on Senna Straight, 459 m from Murrays." },
+  "startFinishSource": "MSV official 300, 200 and 100 maps: the chequered flag on Senna Straight in front of the timekeeper's centre and race control, a little past half way from Murrays to Riches; OSM node 1717542072 'Start/finish line' 459 m along Senna Straight; BARC briefing notes: 'start line and finish line is located on the Senna Straight', 'in front of Race Control'; driver61.com gives the line at 52 27'48.2\"N 0 56'41.0\"E.",
+  "altLayouts": [
+    {
+      "id": "c200",
+      "name": "200",
+      "lap": [
+        159636496, 159636490, 159636493, 159636492, 161975517, 159636489, 159636497, 232356871, 232356864, 145755937,
+        159636487, 159636494, 159636488, 161975521, 159636491
+      ],
+      "layoutSource": "MSV official map 'Snetterton 200 Circuit': Riches and Wilson, then right at Chapman (OSM way 161975517) straight onto Bentley Straight, missing the infield (Palmer to Williams); 2.000 mi / 3.219 km (Wikipedia, racingcircuits.info; MSV '2 miles').",
+      "directionSource": "MSV official 200 map: the same arrow by the flag on Senna Straight towards Riches (clockwise).",
+      "startFinishSource": "MSV official 200 map: the chequered flag at the same place on Senna Straight as on the 300 map, so the 200 shares its line and grid.",
+      "measuredLapLengthM": 3202,
+      "publishedLapLengthM": 3219
+    },
+    {
+      "id": "c100",
+      "name": "100",
+      "clockwise": false,
+      "lap": [
+        232356868, [232356872, 1739267387, 1739267376], [161975518, 1739267376, 1739267390], [161975520, 1739267390, 1739267389],
+        232356866, 232356870, 232356862, 232356869, 232356863, 232356867, 232356865
+      ],
+      "layoutSource": "MSV official map 'Snetterton 100 Circuit': the infield loop alone, Palmer - Agostini - Hamilton - Oggies, then Firmans (OSM way 161975518, mapped the other way) from the foot of Williams back onto the road to Palmer; 0.980 mi / 1.577 km (Wikipedia, racingcircuits.info; MSV '1 mile'). racingcircuits.info: the 200 'can be run simultaneously with the short 100 loop'.",
+      "directionSource": "MSV official 100 map: the loop is the 300's infield driven the same way (Palmer, Agostini, Hamilton, Oggies, as the 300 map's arrow and driver61's turn order give them), joined by Firmans; as a loop on its own that is anticlockwise.",
+      "startFinish": { "alongWay": 232356870, "fraction": 0.25, "note": "ESTIMATED: on the straight from Palmer to Agostini beside the Tyrrells restaurant, 112 m after Palmer." },
+      "startFinishSource": "ESTIMATED, no official source found: the MSV 100 map shows only the Senna Straight flag (grey, off the 100 loop) and no other line, and racingcircuits.info, Wikipedia and the BARC / MSV briefing notes found don't place one. The 100 runs while the 200 uses Senna Straight, so it can't share that line; the line is put on the infield's only long straight (Palmer to Agostini, beside the Tyrrells restaurant and the paddock), 112 m after Palmer, where the 24-car grid fits on the level. Chris to confirm.",
+      "measuredLapLengthM": 1566,
+      "publishedLapLengthM": 1577
+    }
+  ],
+  "lapNames": {
+    "159636492": "Wilson",
+    "159636493": null,
+    "161975520": null,
+    "232356870": null,
+    "232356869": null,
+    "232356867": null,
+    "232356868": null,
+    "232356871": null,
+    "145755937": null,
+    "159636494": null,
+    "161975521": null
+  },
+  "publishedLapLengthM": 4779,
+  "measuredLapLengthM": 4801,
+  "widthM": 12.0,
+  "widthNote": "Not published; about 11-14 m on imagery (wide former airfield roads). One value for the whole lap.",
+  "clockwise": true,
+  "viewingSpots": ["Murrays", "Bomb Hole", "Palmer", "Riches"],
+  "expectedCornerOrder": ["Senna Straight", "Riches", "Wilson", "Palmer", "Agostini", "Hamilton", "Oggies", "Williams", "Bentley Straight", "Brundle", "Nelson", "Bomb Hole", "Coram", "Murrays"],
+  "expectedCornerOrderNote": "Clockwise 300 lap as on the MSV map and in the driver61.com guide (Wilson was Montreal until 2021; OSM still has Montreal, relabelled here). Chapman (the 200's link) and Firmans (the 100's) aren't on the 300 lap, so they aren't labelled.",
+  "kerbs": [
+    { "corner": "Riches", "apex": false, "exit": true, "source": "driver61.com Snetterton 300 guide: 'I wouldn't advise using any of the kerbs' at the apexes (steep, old school); the outside exit kerb marks the edge of the usable road" },
+    { "corner": "Wilson", "apex": true, "exit": true, "source": "driver61.com: a red sausage kerb on the inside before the apex; a triangle of exit kerb on the left" },
+    { "corner": "Palmer", "entry": true, "apex": true, "exit": true, "source": "driver61.com: run the kerb from 1/4 to 3/4 of the way along; run the exit kerb but not beyond it" },
+    { "corner": "Agostini", "apex": true, "exit": true, "source": "driver61.com: the apex kerb is usable; the exit kerb is plenty visible" },
+    { "corner": "Hamilton", "apex": true, "exit": true, "source": "driver61.com: the inside kerb with a large block; use all of the kerbing on the outside" },
+    { "corner": "Oggies", "apex": true, "exit": true, "green": true, "source": "driver61.com: use all of the apex kerb; grass-crete on the inside, worn grass at the exit" },
+    { "corner": "Williams", "apex": true, "exit": true, "source": "driver61.com: all of the inside kerb (careful with the tyre block); all of the exit kerbing" },
+    { "corner": "Brundle", "apex": true, "source": "driver61.com: kerbing on the inside, run-off on the outside" },
+    { "corner": "Nelson", "apex": true, "exit": true, "source": "driver61.com: all of the inside kerb (stay off the sausage kerb); all of the exit kerbing" },
+    { "corner": "Bomb Hole", "apex": true, "exit": true, "source": "driver61.com: the apex half way along the kerbing, all usable; a little of the exit kerbing" },
+    { "corner": "Coram", "apex": true, "source": "driver61.com: a small inside kerb that becomes a large, wide kerb after about 20 m" },
+    { "corner": "Murrays", "apex": true, "exit": true, "green": true, "source": "driver61.com: all of the inside kerb (not the sausage); all of the exit kerbing, a track-limits sensor beyond" }
+  ],
+  "kerbsNote": "OSM has no kerb or run-off features at Snetterton (Overpass 2026-10-20: no barrier=kerb, kerb=* or area:highway), and the 1 m DTM can't resolve kerbs, so these overrides come from the driver61.com guide; Chapman and Firmans get the geometric placement.",
+  "options": {
+    "surface": "tarmac",
+    "kerbs": true,
+    "walls": "tyres",
+    "environment": "airfield",
+    "gridSize": 24,
+    "weathers": ["morning", "midday", "afternoon"],
+    "reverseLayout": false,
+    "defaultLaps": 5
+  }
+}
