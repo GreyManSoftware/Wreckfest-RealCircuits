@@ -24,7 +24,7 @@ layouts; lengths from Wikipedia unless noted, to verify per circuit under the st
 | 3 | Oulton Park | International 4.307 km, Island 3.616 km, Fosters 2.656 km | |
 | 4 | Snetterton | 300 4.779 km, 200 3.219 km, 100 1.577 km | |
 | 5 | Donington Park (`doningtonpark`) | Grand Prix 4.020 km, National 3.186 km (MSV; Wikipedia 3.149 km) | built 2026-10-20 |
-| 6 | Bedford Autodrome | GT, South West, SEN, West, South, North, East (MSV / PalmerSport list; lengths conflict between sources: check MSV's own Bedford page) | |
+| 6 | Bedford Autodrome (`bedfordautodrome`) | GT 6.11 km, SW 4.50 km, West 3.0 km, SEN 3.70 km (MSV's circuit-layouts page; North, South and East no longer listed) | built 2026-10-20 |
 | 7 | Circuito de Navarra | Full 4.313 km, Medium 2.693 km, Short 1.391 km (since 2024) | outside the UK: needs a Spanish open DTM in `load_dtm` |
 
 **Standing requirements (Chris, 2026-10-20), for every circuit in the pack:**
@@ -108,6 +108,8 @@ Recipe extras (Anglesey, `tools/real_tracks/anglesey.json`):
   signal in the DTM, so the registration only drifts, differently per layout). `branchOffM` (default 1): how far a
   layout's fitted line must be from the main one to count as its own branch (unregistered lines on shared ways
   match exactly but are sampled out of phase, up to 1 m apart).
+- `altLayouts[].joinWithinM`: a branch that runs beside the main road before it merges (Bedford SEN) joins where it
+  first comes within this distance of the main line, instead of overlapping it.
 - `lapLengthTolerancePct` + `lapLengthNote` (main or per layout): a larger gap to the published length than the
   test's 3 %, only with a note of at least 40 characters explaining it (`test_import_real_track.py`).
 - Lap length: `options.lapLengthKm` is informational for imported tracks and may be up to 7 km (schema); drawn
@@ -310,4 +312,52 @@ Esses, Melbourne Hairpin, Goddards; the National leaves after Starkey's Straight
 - **Renders:** `.local
 enders\doningtonpark-{oblique,horizon,driver,driver-craner,driver-melbourne}.png`.
 - **Check in game:** the Craner Curves descent and Old Hairpin, the Melbourne Hairpin divider, the 11 m width.
+
+## Bedford Autodrome: GT, SW, West and SEN (2026-10-20)
+
+One base scene, four layouts (`bedfordautodrome_race` = GT, `_sw`, `_west`, `_sen`; events "Bedford Autodrome GT /
+SW / West / SEN"). Recipe `tools/real_tracks/bedfordautodrome.json`, sample `geom/tests/samples/bedfordautodrome.json`,
+raw data and report in `.localealtracksedfordautodrome\` (MSV and racingcircuits.info maps in `maps\`), zip
+`E:\WreckfestModsedfordautodrome.zip` (10.7 MB), installed and enabled as "Bedford Autodrome".
+
+**Layouts.** MSV's own circuit-layouts page (bedfordautodrome.co.uk) lists four: GT, SEN, SW, West; all four are
+built. racingcircuits.info also has the North (1.61 km), South (2.41 km) and East (1.21 km) circuits, which MSV no
+longer lists (PalmerSport driving experiences), so they aren't built (their loops are in the scene where the four
+layouts use them). OSM maps the West, North, South and East circuits as four closed loop ways plus links; each
+layout takes parts of them, and the GT and SEN cross from the North circuit's S-bend to the South circuit's top
+corner over an airfield service road (OSM 449592525, paved between the mapped grass areas).
+
+| | GT | SW | West | SEN |
+|---|---|---|---|---|
+| Source of the layout | MSV GT map (3.8 mi / 6.11 km, 10 left + 8 right corners); racingcircuits.info GT map T1–T18 | MSV SW map (2.8 mi / 4.50 km); racingcircuits.info South West map | MSV West map (1.87 mi / 3 km); OSM's West circuit way, matching the maps turn for turn | MSV SEN map (2.3 mi / 3.70 km); racingcircuits.info SEN map |
+| Lap (built) / published | 5,880.8 / 6,110 m (−3.8 %) | 4,585.3 / 4,500 m (+1.9 %) | 2,798.4 / 3,000 m (−6.7 %) | 3,594.1 / 3,700 m (−2.9 %) |
+| OSM polyline | 5,899 m | 4,592 m | 2,806 m | 3,592 m |
+| Direction | anticlockwise (racingcircuits.info turn numbering; evo.co.uk: the Hangar Hairpin first) | anticlockwise | anticlockwise (lapmeta: counter-clockwise) | anticlockwise |
+| Start/finish | inner (pit) straight before T1, OSM node 305063847, 159 m before the pit lane merges (racingcircuits.info flag, mapped by an affine fit of the West loop) | shares the GT line | shares the GT line | own: the south straight where the South pit lane rejoins, after the small west loop (racingcircuits.info SEN flag) |
+
+**Length gaps.** The OSM routes follow the maps corner for corner (the GT has exactly MSV's 10 left and 8 right
+corners) on the mapped tarmac. The SW, built from the same ways, is 1.9 % over MSV's figure, so OSM isn't
+uniformly short: MSV rounds to 0.1 mi (±80 m), and its West figure (3.0 km) looks like an older layout's
+(racingcircuits.info: 2.98–3.14 km before 2015; lapmeta 2.89 km). The recipe allows 4 % (GT) and 7 % (West) with
+`lapLengthNote`s.
+
+- **Ground:** the flat Thurleigh airfield: road heights 82.8–89.5 m (6.7 m over 2.5 km), grades under 2.1 %, camber
+  under 1.6°. With no road signal in the DTM the OSM line is used as mapped (`registrationMaxShiftM` 0); fit to the
+  DTM: centre RMS 0.015 m.
+- **Width:** not published; 12 m.
+- **Corner names:** Bedford's corners are numbered on MSV's and racingcircuits.info's maps; the labels are the GT's
+  turn numbers ("Turn 2" … "Turn 18", `cornerLabels` at OSM nodes) with Turn 1 named the Hangar Hairpin (evo.co.uk
+  corner guide). The other layouts number their corners differently.
+- **Kerbs:** OSM has none; the Hangar Hairpin's apex kerb from evo.co.uk, the rest geometric.
+- **Environment:** the new `airfield` preset: fields13 grass between the loops, no field parcels or trees in the
+  open, the 8 OSM woods round the site, a hedgerow belt and a low horizon; tyre barrier rows only where needed
+  (dividers between the parallel straights, the grid, crowds), at most 31 % of a side. Crowds at the Hangar
+  Hairpin, Turn 11 (the East tip) and Turn 15 (the North hairpin).
+- **Checks:** builder `check_scene` + `check_export` pass for all four layouts (dividers: 60 probes across gaps
+  under 30 m, one open at 28.5 m; no overlapping road faces; grids on the road; finish checkpoints on the lines;
+  routes in checkpoint order; a minimap `.tcat` per layout; base 2,393 subscenes, 3.8 M vertices with every
+  instance, clutter 4.9 ha, within the stock limits).
+- **Renders:** `.localendersedfordautodrome-{oblique,horizon,driver,driver-hangar,driver-t11,driver-t15}.png`.
+- **Check in game:** the SEN's merge across the paved area after its small west loop, the GT/SEN crossing from the
+  North S-bend to the South top corner, how open the run-off feels (AI resets), the 12 m width.
 

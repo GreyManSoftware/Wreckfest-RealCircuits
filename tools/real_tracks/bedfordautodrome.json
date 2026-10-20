@@ -1,0 +1,118 @@
+{
+  "description": "Recipe for tools/import_real_track.py: Bedford Autodrome (Thurleigh airfield, Bedfordshire, UK), MSV. The GT circuit with the SW, West and SEN circuits sharing its base: the four layouts on MSV's own circuit-layouts page (bedfordautodrome.co.uk/about/circuit-layouts: GT, SEN, SW, West). racingcircuits.info also lists the North, South and East circuits, which MSV no longer lists (used for driving experiences), so they aren't built. OSM maps the West, North, South and East circuits as closed loops plus link roads; the layouts take parts of them ([way, from, to, 'fwd'|'rev']) and the GT and SEN cross from the North circuit's S-bend to the South circuit's top corner over the old airfield service road 449592525 (extraWays).",
+  "name": "Bedford Autodrome",
+  "trackDescription": "Bedford Autodrome, GT (5.9 km), SW (4.6 km), West (2.8 km) and SEN (3.6 km) circuits from OpenStreetMap, with heights, camber and terrain from the Environment Agency LIDAR Composite DTM (1 m). Flat, open airfield circuits with wide run-off amid Bedfordshire farmland.",
+  "bbox": [52.222, -0.500, 52.250, -0.450],
+  "extraWays": [449592525],
+  "registrationMaxShiftM": 0,
+  "branchOffM": 1.5,
+  "registrationNote": "The airfield is flat (road heights within 7 m over 2.5 km, the cross-section residual flat everywhere), so the DTM has no road signal to register the OSM line to: the line is used as mapped.",
+  "terrainMarginM": 400,
+  "lap": [
+    [27782784, 305063784, 305063834, "fwd"], 449588229, [27812037, 305382335, 305382299, "fwd"], 449588231,
+    [27812039, 305382344, 305382376, "rev"], [449588230, 305382376, 305382353], [27812039, 305382353, 305382360, "fwd"],
+    [449592537, 305382360, 305380709], [27811904, 305380709, 305380681, "rev"], [449592525, 305380681, 305382313],
+    [27812037, 305382313, 305382315, "fwd"], 306561365, [27812037, 305382319, 3115195099, "fwd"], 306561364,
+    [27782784, 3115195105, 305063784, "fwd"]
+  ],
+  "mainLayoutName": "GT",
+  "layoutSource": "MSV official circuit layouts page (bedfordautodrome.co.uk/about/circuit-layouts, GT map): 3.8 mi / 6.11 km, 18 corners (10 left, 8 right); racingcircuits.info GT 2015-to-date map (T1-T18): the West circuit's T1-T8, the long south straight with the T9/T10 kink, the East circuit's tip (T11) and west side (T12, T13), the North circuit's top straight (T14) and west hairpin (T15), its S-bend (T16), the airfield road down to the South circuit's top corner, the South diagonal (straight, not the South circuit's kink) to T17 and the inner straight (T18). The OSM route has exactly 10 left and 8 right corners.",
+  "directionSource": "racingcircuits.info GT map: the turn numbers run T1 (top right of the West loop) along the top westwards, down the west side to T8 and east along the south straight (anticlockwise); MSV maps and the evo.co.uk Bedford corner-by-corner guide start the lap with the Hangar Hairpin at the end of the start straight.",
+  "startFinish": { "node": 305063847, "note": "On the inner (pit) straight before T1, 159 m before the pit lane merges (OSM node on the West circuit way)." },
+  "startFinishSource": "racingcircuits.info GT, SW and West maps: the chequered flag on the inner straight between T18 (T15/T12) and T1, before the pit lane rejoins; its position, mapped onto OSM by an affine fit of the West loop (5 points, 4-7 px), is the West way's node 305063847, 159 m before the pit-lane merge.",
+  "lapLengthTolerancePct": 4.0,
+  "lapLengthNote": "GT: OSM 5.90 km vs MSV's rounded 3.8 mi / 6.11 km (-3.6 %). The route follows MSV's and racingcircuits.info's GT maps corner for corner (10 left, 8 right as MSV counts) on the mapped tarmac; the SW, built from the same OSM ways, is 2 % over MSV's figure, so OSM isn't uniformly short; the published GT figure is rounded to 0.1 mi (+-80 m) and racingcircuits.info's earlier GT figures range from 5.79 to 6.28 km.",
+  "altLayouts": [
+    {
+      "id": "sw",
+      "name": "SW",
+      "lap": [
+        [27782784, 305063784, 305063834, "fwd"], 449588229, [27812037, 305382335, 305382315, "fwd"], 306561365,
+        [27812037, 305382319, 3115195099, "fwd"], 306561364, [27782784, 3115195105, 305063784, "fwd"]
+      ],
+      "layoutSource": "MSV official circuit layouts page (SW map): 2.8 mi / 4.50 km, 13 corners (8 left, 5 right); racingcircuits.info South West 2015-to-date map (T1-T15): the West circuit's T1-T8, the south straight, then the South circuit's east side and top corner and its diagonal back to the inner straight. evo.co.uk: 2.8 mi, the most popular layout for track days.",
+      "directionSource": "racingcircuits.info South West map: the same T1 at the top right of the West loop, numbering anticlockwise; evo.co.uk corner guide: the Hangar Hairpin first.",
+      "startFinishSource": "racingcircuits.info South West map: the chequered flag at the same place on the inner straight as the GT's, so SW shares the GT line and grid.",
+      "measuredLapLengthM": 4592,
+      "publishedLapLengthM": 4500
+    },
+    {
+      "id": "west",
+      "name": "West",
+      "lap": [27782784],
+      "layoutSource": "MSV official circuit layouts page (West map): 1.87 mi / 3 km, 12 corners (7 left, 5 right); racingcircuits.info West 2015-to-date map (T1-T12); the whole OSM way 'Bedford Autodrome West Circuit' (27782784), whose shape matches the maps corner for corner (the T3/T4 kink, T7, T8, the T9/T10 hook onto the return).",
+      "directionSource": "racingcircuits.info West map: T1 at the top right, numbering anticlockwise (the OSM way runs that way); lapmeta.com: 'counter-clockwise'.",
+      "startFinishSource": "racingcircuits.info West map: the chequered flag at the same place on the inner straight as on the GT and SW maps, so the West shares the GT line and grid.",
+      "measuredLapLengthM": 2806,
+      "publishedLapLengthM": 3000,
+      "lapLengthTolerancePct": 7.0,
+      "lapLengthNote": "West: the OSM way is 2.81 km against MSV's 1.87 mi / 3.0 km (-6.5 %); racingcircuits.info 3.010 km, lapmeta.com 2.89 km. The OSM way lies on the tarmac between the mapped grass areas all round and matches the MSV and racingcircuits.info maps turn for turn; the SW, which shares all but 360 m of it, comes out 2 % over MSV's figure, so no section is missing. The published West figure looks like an older layout's (racingcircuits.info: 2.98-3.14 km before 2015)."
+    },
+    {
+      "id": "sen",
+      "name": "SEN",
+      "lap": [
+        [27812037, 305382341, 305382299, "fwd"], 449588231, [27812039, 305382344, 305382376, "rev"],
+        [449588230, 305382376, 305382353], [27812039, 305382353, 305382360, "fwd"], [449592537, 305382360, 305380709],
+        [27811904, 305380709, 305380681, "rev"], [449592525, 305380681, 305382313], [27812037, 305382313, 305382315, "fwd"],
+        306561365, [27812037, 305382319, 305382341, "fwd"]
+      ],
+      "layoutSource": "MSV official circuit layouts page (SEN map): 2.3 mi / 3.70 km, 10 corners (7 left, 3 right); racingcircuits.info SEN 2015-to-date map (T1-T12): South, East and North: the south straight, the East circuit's tip and west side, the North circuit's top straight, west hairpin and S-bend, the South diagonal and the South circuit's small loop at its west end back onto the south straight.",
+      "directionSource": "racingcircuits.info SEN map: T1 on the south straight east of the flag, T3 at the East tip, T6 at the North's top right, T7 its west hairpin (anticlockwise, as the GT's eastern half).",
+      "joinWithinM": 13,
+      "joinNote": "The SEN's small loop returns beside the south straight for about 75 m, 6-10 m from it, with tarmac between (no grass mapped there): the branch joins where it first comes within 13 m (two half-widths and a metre) and cuts across that paved area.",
+      "startFinish": { "node": 305382341, "note": "On the south straight where the South circuit's pit lane rejoins, after the small west loop." },
+      "startFinishSource": "racingcircuits.info SEN map: its own chequered flag on the south straight just after the small loop at the South circuit's west end (T10-T12) rejoins it, before T1; OSM: the South pit lane (27812038) rejoins there.",
+      "measuredLapLengthM": 3592,
+      "publishedLapLengthM": 3700
+    }
+  ],
+  "lapNames": {
+    "27782784": null, "449588229": null, "27812037": null, "449588231": null, "27812039": null, "449588230": null,
+    "449592537": null, "27811904": null, "449592525": null, "306561365": null, "306561364": null
+  },
+  "cornerLabels": [
+    { "name": "Hangar Hairpin", "node": 305063786 },
+    { "name": "Turn 2", "node": 305063794 },
+    { "name": "Turn 3", "node": 4465427141 },
+    { "name": "Turn 4", "node": 305063801 },
+    { "name": "Turn 5", "node": 305063806 },
+    { "name": "Turn 6", "node": 305063811 },
+    { "name": "Turn 7", "node": 305063823 },
+    { "name": "Turn 8", "node": 305063828 },
+    { "name": "Turn 9", "node": 305382295 },
+    { "name": "Turn 10", "node": 4465381064 },
+    { "name": "Turn 11", "node": 305382380 },
+    { "name": "Turn 12", "node": 305382355 },
+    { "name": "Turn 13", "node": 4465427153 },
+    { "name": "Turn 14", "node": 305380713 },
+    { "name": "Turn 15", "node": 305380721 },
+    { "name": "Turn 16", "node": 4465427128 },
+    { "name": "Turn 17", "node": 3115195102 },
+    { "name": "Turn 18", "node": 305063844 }
+  ],
+  "cornerLabelsNote": "Bedford's corners are numbered, not named, on MSV's and racingcircuits.info's maps: the labels are the GT's turn numbers (racingcircuits.info GT map) at the OSM node where the lap turns most, and Turn 1 carries its name from the evo.co.uk corner-by-corner guide (the Hangar Hairpin). The other layouts number their corners differently.",
+  "publishedLapLengthM": 6110,
+  "measuredLapLengthM": 5891,
+  "widthM": 12.0,
+  "widthNote": "Not published; 12 m, as the wide airfield circuits (Anglesey 12 m by OSM's width tags).",
+  "clockwise": false,
+  "viewingSpots": ["Hangar Hairpin", "Turn 11", "Turn 15"],
+  "expectedCornerOrder": ["Hangar Hairpin", "Turn 2", "Turn 3", "Turn 4", "Turn 5", "Turn 6", "Turn 7", "Turn 8", "Turn 9", "Turn 10", "Turn 11", "Turn 12", "Turn 13", "Turn 14", "Turn 15", "Turn 16", "Turn 17", "Turn 18"],
+  "expectedCornerOrderNote": "The GT's turns in racingcircuits.info's numbering (anticlockwise from the Hangar Hairpin at the top right of the West loop).",
+  "kerbs": [
+    { "corner": "Hangar Hairpin", "apex": true, "source": "evo.co.uk Bedford corner-by-corner guide: some kerb can be taken at the apex of the Hangar Hairpin; running wide onto the concrete on the exit gains nothing" }
+  ],
+  "kerbsNote": "OSM has no kerb features here and the 1 m DTM can't resolve kerbs on the flat airfield; the Hangar Hairpin's apex kerb comes from the evo.co.uk guide, every other corner gets the geometric apex/exit kerbs.",
+  "environmentNote": "airfield: the flat, open Thurleigh airfield (road heights within 7 m over 2.5 km, grades under 2.1 %) amid arable fields (OSM landuse=farmland round the site), the circuits separated by wide grass.",
+  "options": {
+    "surface": "tarmac",
+    "kerbs": true,
+    "walls": "tyres",
+    "environment": "airfield",
+    "gridSize": 24,
+    "weathers": ["morning", "midday", "afternoon"],
+    "reverseLayout": false,
+    "defaultLaps": 5
+  }
+}
