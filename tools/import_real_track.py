@@ -1,6 +1,6 @@
 """Import a real circuit into a TrackSpec with an exact centreline, heights, camber and terrain.
 
-    py tools/import_real_track.py tools/real_tracks/cadwell.json --out geom/tests/samples/realcadwell.json
+    py tools/import_real_track.py tools/real_tracks/cadwellpark.json --out geom/tests/samples/cadwellpark.json
 
 Data (downloaded once and cached under E:\\Source\\wreckfest\\.local\\<slug>\\, never committed):
 
@@ -587,6 +587,25 @@ def kerb_overrides(items: list[dict], corners: list[dict]) -> list[dict]:
     return out
 
 
+def default_slug(name: str) -> str:
+    """The mod slug for a track name: the name in lower case with everything but letters and digits dropped
+    ("Cadwell Park" -> "cadwellpark")."""
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def recipe_slug(recipe: dict) -> str:
+    """The recipe's slug: ``slug`` when given, else the default for its ``name``. Real tracks are named after the
+    circuit alone (2026-10-20, Chris: no "Real" prefix): the name may not start with "Real" and an explicit slug
+    must be the name's default."""
+    name = recipe["name"]
+    if re.match(r"Real(?=[A-Z\s])", name):
+        raise ValueError(f"recipe name {name!r}: use the plain track name, no 'Real' prefix")
+    slug = recipe.get("slug") or default_slug(name)
+    if slug != default_slug(name):
+        raise ValueError(f"recipe slug {slug!r} isn't the name's default {default_slug(name)!r}")
+    return slug
+
+
 def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = None, log=print) -> tuple[dict, dict]:
     """The TrackSpec and a report dict (lengths, heights, grades, camber, data checks)."""
     cell = float(cell or recipe.get("terrainCellM", 6.0))
@@ -773,7 +792,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         imported["horizon"] = horizon_profile(recipe, p[0], float(z[0]) + 1.5, cache, float(sea or 0.0))
     o = recipe["options"]
     spec = {
-        "meta": {"name": recipe["name"], "slug": recipe["slug"], "description": recipe["trackDescription"][:500]},
+        "meta": {"name": recipe["name"], "slug": recipe_slug(recipe), "description": recipe["trackDescription"][:500]},
         "sketch": {"canvas": {"width": W, "height": H}, "imported": imported},
         "options": {"lapLengthKm": round(L / 1000.0, 3), "widthM": width, "surface": o["surface"],
                     "kerbs": o["kerbs"], "walls": o["walls"], "elevation": "imported",
@@ -905,7 +924,7 @@ def main(argv: list[str] | None = None) -> int:
                     "(needs trackgen_geom: run with geom's venv)")
     args = ap.parse_args(argv)
     recipe = json.loads(Path(args.recipe).read_text(encoding="utf-8"))
-    cache = Path(args.cache) if args.cache else DEFAULT_CACHE_ROOT / recipe["slug"]
+    cache = Path(args.cache) if args.cache else DEFAULT_CACHE_ROOT / recipe_slug(recipe)
     cache.mkdir(parents=True, exist_ok=True)
     spec, report = build(recipe, cache, log=lambda m: print(m, file=sys.stderr))
     if args.verify:

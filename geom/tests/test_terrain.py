@@ -32,7 +32,7 @@ def _at(t: dict, x: float, y: float) -> float:
     return float((1 - u) * (1 - v) * z[j, i] + u * (1 - v) * z[j, i + 1] + (1 - u) * v * z[j + 1, i] + u * v * z[j + 1, i + 1])
 
 
-@pytest.mark.parametrize("name", ["hilly_circuit", "hill_markers", "figure8_bridge", "realcadwell"])
+@pytest.mark.parametrize("name", ["hilly_circuit", "hill_markers", "figure8_bridge", "cadwellpark"])
 def test_grid_covers_the_track_and_follows_the_road(name: str) -> None:
     model, t = _grid(name)
     b = model["bounds"]
@@ -68,9 +68,9 @@ def test_deterministic() -> None:
 
 def test_imported_track_uses_its_real_ground() -> None:
     """Away from the road the preview ground is the imported heightfield, not the seeded field."""
-    spec = json.loads((SAMPLES / "realcadwell.json").read_text(encoding="utf-8"))
+    spec = json.loads((SAMPLES / "cadwellpark.json").read_text(encoding="utf-8"))
     hf = Heightfield(spec["sketch"]["imported"]["terrain"])
-    model, t = _grid("realcadwell")
+    model, t = _grid("cadwellpark")
     b = model["bounds"]
     x, y = b["minX"] - 50.0, b["minY"] - 50.0  # a corner of the grid, far from the road
     assert _at(t, x, y) == pytest.approx(float(hf.height(np.array([[x, y]]))[0]), abs=0.05)

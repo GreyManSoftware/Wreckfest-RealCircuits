@@ -1,7 +1,6 @@
 {
   "description": "Recipe for tools/import_real_track.py: the Cadwell Park full circuit (Louth, Lincolnshire, UK).",
-  "slug": "realcadwell",
-  "name": "RealCadwell",
+  "name": "Cadwell Park",
   "trackDescription": "Cadwell Park full circuit (3.48 km) from OpenStreetMap, with heights, camber and terrain from the Environment Agency LIDAR Composite DTM (1 m). Wooded parkland in the Lincolnshire Wolds.",
   "bbox": [53.300, -0.085, 53.320, -0.045],
   "terrainMarginM": 400,

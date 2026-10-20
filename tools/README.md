@@ -83,5 +83,5 @@ from OpenStreetMap and the Environment Agency LIDAR DTM. Recipes live in `real_t
 `.local\<slug>\`. See [docs/real-tracks.md](../docs/real-tracks.md).
 
 ```powershell
-geom\.venv\Scripts\python tools\import_real_track.py tools\real_tracks\cadwell.json --out geom\tests\samples\realcadwell.json --verify
+geom\.venv\Scripts\python tools\import_real_track.py tools\real_tracks\cadwellpark.json --out geom\tests\samples\cadwellpark.json --verify
 ```

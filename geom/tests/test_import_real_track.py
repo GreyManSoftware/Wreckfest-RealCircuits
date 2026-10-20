@@ -112,6 +112,15 @@ def test_corner_order_problem_accepts_a_rotation_and_rejects_the_reverse() -> No
     assert "labelled" in irt.corner_order_problem(["A"], want)
 
 
+def test_recipe_slug_is_the_plain_track_name() -> None:
+    assert irt.recipe_slug({"name": "Cadwell Park"}) == "cadwellpark"
+    assert irt.recipe_slug({"name": "Brands Hatch", "slug": "brandshatch"}) == "brandshatch"
+    with pytest.raises(ValueError, match="Real"):
+        irt.recipe_slug({"name": "RealCadwell"})
+    with pytest.raises(ValueError, match="default"):
+        irt.recipe_slug({"name": "Cadwell Park", "slug": "realcadwell"})
+
+
 @pytest.mark.parametrize("recipe_path", _RECIPES, ids=[p.stem for p in _RECIPES])
 def test_imported_sample_drives_the_recipes_corner_order_in_every_layout(recipe_path: Path) -> None:
     """The committed sample, built into a TrackModel, is driven (increasing s from the start line, which the
@@ -120,7 +129,7 @@ def test_imported_sample_drives_the_recipes_corner_order_in_every_layout(recipe_
     from trackgen_geom import build_track_model
 
     recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
-    spec = json.loads((_ROOT / "geom" / "tests" / "samples" / f"{recipe['slug']}.json").read_text(encoding="utf-8"))
+    spec = json.loads((_ROOT / "geom" / "tests" / "samples" / f"{irt.recipe_slug(recipe)}.json").read_text(encoding="utf-8"))
     res = build_track_model(spec)
     assert res.model is not None and res.valid, [e.message for e in res.errors]
     xy = np.array([[q.x, q.y] for q in res.model.route("main").samples])

@@ -159,7 +159,7 @@ def check_road_flush(full, model: dict, manifest: dict) -> None:
     (away from other roads) lies 0-20 cm below the edge (no lip, no step up; the camber continues 1.5 m past a
     low edge), and between 2 and 15 m out it
     doesn't dip more than 0.3 m below both the edge and the ground 30 m out (no ditch or embankment look).
-    RealCadwell sat on a 0.5-1 m lip (2026-10-19): the terrain took the lowest road within ~10 m along a
+    Cadwell Park sat on a 0.5-1 m lip (2026-10-19): the terrain took the lowest road within ~10 m along a
     graded road."""
     tris = [to_world(o, np.array(o.tris).reshape(-1, 3)).reshape(-1, 3, 3)
             for o in full.objects if o.name.startswith("terrain_") and o.tris]
@@ -220,7 +220,7 @@ def check_driving_order(scene: str, scne: str) -> None:
     """The game drives a compiled AI route in its stored sector order (every stock layout's checkpoints run in
     that order, with or without otherway), and bgeometry picks that order itself (layout.needs_otherway). Our
     checkpoints are numbered in the driving order, so in the built .scne they must follow the stored main
-    route forwards; backwards means the race runs the wrong way round (RealCadwell, 2026-10-19)."""
+    route forwards; backwards means the race runs the wrong way round (Cadwell Park, 2026-10-19)."""
     lay = scne_read.read_layout(scne)
     secs = lay.checkpoint_sectors()
     n = len(lay.routes[0])

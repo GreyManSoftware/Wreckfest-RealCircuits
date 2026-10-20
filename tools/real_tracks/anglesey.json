@@ -1,7 +1,6 @@
 {
   "description": "Recipe for tools/import_real_track.py: Anglesey Circuit / Trac Mon (Ty Croes, Anglesey, Wales), the International layout with the Coastal layout sharing its base. Data notes: docs/real-tracks/anglesey.md.",
-  "slug": "realanglesey",
-  "name": "RealAnglesey",
+  "name": "Anglesey",
   "trackDescription": "Anglesey Circuit (Trac Mon), International (3.30 km) and Coastal (2.47 km) layouts from OpenStreetMap, with heights, camber and terrain from the Welsh Government / NRW LIDAR composite DTM (1 m). Open, windswept coastal headland with the sea on three sides and Snowdonia to the east.",
   "bbox": [53.182, -4.508, 53.196, -4.487],
   "dtm": "wales",

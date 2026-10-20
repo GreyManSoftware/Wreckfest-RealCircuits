@@ -4,12 +4,18 @@ A real circuit becomes a TrackSpec with `sketch.imported` (schema: `schema/READM
 centreline with per-point heights and camber, the surrounding ground, woodland and named places. The geometry core
 uses it as given, the builder cambers the road and plants the real woods, and the web editor shows it read-only.
 
+**Naming (2026-10-20):** a real track is named after the circuit alone, no "Real" prefix: display name "Cadwell
+Park", slug `cadwellpark` (the importer's default: the name in lower case, letters and digits only; it refuses a
+"Real…" name or a slug that isn't the name's default). Events read "<track> <layout>", e.g. "Cadwell Park Club".
+Cadwell Park and Anglesey were RealCadwell / `realcadwell` and RealAnglesey / `realanglesey` until then; zips,
+renders and caches made before keep the old names.
+
 ## Importer
 
 ```powershell
 # downloads are cached in E:\Source\wreckfest\.local\<slug>\ (gitignored); never commit them
-geom\.venv\Scripts\python tools\import_real_track.py tools\real_tracks\cadwell.json `
-    --out geom\tests\samples\realcadwell.json --report E:\Source\wreckfest\.local\realcadwell\report.json --verify
+geom\.venv\Scripts\python tools\import_real_track.py tools\real_tracks\cadwellpark.json `
+    --out geom\tests\samples\cadwellpark.json --report E:\Source\wreckfest\.local\cadwellpark\report.json --verify
 ```
 
 A recipe (`tools/real_tracks/<name>.json`) names the OSM `highway=raceway` ways of one lap in driving order, the
@@ -36,7 +42,7 @@ Other circuits: write a recipe (find the way ids with Overpass, e.g.
 (EA DTM, the default) or Wales (`"dtm": "wales"`: the Welsh Government / NRW 1 m DTM COG read by range requests);
 elsewhere add another open DTM to `load_dtm`.
 
-Recipe extras (RealAnglesey, `tools/real_tracks/anglesey.json`):
+Recipe extras (Anglesey, `tools/real_tracks/anglesey.json`):
 
 - `altLayouts`: further layouts sharing the base, each with its own `lap` of ways (`[way, from_node, to_node]`
   takes part of a way), `measuredLapLengthM` and `publishedLapLengthM`. Each lap is fitted like the main one and
@@ -49,14 +55,14 @@ Recipe extras (RealAnglesey, `tools/real_tracks/anglesey.json`):
 - `horizon`: the distant skyline (3-45 km, 32 m DTM overview) for a painted `#horizon` texture (Wales only).
 - `terrainCellM`: heightfield cell (default 6 m; 10 m for a wide coastal margin).
 
-Every recipe (2026-10-19, after RealCadwell drove backwards):
+Every recipe (2026-10-19, after Cadwell Park drove backwards):
 
 - `expectedCornerOrder`: the published lap order of the named corners (track guides). The importer fails when
   the OSM labels, in driving order from the start line, don't follow it (a rotation is fine, reversed isn't);
   `geom/tests/test_import_real_track.py` drives each recipe's committed sample through it in every layout and
   checks the recipe's `clockwise`. The builder's AI routes, start points and checkpoints follow increasing s, and
   `check_export` reads the built `.scne` to confirm the game drives that way (worker README, "Driving direction
-  and `otherway`"). RealCadwell's spec was always right; the game drove it backwards because bgeometry flips an
+  and `otherway`"). Cadwell Park's spec was always right; the game drove it backwards because bgeometry flips an
   AI strip it considers non-canonical unless `otherway` is set.
 - `gridSize` 24: the game races up to 24 cars and parks any without a start point beside the grid, on the grass.
 - `kerbs` (optional): per-corner kerb data from real sources, `{"corner": <label>, "entry"|"apex"|"exit"|"green":
@@ -74,10 +80,10 @@ Every recipe (2026-10-19, after RealCadwell drove backwards):
 | Heights, camber, terrain (Wales) | Welsh Government / NRW LIDAR composite DTM, 1 m (COG on DataMapWales) | Open Government Licence v3.0 | Contains Natural Resources Wales information © Natural Resources Wales and database right |
 | Heights, camber, terrain | Environment Agency LIDAR Composite DTM, 1 m (bare earth; WCS `environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs`) | Open Government Licence v3.0 | © Environment Agency copyright and/or database right 2022 |
 
-The committed sample (`geom/tests/samples/realcadwell.json`) is derived data (a 2 m centreline, a 6 m grid and
+The committed sample (`geom/tests/samples/cadwellpark.json`) is derived data (a 2 m centreline, a 6 m grid and
 simplified woods), not the raw downloads. A published mod that uses it should carry the same attribution.
 
-## RealCadwell (Cadwell Park full circuit, 2026-10-19)
+## Cadwell Park (Cadwell Park full circuit, 2026-10-19)
 
 | | Value | Real world |
 |---|---|---|
@@ -113,18 +119,18 @@ the Gooseneck entry, apex, exit + green; Hall Bends entry + apex; sources in the
 Built `E:\WreckfestMods\realcadwell.zip` (6.7 MB; barriers on 27-29 % of each side, 414 barrier props instead of
 1,312; built route checked to run in checkpoint order) and installed; renders
 `.local\renders\realcadwell-v3-{driver,driver-parallel,driver-mountain,driver-gooseneck,oblique,horizon}.png`.
-RealAnglesey got the same rebuild (geometric kerbs: no OSM, LIDAR or guide data on kerbs there):
+Anglesey got the same rebuild (geometric kerbs: no OSM, LIDAR or guide data on kerbs there):
 `E:\WreckfestMods\realanglesey.zip`, renders `.local\renders\realanglesey-v2-*.png`, installed.
 
 **Minimap (2026-10-20):** both circuits had no in-race minimap: the mods shipped no `.tcat`, which the game needs
 to set the minimap up (it draws the compiled AI route; there is no minimap image). Every layout now gets a
 generated `.tcat` (worker README, "Track data and the minimap"); both zips rebuilt.
 
-## RealAnglesey (Anglesey Circuit / Trac Môn, International + Coastal, 2026-10-19)
+## Anglesey (Anglesey Circuit / Trac Môn, International + Coastal, 2026-10-19)
 
-One base scene with two layouts (`realanglesey_race` = International, `realanglesey_coastal` = Coastal). Data
+One base scene with two layouts (`anglesey_race` = International, `anglesey_coastal` = Coastal). Data
 phase, sources and the environment brief: `docs/real-tracks/anglesey.md`. Recipe `tools/real_tracks/anglesey.json`,
-sample `geom/tests/samples/realanglesey.json`, report `.local\realanglesey\report.json`.
+sample `geom/tests/samples/anglesey.json`, report `.local\anglesey\report.json`.
 
 | | International | Coastal |
 |---|---|---|
@@ -149,9 +155,9 @@ Game data checked for the sea: Wreckfest 1 has no sea material. The only water i
 `#noshadow` plane. Stone walls: stock `prop_stone_wall_01/02` (3.4 × 1.6 × 1.6 m) exist and are used.
 
 Unverified in game: the sea plane and the painted horizon, the second layout's checkpoints and AI, how 12 m
-and the Banking's camber drive. Not installed yet (waiting for confirmation that RealCadwell loads and for the
+and the Banking's camber drive. Not installed yet (waiting for confirmation that Cadwell Park loads and for the
 imported-track direction fix; rebuild after that lands).
 
-Zip `E:\WreckfestMods\realanglesey.zip` (two events, RealAnglesey International and RealAnglesey Coastal; 3,896
+Zip `E:\WreckfestMods\realanglesey.zip` (two events, Anglesey International and Anglesey Coastal; 3,896
 subscenes, 6.97 M vertices with every subscene, within the stock limits). Renders:
 `.local\renders\realanglesey-{oblique,horizon,driver,driver-corkscrew,driver-banking,driver-rocket,driver-school}.png`.

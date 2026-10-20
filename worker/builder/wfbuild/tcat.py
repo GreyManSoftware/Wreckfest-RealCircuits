@@ -7,7 +7,7 @@ Track Width Extend`` per route) in world coordinates, with colours and scale fro
 ``track.cpp`` looks for ``<scene dir>/<scene>.tcat`` and ``data/property/track/<scene>.tcat`` and only then
 creates ``<name>_minimap``. Every stock layout and every Workshop track ships a ``.tcat`` named after its
 layout scene, and the official guide lists it in the simplest possible track; our mods shipped none, and
-RealCadwell and RealAnglesey had no minimap (2026-10-19). So every layout now gets a generated one.
+Cadwell Park and Anglesey had no minimap (2026-10-19). So every layout now gets a generated one.
 
 Format (bag file, little endian; field names and order from BagEdit's ``bbTrackData`` schema, version 20, and
 checked against all 120 stock v20 ``.tcat`` files, which parse to the last byte with ``read``): format dword (1 =
