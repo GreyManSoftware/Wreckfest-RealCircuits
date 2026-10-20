@@ -1,7 +1,7 @@
 {
-  "description": "Recipe for tools/import_real_track.py: Anglesey Circuit / Trac Mon (Ty Croes, Anglesey, Wales), the International layout with the Coastal layout sharing its base. Data notes: docs/real-tracks/anglesey.md.",
+  "description": "Recipe for tools/import_real_track.py: Anglesey Circuit / Trac Mon (Ty Croes, Anglesey, Wales), the International layout with the Coastal, National and Club layouts sharing its base (all four current layouts). Data notes: docs/real-tracks/anglesey.md.",
   "name": "Anglesey",
-  "trackDescription": "Anglesey Circuit (Trac Mon), International (3.30 km) and Coastal (2.47 km) layouts from OpenStreetMap, with heights, camber and terrain from the Welsh Government / NRW LIDAR composite DTM (1 m). Open, windswept coastal headland with the sea on three sides and Snowdonia to the east.",
+  "trackDescription": "Anglesey Circuit (Trac Mon), International (3.30 km), Coastal (2.47 km), National (1.91 km) and Club (1.28 km) layouts from OpenStreetMap, with heights, camber and terrain from the Welsh Government / NRW LIDAR composite DTM (1 m). Open, windswept coastal headland with the sea on three sides and Snowdonia to the east.",
   "bbox": [53.182, -4.508, 53.196, -4.487],
   "dtm": "wales",
   "terrainMarginM": 1000,
@@ -14,6 +14,9 @@
     892471225, 892471226, 108374689, 892471229
   ],
   "mainLayoutName": "International",
+  "layoutSource": "Wikipedia and racingcircuits.info (International Grand Prix Circuit 2006-to-date map): the full lap, Target - Banking - Church - School - Rocket - Peel - Seamans - Corkscrew - Tom Pryce Straight - Hairpin - Bus Stop; 3.380 km. One of the four current layouts (International, Coastal, National, Club).",
+  "directionSource": "racingcircuits.info International map: arrows along the start straight towards Turn 1 and down past Church (clockwise); BRSCC 2021 briefing notes and the track guides (visordown.com) run the same way.",
+  "startFinishSource": "OSM node 'Start/Finish' (11458386749) on the pit straight by the 2007 pits and control tower; racingcircuits.info International map: the chequered flag on that straight between the Bus Stop and Turn 1.",
   "altLayouts": [
     {
       "id": "coastal",
@@ -23,8 +26,39 @@
         892471218, 892471219, 892471220, 892471221, 892471222, 892471223,
         [892471224, 1243679964, 1243679987], 108374690, [892471229, 2704893227, 11457491218]
       ],
+      "layoutSource": "Wikipedia and racingcircuits.info Coastal Circuit map: the International with the Corkscrew link from Seamans to the Bus Stop in place of the Tom Pryce Straight and Hairpin; 2.494 km.",
+      "directionSource": "racingcircuits.info Coastal map: arrows as on the International (clockwise).",
+      "startFinishSource": "racingcircuits.info Coastal map: the chequered flag at the same place as the International's, so the Coastal shares its line and grid (BRSCC 2021 briefing notes: one start procedure for both).",
       "measuredLapLengthM": 2472,
       "publishedLapLengthM": 2494
+    },
+    {
+      "id": "national",
+      "name": "National",
+      "lap": [
+        108374691, 892471218, 892471219, 892471220, 892471221, 892471222, 892471223, 892471224,
+        892471225, 892471226, 108374689, [892471229, 2704899304, 1243679923]
+      ],
+      "layoutSource": "Wikipedia (National Circuit, 1.931 km) and racingcircuits.info National Circuit map: School Corner (OSM way 108374691) from the end of the return straight, Rocket, Peel, Seamans, the Tom Pryce Straight, the Hairpin and the return straight.",
+      "directionSource": "ACU news 2012 (Wirral 100 on the National Circuit): the lap starts with 'the sweeping uphill right-handed School Corner', then Rocket and Peel, the first part of the Corkscrew and two long straights split by the Hairpin; racingcircuits.info National map arrows: down the return straight, up the Tom Pryce Straight (clockwise).",
+      "startFinish": { "alongWay": 108374689, "fraction": 0.62, "note": "On the return straight beside the National pit lane (OSM 'Pit Lane (National)' runs along it from 114 to 356 m)." },
+      "startFinishSource": "ACU news 2012: the National Circuit uses 'the original (pre-2007) start-line and pit lane'; racingcircuits.info National map: the chequered flag on the return straight beside the National pit lane (OSM ways 1238070257/264841296 'Pit Lane (National)').",
+      "measuredLapLengthM": 1909,
+      "publishedLapLengthM": 1931
+    },
+    {
+      "id": "club",
+      "name": "Club",
+      "lap": [
+        [892471227, 2704893215, 1243679912], 892471212, 892471213, 892471214, 892471215, 892471211, 892471216,
+        [892471217, 2704893174, 2704893172], 264840722
+      ],
+      "layoutSource": "Wikipedia (Club Circuit, 1.287 km) and racingcircuits.info Club Circuit map: the start straight, Turn 1 (Target), the Banking, Church, then the Club Hairpin (OSM way 264840722) back onto the start straight.",
+      "directionSource": "racingcircuits.info Club map: the arrow on the start straight points to Turn 1, the one past the Banking down towards Church (clockwise).",
+      "startFinish": { "alongWay": 892471227, "fraction": 0.79, "note": "On the start straight 22 m after the Club Hairpin joins it, 37 % of the way from the junction to Target as on the map." },
+      "startFinishSource": "racingcircuits.info Club Circuit map: the chequered flag on the start straight just after the Club Hairpin joins it. OSM's 'Start/Finish' node (the International/Coastal line) lies 34 m before that junction, which the Club lap doesn't pass, so the Club line is placed 22 m after the junction (37 % of the way to Target, as on the map).",
+      "measuredLapLengthM": 1276,
+      "publishedLapLengthM": 1287
     }
   ],
   "lapNames": {

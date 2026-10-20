@@ -46,6 +46,10 @@ def test_stitch_joins_ways_in_order_and_checks_continuity() -> None:
     osm = _osm([(1, [1, 2, 3, 4]), (2, [2, 5, 6]), (3, [6, 1])])
     pts, _ = irt.stitch(osm, [[1, 1, 2], 2, 3])
     assert len(pts) == 4
+    # [way, from, to] with from after to drives that part backwards (a link mapped the other way)
+    osm = _osm([(1, [1, 2, 3]), (2, [4, 3]), (3, [4, 1])])
+    pts, _ = irt.stitch(osm, [1, [2, 3, 4], 3])
+    assert len(pts) == 4 and pts[3] == (53 + 4e-4, 4e-4)
 
 
 def test_branch_of_cuts_the_part_that_leaves_the_main_lap() -> None:
@@ -121,30 +125,75 @@ def test_recipe_slug_is_the_plain_track_name() -> None:
         irt.recipe_slug({"name": "Cadwell Park", "slug": "realcadwell"})
 
 
+def test_recipe_without_verified_sources_fails() -> None:
+    ok = {k: "an official circuit map" for k in irt.SOURCE_KEYS}
+    assert irt.source_problems({**ok, "altLayouts": [{"id": "club", **ok}]}) == []
+    probs = irt.source_problems({**ok, "directionSource": "", "altLayouts": [{"id": "club", "layoutSource": "x" * 20}]})
+    assert probs == ["main layout: no directionSource", "layout club: no directionSource",
+                     "layout club: no startFinishSource"]
+    with pytest.raises(ValueError, match="sources"):
+        irt.build({"name": "Cadwell Park", **ok, "startFinishSource": None}, Path("."))
+
+
+def _lap(model, secs: list[dict]) -> np.ndarray:
+    """A layout's lap as points in driving order from its start/finish line (sections of the model's routes)."""
+    out = []
+    for sec in secs:
+        r = model.route(sec["route"])
+        out += [[q.x, q.y] for q in r.samples if sec["fromS"] - 1e-6 <= q.s <= sec["toS"] + 1e-6]
+    return np.array(out)
+
+
 @pytest.mark.parametrize("recipe_path", _RECIPES, ids=[p.stem for p in _RECIPES])
 def test_imported_sample_drives_the_recipes_corner_order_in_every_layout(recipe_path: Path) -> None:
     """The committed sample, built into a TrackModel, is driven (increasing s from the start line, which the
     builder's layouts and the built-.scne driving-order check follow) through the published corner order, the
-    right way round, in the main and every alternative layout."""
+    right way round, in the main and every alternative layout; every layout has a 24-car grid on the tarmac of
+    its own lap, ahead of its line and facing the driving direction, its line where the recipe puts it, a lap
+    within 3 % of the published length, and the recipe names the source of its route, direction and line."""
     from trackgen_geom import build_track_model
 
     recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+    assert irt.source_problems(recipe) == []
     spec = json.loads((_ROOT / "geom" / "tests" / "samples" / f"{irt.recipe_slug(recipe)}.json").read_text(encoding="utf-8"))
     res = build_track_model(spec)
     assert res.model is not None and res.valid, [e.message for e in res.errors]
-    xy = np.array([[q.x, q.y] for q in res.model.route("main").samples])
-    if recipe.get("clockwise") is not None:
-        assert (irt.signed_area(xy) < 0) == bool(recipe["clockwise"])
-    # the game races up to 24 cars and puts any without a start point beside the grid (on the grass)
-    assert spec["options"]["gridSize"] == 24 == len(res.model.grid.slots)
-    hw = float(spec["options"]["widthM"]) / 2.0
-    for sl in res.model.grid.slots:
-        lateral = float(np.min(np.hypot(*(xy - np.array(sl.position[:2])).T)))
-        assert lateral + 1.0 <= hw, (sl.name, lateral)  # a 2 m wide car fully on the tarmac
+    model = res.model
+    alts = {a["id"]: a for a in recipe.get("altLayouts", [])}
+    spec_alts = {a["id"]: a for a in spec["sketch"]["imported"].get("altLayouts", [])}
+    assert set(alts) == set(spec_alts) == {lay.id for lay in model.layouts if lay.id != "main"}
+    layouts = model.layouts or [None]
     corners = sorted(spec["sketch"]["imported"]["corners"], key=lambda c: c["sM"])
-    layouts = res.model.layouts or []
-    sections = [lay.sections for lay in layouts] or [[{"route": "main", "fromS": 0.0, "toS": res.model.lap_length_m}]]
-    for secs in sections:
+    hw = float(spec["options"]["widthM"]) / 2.0
+    for lay in layouts:
+        secs = lay.sections if lay else [{"route": "main", "fromS": 0.0, "toS": model.lap_length_m}]
+        src = alts.get(lay.id, recipe) if lay else recipe
+        xy = _lap(model, secs)
+        if recipe.get("clockwise") is not None:
+            assert (irt.signed_area(xy) < 0) == bool(recipe["clockwise"]), lay.id if lay else "main"
+        if src.get("publishedLapLengthM"):
+            lap = lay.lap_length_m if lay else model.lap_length_m
+            assert abs(lap / src["publishedLapLengthM"] - 1.0) <= 0.03, (src.get("id"), lap)
+        # the line: the recipe's own startFinish gives the layout its own line and grid, else it shares main's
+        own = lay is not None and lay.id in spec_alts and "startFinish" in spec_alts[lay.id]
+        assert own == (lay is not None and lay.grid is not None and lay.start_finish is not None)
+        if own:
+            want = spec_alts[lay.id]["startFinish"]
+            assert math.hypot(lay.start_finish["position"][0] - want["x"], lay.start_finish["position"][1] - want["y"]) < 2.0
+            assert np.hypot(*(xy[0] - [want["x"], want["y"]])) < 2.5  # the lap starts at it
+        else:
+            assert np.hypot(*(xy[0] - [model.route("main").samples[0].x, model.route("main").samples[0].y])) < 1e-6
+        # the game races up to 24 cars and puts any without a start point beside the grid (on the grass)
+        grid = lay.grid if own else model.grid
+        assert spec["options"]["gridSize"] == 24 == len(grid.slots)
+        tangent = np.gradient(xy, axis=0)
+        for sl in grid.slots:
+            d = np.hypot(*(xy - np.array(sl.position[:2])).T)
+            k = int(np.argmin(d))
+            assert float(d[k]) + 1.0 <= hw, (sl.name, float(d[k]))  # a 2 m wide car fully on the tarmac
+            assert 0.0 < sl.s < 0.2 * (lay.lap_length_m if lay else model.lap_length_m)  # just ahead of the line
+            fwd = math.atan2(tangent[k, 1], tangent[k, 0])
+            assert abs((sl.heading - fwd + math.pi) % (2 * math.pi) - math.pi) < math.radians(20), sl.name
         names = [c["name"] for sec in secs if sec["route"] == "main"
                  for c in corners if sec["fromS"] <= c["sM"] <= sec["toS"]]
         expected = recipe["expectedCornerOrder"]
