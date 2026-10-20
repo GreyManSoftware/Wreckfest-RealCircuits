@@ -1,0 +1,69 @@
+{
+  "description": "Recipe for tools/import_real_track.py: Donington Park (Castle Donington, Leicestershire, UK), MSV. The Grand Prix circuit (with the Melbourne Loop) and the National circuit sharing its base: the two current layouts (MSV's own circuit-layouts page lists exactly these two; Wikipedia and racingcircuits.info give the same pair for 2010 to date).",
+  "name": "Donington Park",
+  "trackDescription": "Donington Park, Grand Prix (4.02 km) and National (3.19 km) circuits from OpenStreetMap, with heights, camber and terrain from the Environment Agency LIDAR Composite DTM (1 m). Rolling Leicestershire parkland with the drop through the Craner Curves and the Melbourne Loop.",
+  "bbox": [52.822, -1.392, 52.838, -1.362],
+  "terrainMarginM": 400,
+  "lap": [
+    242867013, 841515315, 842454041, 842454046, 841515305, 841515306, 841515342, 841515343,
+    841515319, 841515320, 841515321, 841515324, 28381201, 842454048, 841515326, 841515325, 841515314
+  ],
+  "mainLayoutName": "Grand Prix",
+  "layoutSource": "MSV official circuit layouts page (donington-park.co.uk/about/circuit-layouts, GP Circuit map): Redgate - Hollywood - Craner Curves - Old Hairpin - Starkey's Bridge - Schwantz Curve - McLeans - Coppice - Starkey's Straight - Fogarty Esses - Melbourne Hairpin - Goddards - Wheatcroft Straight; 2.49 mi / 4.02 km, 12 corners (Wikipedia and racingcircuits.info: 4.020 km, 2010 to date).",
+  "directionSource": "MSV GP Circuit map: the start/finish chevrons on the Wheatcroft Straight point towards Redgate; track guides (driver61.com, oversteer48.com) start the lap with Redgate, a right-hander braked for alongside the pit exit, then Hollywood and the downhill Craner Curves (clockwise).",
+  "startFinish": { "lat": 52.829806, "lon": -1.379556, "note": "driver61.com's start/finish coordinates (52 49'47.3\"N 1 22'46.4\"W), on the Wheatcroft Straight 197 m from Goddards, beside the middle of the pit lane." },
+  "startFinishSource": "MSV GP and National Circuit maps (donington-park.co.uk/about/circuit-layouts): one start/finish line on the Wheatcroft Straight beside the pit lane, pole on the left of the grid; driver61.com Donington circuit guide gives its position, 52 49'47.3\"N 1 22'46.4\"W (the middle of the OSM pit lane's run beside the straight).",
+  "altLayouts": [
+    {
+      "id": "national",
+      "name": "National",
+      "lap": [
+        242867013, 841515315, 842454041, 842454046, 841515305, 841515306, 841515342, 841515343,
+        841515319, 841515320, 841515321, 841515324, 27131003
+      ],
+      "layoutSource": "MSV official circuit layouts page (National Circuit map): the GP circuit without the Melbourne Loop; after Coppice and Starkey's Straight the Roberts chicane (OSM way 27131003 'Roberts', noted 'short cut used on National circuit') joins the Wheatcroft Straight; 1.98 mi / 3.186 km, 10 corners (Wikipedia and racingcircuits.info: 3.149 km).",
+      "directionSource": "MSV National Circuit map: the same chevrons on the Wheatcroft Straight towards Redgate; oversteer48.com lists the National corners Redgate ... Coppice, Roberts (clockwise, as the GP).",
+      "startFinishSource": "MSV National Circuit map: the start/finish chevrons at the same place on the Wheatcroft Straight as on the GP map, so the National shares the GP line and grid.",
+      "measuredLapLengthM": 3180,
+      "publishedLapLengthM": 3186
+    }
+  ],
+  "lapNames": {
+    "841515306": null,
+    "841515343": "Schwantz Curve",
+    "841515320": null,
+    "841515324": "Starkey's Straight",
+    "28381201": "Fogarty Esses",
+    "842454048": null,
+    "841515325": null
+  },
+  "publishedLapLengthM": 4020,
+  "measuredLapLengthM": 4006,
+  "widthM": 11.0,
+  "widthNote": "Not published; 11 m is typical of the MSV circuits (Cadwell Park 9.5 m, Anglesey 12 m) and Donington's two-abreast grid.",
+  "clockwise": true,
+  "viewingSpots": ["Redgate", "Craner Curves", "Old Hairpin", "Melbourne Hairpin"],
+  "expectedCornerOrder": ["Wheatcroft Straight", "Redgate", "Hollywood", "Craner Curves", "Old Hairpin", "Starkey's Bridge", "Schwantz Curve", "McLeans", "Coppice", "Starkey's Straight", "Fogarty Esses", "Melbourne Hairpin", "Goddards"],
+  "expectedCornerOrderNote": "Clockwise GP lap as MSV and the track guides (oversteer48.com, driver61.com) give it: Redgate (right), Hollywood, the Craner Curves, Old Hairpin, Starkey's Bridge, Schwantz Curve, McLeans, Coppice, Starkey's Straight, the Fogarty Esses, the Melbourne Hairpin, Goddards, the Wheatcroft Straight.",
+  "kerbs": [
+    { "corner": "Redgate", "apex": true, "source": "driver61.com Donington guide: Redgate's inside kerb is very flat and every car can run over it" },
+    { "corner": "Craner Curves", "apex": true, "source": "driver61.com Donington guide: the kerb through the Craner Curves can be used a little" },
+    { "corner": "Old Hairpin", "apex": true, "exit": true, "source": "driver61.com Donington guide: running beyond the blue-and-white exit kerb isn't allowed; a thin strip of concrete then grass beyond it" },
+    { "corner": "Schwantz Curve", "apex": true, "source": "driver61.com Donington guide: the whole left-hand kerb of Schwantz Curve is flat and can be run over" },
+    { "corner": "McLeans", "apex": true, "exit": true, "green": true, "source": "driver61.com Donington guide: flat inside kerb; the whole blue-and-white exit kerb can be used, with a strip of green concrete outside it" },
+    { "corner": "Coppice", "apex": true, "source": "driver61.com Donington guide: Coppice's kerb is flat and can be run over" },
+    { "corner": "Goddards", "apex": true, "source": "driver61.com Donington guide: a large raised 'sausage' kerb on the inside of Goddards (the game's kerbs are 5 cm, so it is a plain apex kerb here)" }
+  ],
+  "kerbsNote": "OSM has no kerb or run-off features here (the fetched raceway ways carry none); the 1 m DTM can't resolve kerbs; these come from the driver61.com track guide, every other corner gets the geometric apex/exit kerbs.",
+  "environmentNote": "parkland: rolling Leicestershire parkland with the Donington Hall woods (OSM) round the Craner Curves and Coppice. East Midlands Airport lies about 1 km south, beyond the 400 m terrain margin, so it isn't modelled.",
+  "options": {
+    "surface": "tarmac",
+    "kerbs": true,
+    "walls": "tyres",
+    "environment": "parkland",
+    "gridSize": 24,
+    "weathers": ["morning", "midday", "afternoon"],
+    "reverseLayout": false,
+    "defaultLaps": 5
+  }
+}
