@@ -345,7 +345,8 @@
   "arid": {
    "_comment": ["Dry northern-Spain landscape (e.g. Circuito de Navarra): the stock sandpit03 palette (sand, pebbles, dry",
                 "brown ground, sandpit3 dry-grass clutter, the warm landscape1 vista), low scrub (foliage groups, bushes,",
-                "saplings) and rocks in the open, a few pines, rolling bare hills on the far ground and a sparse card band."],
+                "saplings) and rocks in the open, a few pines, rolling bare hills on the far ground and a sparse card band.",
+                "Crowd fences are the light metal fence: barrier7a (11,900 vertices each) took Navarra over the vertex budget."],
    "stock": "sandpit03",
    "terrainSurface": "offroadsand",
    "clutterGroup": "sandpit3",
@@ -381,7 +382,7 @@
    "buildings": ["prop_utilitypole03"],
    "cornerMarkers": ["prop_tirepile_black05", "prop_tirepile_black07", "prop_tirepile_black09", "prop_tirepile_big02"],
    "barriers": {"concrete": ["prop_barrier8"], "tyres": ["prop_tirebarrier02", "prop_tirebarrier04"]},
-   "crowdFence": "prop_barrier7a_small_colmod"
+   "crowdFence": "prop_metalfence6"
   },
   "gravel_pit": {
    "stock": "fields08",
