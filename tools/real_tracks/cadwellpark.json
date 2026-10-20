@@ -1,0 +1,71 @@
+{
+  "description": "Recipe for tools/import_real_track.py: Cadwell Park (Louth, Lincolnshire, UK), MSV. The Full circuit with the Club and Woodlands circuits sharing its base (all three current layouts: MSV lists Full, Club and the rarely used Woodlands; Wikipedia and racingcircuits.info give the same three, plus the bike chicane variant of the Full circuit, which cars don't use).",
+  "name": "Cadwell Park",
+  "trackDescription": "Cadwell Park, Full (3.50 km), Club (2.38 km) and Woodlands (1.37 km) circuits from OpenStreetMap, with heights, camber and terrain from the Environment Agency LIDAR Composite DTM (1 m). Wooded parkland in the Lincolnshire Wolds.",
+  "bbox": [53.300, -0.085, 53.320, -0.045],
+  "terrainMarginM": 400,
+  "lap": [
+    396423020, 396423009, 396423011, 396423007, 396423014, 396423015, 396423008,
+    396423016, 396423013, 396423019, 396423018, 396423012, 396423017, 396423006
+  ],
+  "mainLayoutName": "Full",
+  "layoutSource": "MSV official car circuit map (cadwellpark.co.uk/about/circuit-layouts, 'CP Map_Car_withbike.pdf', 2023): the Full circuit Coppice - Charlie's - Park - Chris Curve - Gooseneck - Mansfield - The Mountain - Hall Bends - Hairpin - Barn; length 3.50 km (Wikipedia 3.502 km, MSV 3.54 km).",
+  "directionSource": "MSV official car circuit map: the arrow beside the chequered flag points along the start straight from Barn towards Coppice (clockwise); track guides likewise start the lap at Coppice, the uphill left at the end of the start straight.",
+  "startFinish": { "node": 3992308260, "note": "Where the pit garage lane rejoins the pit lane (OSM node), projected onto the start straight: 153 m from Barn." },
+  "startFinishSource": "MSV official car circuit map: the chequered flag on the start straight beside the pit apron, about 35 % of the way from Barn to Coppice (~155 m); ukCircuits Cadwell Park guide: the starting lights are opposite the start of the pit exit lane (OSM: the garage lane rejoins the pit lane 153 m from Barn).",
+  "altLayouts": [
+    {
+      "id": "club",
+      "name": "Club",
+      "lap": [
+        [396423020, 1327923212, 3992287385], 396423009, 396423011, 396423007, 396423014, 396423015, 396423008,
+        396423016, 396423013, 396423019, [117987847, 1327918553, 1327923212]
+      ],
+      "layoutSource": "racingcircuits.info Club Circuit 2006-to-date map and history: the Mountain section is bypassed through 'a tight hairpin which lead back to Coppice' (OSM way 117987847 'Club Hairpin'; the MSV map's 'Club Hairpin Grandstand' stands there); 2.375 km (Wikipedia, racingcircuits.info; motorsport-timing 2.37 km).",
+      "directionSource": "racingcircuits.info Club Circuit map and history: the Club runs the Full circuit's way round (Coppice, Charlies, Park, Chris Curve, Gooseneck, Mansfield, then the Club Hairpin back to Coppice): clockwise.",
+      "startFinish": { "alongWay": 396423019, "fraction": 0.14, "note": "The Club's timing line just after Mansfield, 44 m along the run to the Mountain (grade under 3 %, so the grid stays within the 4 % grid rule)." },
+      "startFinishSource": "racingcircuits.info Cadwell Park history: 'a separate timing loop was installed just after Mansfield', the Club having different start and finish locations; its Club Circuit map puts the chequered flag ('Finish') just after Mansfield, about a third of the way to the Club Hairpin. Real Club races grid on the start straight before the hairpin joins it, which isn't part of the Club lap, so in the game the grid starts at the finish line.",
+      "measuredLapLengthM": 2383,
+      "publishedLapLengthM": 2375
+    },
+    {
+      "id": "woodlands",
+      "name": "Woodlands",
+      "lap": [396423020, 396424044, [396423019, 3992295524, 1327918553], 396423018, 396423012, 396423017, 396423006],
+      "layoutSource": "racingcircuits.info Woodlands Circuit 2006-to-date map: the start straight, a hairpin at its Coppice end back onto the run to the Mountain (OSM way 396424044), the Mountain, Hall Bends, Hairpin and Barn; 1.365 km (Wikipedia, racingcircuits.info; motorsport-timing 1.36 km); MSV: 'the rarely used Woodlands circuit'.",
+      "directionSource": "racingcircuits.info Woodlands Circuit map: arrows along the start straight towards Coppice and up the Mountain, as on the Full circuit (clockwise).",
+      "startFinishSource": "racingcircuits.info Woodlands Circuit map: the chequered flag at the same place on the start straight as the Full circuit's, so the Woodlands shares the Full circuit's line and grid.",
+      "measuredLapLengthM": 1372,
+      "publishedLapLengthM": 1365
+    }
+  ],
+  "lapNames": {
+    "396423020": "Start/finish straight",
+    "396423019": "Woodland"
+  },
+  "publishedLapLengthM": 3502,
+  "measuredLapLengthM": 3494,
+  "widthM": 9.5,
+  "clockwise": true,
+  "viewingSpots": ["The Mountain", "The Hairpin", "Hall Bends"],
+  "expectedCornerOrder": ["Coppice", "Charlies", "Park Straight", "Park", "Chris Curve", "The Gooseneck", "Mansfield", "Woodland", "The Mountain", "Hall Bends", "The Hairpin", "Barn"],
+  "expectedCornerOrderNote": "Clockwise full circuit as the track guides describe it: Coppice (fast uphill left at the end of the start straight), Charlies, Park Straight, Park, Chris Curve, the Gooseneck, the steep drop to Mansfield, the Woodland chicane, the Mountain (a short steep climb), Hall Bends, the Hairpin, Barn.",
+  "kerbs": [
+    { "corner": "Coppice", "exit": true, "source": "track guides: riders run along the left-hand kerb out of Coppice to set up Charlies (motorbikestoday.com Cadwell guide)" },
+    { "corner": "Charlies", "exit": true, "green": true, "source": "traxion.gg iRacing Cadwell guide: raised outside kerb on the exit of Charlies, a track-limits strike" },
+    { "corner": "Park", "apex": true, "source": "motorbikestoday.com Cadwell guide: the kerb on the inside of Park Corner is fairly high" },
+    { "corner": "The Gooseneck", "entry": true, "apex": true, "exit": true, "green": true, "source": "traxion.gg iRacing Cadwell guide: hug the right-hand kerb in, the left-hand kerb on power; one wheel over the exit kerb invalidates the lap" },
+    { "corner": "Hall Bends", "entry": true, "apex": true, "source": "motorbikestoday.com Cadwell guide: riders go over the entry kerbs to straight-line Hall Bends" }
+  ],
+  "kerbsNote": "OSM has no kerb or run-off features at Cadwell (Overpass 2026-10-19: barrier=kerb, kerb=*, area:highway=*, racing:kerb none) and the 1 m DTM can't resolve 5 cm kerbs; these overrides come from track guides, every other corner (the Club Hairpin and the Woodlands hairpin too) gets the geometric apex/exit kerbs.",
+  "options": {
+    "surface": "tarmac",
+    "kerbs": true,
+    "walls": "tyres",
+    "environment": "parkland",
+    "gridSize": 24,
+    "weathers": ["morning", "midday", "afternoon"],
+    "reverseLayout": false,
+    "defaultLaps": 5
+  }
+}

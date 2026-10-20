@@ -323,7 +323,7 @@
     },
     "ImportedAltLayout": {
       "title": "Imported alternative layout",
-      "description": "Another real layout that shares the base scene: the main centreline with one section replaced by this branch. The branch is open, in driving order, and starts and ends on the main centreline (its first and last points are snapped to the nearest main points). The layout's lap is the main centreline up to the branch start, the branch, then the main centreline from the branch end; it shares the main start/finish line and grid.",
+      "description": "Another real layout that shares the base scene: the main centreline with one section replaced by this branch. The branch is open, in driving order, and starts and ends on the main centreline (its first and last points are snapped to the nearest main points). The layout's lap is the branch, then the main centreline from the branch end round to the branch start. Without startFinish it shares the main start/finish line and grid (the lap must then pass the main line); with it, the layout has its own line and grid there.",
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "name", "centreline"],
@@ -340,6 +340,10 @@
           "minItems": 4,
           "maxItems": 5000,
           "items": { "$ref": "#/$defs/ImportedPoint" }
+        },
+        "startFinish": {
+          "$ref": "#/$defs/MetrePoint",
+          "description": "The layout's own start/finish line (some circuits time each layout at a different line): the point is projected onto the layout's lap, the grid starts there and the lap is counted from it. Omit it to share the main line."
         }
       }
     },

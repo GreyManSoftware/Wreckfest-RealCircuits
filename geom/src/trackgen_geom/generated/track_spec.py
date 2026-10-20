@@ -560,11 +560,12 @@ class HorizonProfile:
 
 @dataclass(kw_only=True)
 class ImportedAltLayout:
-    """Another real layout that shares the base scene: the main centreline with one section replaced by this branch. The branch is open, in driving order, and starts and ends on the main centreline (its first and last points are snapped to the nearest main points). The layout's lap is the main centreline up to the branch start, the branch, then the main centreline from the branch end; it shares the main start/finish line and grid."""
+    """Another real layout that shares the base scene: the main centreline with one section replaced by this branch. The branch is open, in driving order, and starts and ends on the main centreline (its first and last points are snapped to the nearest main points). The layout's lap is the branch, then the main centreline from the branch end round to the branch start. Without startFinish it shares the main start/finish line and grid (the lap must then pass the main line); with it, the layout has its own line and grid there."""
 
     id: str
     name: str
     centreline: list[ImportedPoint]
+    start_finish: MetrePoint | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> ImportedAltLayout:
@@ -572,6 +573,7 @@ class ImportedAltLayout:
             id=str(data["id"]),
             name=str(data["name"]),
             centreline=[ImportedPoint.from_dict(v0) for v0 in data["centreline"]],
+            start_finish=None if data.get("startFinish") is None else MetrePoint.from_dict(data["startFinish"]),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -579,6 +581,8 @@ class ImportedAltLayout:
         out["id"] = self.id
         out["name"] = self.name
         out["centreline"] = [v0.to_dict() for v0 in self.centreline]
+        if self.start_finish is not None:
+            out["startFinish"] = self.start_finish.to_dict()
         return out
 
 

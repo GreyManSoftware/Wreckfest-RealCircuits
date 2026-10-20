@@ -281,14 +281,18 @@ class SampleIndex:
         return out
 
 
-    def other_at(self, pts: np.ndarray, own_ri: int, own_s: np.ndarray, zdiff: float = 8.0) -> np.ndarray:
+    def other_at(self, pts: np.ndarray, own_ri: int, own_s: np.ndarray, zdiff: float = 8.0,
+                 mask: np.ndarray | None = None) -> np.ndarray:
         """Index (into this SampleIndex) of a sample of *another* road (a different route, or this one further
-        than OTHER_ROUTE_S along it) whose road covers each point (within its half width), else -1."""
+        than OTHER_ROUTE_S along it) whose road covers each point (within its half width), else -1. ``mask``:
+        only these samples count as road."""
         out = np.full(len(pts), -1, dtype=np.int64)
         for a in range(0, len(pts), 512):
             p = pts[a:a + 512]
             d = np.hypot(p[:, None, 0] - self.xy[None, :, 0], p[:, None, 1] - self.xy[None, :, 1]) - self.hw[None, :]
             close = d < 0.0
+            if mask is not None:
+                close &= mask[None, :]
             if not close.any():
                 continue
             sd = np.abs(self.s[None, :] - own_s[a:a + 512, None])
@@ -501,6 +505,8 @@ class TrackGeometry:
         self.structure = {r.index: np.zeros(r.n, dtype=bool) for r in self.routes}
         self.jump_zone = {r.index: np.zeros(r.n, dtype=bool) for r in self.routes}
         self.mouth_samples: dict[tuple[int, int], set[int]] = {}  # (route, side) -> samples under a stitch
+        self.aprons: list[tuple[Route, list[tuple[Route, int, list[int]]]]] = []  # _apron: (link, facing edge runs)
+        self.apron_routes: set[int] = set()
         self._junctions()
         self._crossings()
         self._jumps()
@@ -547,28 +553,65 @@ class TrackGeometry:
             if alt.is_main:
                 continue
             k0, k1 = 0, alt.n - 1
-            if alt.start_join:
-                t = self.by_id[alt.start_join["route"]]
-                k = self._mouth(alt, t, int(alt.start_join["sampleIndex"]), True)
+            ends = []
+            for at_start, j in ((True, alt.start_join), (False, alt.end_join)):
+                if j:
+                    t = self.by_id[j["route"]]
+                    ends.append((at_start, t, int(j["sampleIndex"]), self._mouth(alt, t, int(j["sampleIndex"]), at_start)))
+            # an imported U-turn link between two adjacent sections (Cadwell Park's Club Hairpin): no mouth clears
+            # the other road, so the turn is paved as an apron between the two sections instead (_apron)
+            if self.imported and len(ends) == 2 and any(e[3] is None for e in ends) and self._apron(alt):
+                continue
+            for at_start, t, js, k in ends:
                 if k is None:
-                    self.warnings.append(f"junction-unresolved: {alt.id} start overlaps {t.id}")
-                else:
+                    self.warnings.append(f"junction-unresolved: {alt.id} {'start' if at_start else 'end'} overlaps {t.id}")
+                    continue
+                if at_start:
                     k0 = k
-                    self.cuts.append(Cut(alt, k, t, int(alt.start_join["sampleIndex"])))
-            if alt.end_join:
-                t = self.by_id[alt.end_join["route"]]
-                k = self._mouth(alt, t, int(alt.end_join["sampleIndex"]), False)
-                if k is None:
-                    self.warnings.append(f"junction-unresolved: {alt.id} end overlaps {t.id}")
                 else:
                     k1 = k
-                    self.cuts.append(Cut(alt, k, t, int(alt.end_join["sampleIndex"])))
+                self.cuts.append(Cut(alt, k, t, js))
             q = self.qkeep[alt.index]
             q[:] = False
             q[k0:k1] = True
             sv = self.svalid[alt.index]
             sv[:] = False
             sv[k0:k1 + 1] = True
+
+    def _apron(self, alt: Route) -> bool:
+        """Pave an imported U-turn link that lies across two adjacent sections of road (Cadwell Park's Club
+        Hairpin from the run to the Mountain back onto the start straight, a few metres beside it): no cross-section
+        of the branch clears both roads, so instead of its own road the gap between the two sections is paved where
+        the branch crosses it (one polygon of the two facing edges' vertices, shared with their road quads) and the
+        branch keeps only its AI route and checkpoints. Returns False when the link doesn't have that shape."""
+        ta, ia = self.by_id[alt.start_join["route"]], int(alt.start_join["sampleIndex"])
+        tb, ib = self.by_id[alt.end_join["route"]], int(alt.end_join["sampleIndex"])
+        hw_b = alt.width / 2.0
+        others = np.vstack([r.p[:, :2] for r in self.routes if r is not alt])
+        hw_o = max(r.width for r in self.routes if r is not alt) / 2.0
+        d = np.array([float(np.min(np.hypot(*(others - q).T))) for q in alt.p[:, :2]])
+        gap = d > hw_o - 0.5  # the part of the turn off both roads: it crosses the gap there
+        if not gap.any():
+            gap = d >= d.max() - 0.25
+        core = alt.p[gap, :2]
+        chains = []
+        for t, i, far in ((ta, ia, tb.p[ib, :2]), (tb, ib, ta.p[ia, :2])):
+            side = 1 if float(np.dot(t.nl[i], far - t.p[i, :2])) > 0 else -1
+            edge = t.left if side > 0 else t.right
+            win = t.window(i, 60)
+            near = [n for n, k in enumerate(win) if float(np.min(np.hypot(*(core - edge[k, :2]).T))) < hw_b + 0.5]
+            if not near:
+                return False
+            chains.append((t, side, win[min(near):max(near) + 1]))
+        self.aprons.append((alt, chains))
+        self.apron_routes.add(alt.index)
+        self.qkeep[alt.index][:] = False
+        self.svalid[alt.index][:] = False
+        for t, side, run in chains:
+            blocked = self.mouth_samples.setdefault((t.index, side), set())
+            for k in run:
+                blocked.update(t.window(k, 1))
+        return True
 
     def _crossings(self) -> None:
         for c in self.model.get("crossings", []):
@@ -672,8 +715,33 @@ class TrackGeometry:
         self.road_quads = len(mesh.faces)
         for cut in self.cuts:
             self._stitch(mesh, vid, cut)
+        for alt, chains in self.aprons:
+            self._pave_apron(mesh, vid, alt, chains)
         self.road_vids = vids
         return mesh
+
+    def _pave_apron(self, mesh: Mesh, vid, alt: Route, chains) -> None:
+        """The apron of a U-turn link (_apron): one polygon from the first section's facing edge vertices (along
+        its s) and the second's (along its s, which runs the other way), triangulated."""
+        ids = []
+        for t, side, run in chains:
+            ids += [vid(t, k, 0 if side > 0 else t.m) for k in run]
+        if len(set(ids)) != len(ids) or len(ids) < 3:
+            self.warnings.append(f"apron-degenerate: {alt.id}")
+            return
+        xy = np.array([mesh.verts[i][:2] for i in ids])
+        tris = ear_clip(xy)
+        if len(tris) != len(ids) - 2:
+            self.warnings.append(f"apron-not-simple: {alt.id}")
+        mat = self.road_material(alt, 0)
+        tile = C.TEX_TILE["road"]
+        for a, b, c in tris:
+            f = (ids[a], ids[b], ids[c])
+            mesh.face(f, mat, [(mesh.verts[i][0] / tile, mesh.verts[i][1] / tile) for i in f])
+        self.stitched = getattr(self, "stitched", [])
+        for t, side, run in chains:  # one entry per joined section, as a stitched junction has
+            self.stitched.append({"route": alt.id, "sample": 0, "target": t.id, "kind": "apron",
+                                  "edgeVertices": [list(mesh.verts[vid(t, k, 0 if side > 0 else t.m)]) for k in run]})
 
     def _stitch(self, mesh: Mesh, vid, cut: Cut) -> None:
         """Fill the gap between a cross-section of one road and the edge of the road it meets."""
@@ -700,6 +768,17 @@ class TrackGeometry:
         lo, hi = max(0, lo), min(len(win) - 1, hi)
         if hi - lo < 1:
             lo, hi = max(0, lo - 1), min(len(win) - 1, hi + 1)
+        # two junctions close together on the same edge (Anglesey's Bus Stop: the Coastal joins one node before
+        # the National leaves): each edge segment belongs to one stitch only, so no edge gets three faces
+        used = self.__dict__.setdefault("_stitch_segs", {}).setdefault((t.index, 1 if side > 0 else -1), set())
+        while hi - lo > 1 and (win[lo], win[lo + 1]) in used:
+            lo += 1
+        while hi - lo > 1 and (win[hi - 1], win[hi]) in used:
+            hi -= 1
+        if any((win[k], win[k + 1]) in used for k in range(lo, hi)):
+            self.warnings.append(f"stitch-overlap: {r.id}@{cut.sample} -> {t.id}")
+            return
+        used.update((win[k], win[k + 1]) for k in range(lo, hi))
         edge_ids = [vid(t, win[k], col) for k in range(lo, hi + 1)]
         blocked = self.mouth_samples.setdefault((t.index, 1 if side > 0 else -1), set())
         blocked.update(win[k] for k in range(max(0, lo - 1), min(len(win), hi + 2)))
@@ -779,7 +858,8 @@ class TrackGeometry:
         overrides = list((self.imported or {}).get("kerbs") or [])
         for r in self.routes:
             want = {side: (np.zeros(r.n, dtype=bool), np.zeros(r.n, dtype=bool)) for side in (1, -1)}
-            corners = self.corner_runs(r) if self.options.get("kerbs", False) else []
+            corners = (self.corner_runs(r) if self.options.get("kerbs", False) and r.index not in self.apron_routes
+                       else [])  # an apron link has no road edge of its own (_apron_kerb)
             if r.is_main and corners:
                 for o in overrides:  # each override applies to the corner whose apex is nearest its sM
                     near = min(corners, key=lambda c: float(r.s_dist(r.s[c["i_apex"]], float(o["sM"]))))
@@ -914,8 +994,40 @@ class TrackGeometry:
                             sv[k] = (shoulders.vert(green[k]), shoulders.vert(outer[k]))
                     ids = (sv[i][0], sv[i2][0], sv[i2][1], sv[i][1])
                     shoulders.oriented_face(ids, smat, up)  # world-space UV1, as the terrain
+        if self.options.get("kerbs", False):
+            for alt, chains in self.aprons:
+                self._apron_kerb(alt, chains, kerbs, limits)
         self._roadside = (kerbs, shoulders, limits)
         return self._roadside
+
+    def _apron_kerb(self, alt: Route, chains, kerbs: Mesh, limits: Mesh) -> None:
+        """Apex kerb and green strip of an apron U-turn (_apron): along the apron's inside edge, from the first
+        section's edge where the turn starts across the gap to the second's where it ends, facing back between
+        the two sections (the inside of the hairpin)."""
+        (ta, sa, run_a), (tb, sb, run_b) = chains
+        ea, eb = (ta.left if sa > 0 else ta.right), (tb.left if sb > 0 else tb.right)
+        p, q = ea[run_a[0]].copy(), eb[run_b[-1]].copy()
+        out = -(ta.tangent[run_a[0]] + tb.tangent[run_b[-1]] * -1.0)  # back along both sections, away from the turn
+        n = float(np.hypot(*out))
+        if n < 1e-6 or float(np.hypot(*(q - p)[:2])) < 1.0:
+            return
+        out = np.append(out / n, 0.0)
+        up = np.array([0.0, 0.0, 1.0])
+        k_in = [p, q]
+        k_out = [v + out * C.KERB_W + np.array([0.0, 0.0, C.KERB_RISE]) for v in k_in]
+        g_out = [v + out * C.GREEN_W for v in k_out]
+        for g in g_out:
+            g[2] = min(g[2], float(self.terrain(g[None, :])[0]) + C.GREEN_LIFT)
+        L = float(np.hypot(*(q - p)[:2]))
+        ids = [kerbs.vert(v) for v in (k_in[0], k_in[1], k_out[1], k_out[0])]
+        kerbs.oriented_face(tuple(ids), "kerb", up, [(0.0, 0.0), (L / C.KERB_PERIOD, 0.0), (L / C.KERB_PERIOD, 1.0), (0.0, 1.0)])
+        t = C.TEX_TILE["limits"]
+        ids = [limits.vert(v) for v in (k_out[0], k_out[1], g_out[1], g_out[0])]
+        limits.oriented_face(tuple(ids), "limits", up, [(0.0, 0.0), (0.0, L / t), (C.GREEN_W / t, L / t), (C.GREEN_W / t, 0.0)])
+        self.kerb_plan()
+        self.kerb_report.append({"route": alt.id, "corner": "", "sApex": round(alt.length / 2.0, 1), "inside": "apron",
+                                 "radiusM": round(1.0 / max(float(np.max(np.abs(alt.curvature))), 1e-6), 1), "kerbs": ["apex", "green"],
+                                 "source": "geometry: apex kerb and green strip on the inside edge of the apron U-turn"})
 
     def build_edge_decals(self) -> Mesh:
         """Stock-style broken asphalt edge: a decal strip (#decal, no collision) over each plain road edge
@@ -1111,12 +1223,16 @@ class TrackGeometry:
             return self._gaps
         out: dict[tuple[int, int], dict] = {}
         probes = np.arange(0.5, C.DIVIDER_GAP + 0.01, 1.0)
+        # an apron link (_apron) is no road of its own: probes see the sections it joins, and the apron between
+        # them needs no divider
+        road = ~np.isin(self.index.ri, list(self.apron_routes))
         for r in self.routes:
             skip = ~self.svalid[r.index] | self.structure[r.index]
             meet = [c.sample for c in self.cuts if c.route is r]
             meet += [c.target_sample for c in self.cuts if c.target is r]
             meet += [int(j["sampleIndex"]) for a in self.routes for j in (a.start_join, a.end_join)
                      if j and j["route"] == r.id]
+            meet += [k for _, chains in self.aprons for t, _, run in chains if t is r for k in run]
             for b in self.bridges:
                 if b.under is r:
                     meet.append(r.index_at(b.s_under))
@@ -1135,7 +1251,11 @@ class TrackGeometry:
                     idx = np.nonzero(todo)[0]
                     pts = edge[idx].copy()
                     pts[:, :2] += r.nl[idx] * side * t
-                    j = self.index.other_at(pts, r.index, r.s[idx])
+                    j = self.index.other_at(pts, r.index, r.s[idx], mask=road)
+                    if self.imported:  # a real branch merging into its road: one road, no divider
+                        merge = (j >= 0) & self._merging(r, idx, j, t)
+                        todo[idx[merge]] = False
+                        j = np.where(merge, -1, j)
                     hit = j >= 0
                     if hit.any():
                         ii, jj = idx[hit], j[hit]
@@ -1145,6 +1265,25 @@ class TrackGeometry:
                         todo[ii] = False
                 out[(r.index, side)] = {"gap": gap, "owner": owner}
         self._gaps = out
+        return out
+
+    def _merging(self, r: Route, own: np.ndarray, hits: np.ndarray, gap: float) -> np.ndarray:
+        """Per probe of route r (own sample indices) that hit road at SampleIndex ``hits`` ``gap`` metres out:
+        whether that road is a branch joined to r (or r a branch joined to it) and the probe is within
+        DIVIDER_MERGE_M of that junction along the branch, or too close for a divider anyway, where an imported
+        branch still merges into (or splits from) its road at a shallow angle (Anglesey's Club Hairpin onto the
+        start straight)."""
+        near = gap < 2.0 * C.DIVIDER_MIN + 1.0
+        out = np.zeros(len(hits), dtype=bool)
+        for n, (i, j) in enumerate(zip(own, hits)):
+            h = self.routes[int(self.index.ri[j])]
+            for br, other, s_br in ((h, r, float(self.index.s[j])), (r, h, float(r.s[i]))):
+                if br.is_main:
+                    continue
+                if br.start_join and br.start_join["route"] == other.id and (near or s_br <= C.DIVIDER_MERGE_M):
+                    out[n] = True
+                if br.end_join and br.end_join["route"] == other.id and (near or br.length - s_br <= C.DIVIDER_MERGE_M):
+                    out[n] = True
         return out
 
     def corner_apexes(self) -> list[tuple[int, int, float]]:

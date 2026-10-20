@@ -618,17 +618,35 @@ def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manife
     narrow = [n for n in cps if np.linalg.norm((world_verts(obs[n])[0] - world_verts(obs[n])[1])[:2]) < rw]
     check(not narrow, f"{name}: checkpoint planes span the AI route", ", ".join(narrow))
     first = lay["checkpoints"][0]
-    grid = model["grid"]
-    check(cps[0].startswith("#checkpoint01") and first["lapPos"] > 0, f"{name}: checkpoint 01 lies after the grid",
-          f"lap position {first['lapPos']} m")
+    own = lay_def is not None and lay_def.get("grid") is not None  # an imported layout with its own line and grid
+    grid = lay_def["grid"] if own else model["grid"]
+    pole = max(float(q["s"]) for q in grid["slots"])
+    check(cps[0].startswith("#checkpoint01") and (first["lapPos"] > 0 if rev else pole < first["lapPos"] < pole + 40.0),
+          f"{name}: checkpoint 01 lies just after the grid", f"lap position {first['lapPos']} m, pole at {pole:.1f} m")
     # start points
     n = grid["size"]
     sp = [f"#startpoint{k:02d}" for k in range(1, n + 1)]
     check(all(x in obs and obs[x].type == "EMPTY" for x in sp) and "#startpointcarchange" in obs,
           f"{name}: {n} start points + #startpointcarchange")
-    main = next(rt for rt in model["routes"] if rt["aiIndex"] == 0)
-    pts = to_scene(np.array([[q["x"], q["y"]] for q in main["samples"]]), manifest)
-    hd = np.array([q["heading"] for q in main["samples"]]) + math.radians(manifest.get("transform", {}).get("rotateDeg", 0))
+    rot = math.radians(manifest.get("transform", {}).get("rotateDeg", 0))
+    if lay_def is not None and lay_def["id"] != "main":
+        # the layout's own lap (from its own line, or from the main one): headings along it
+        pts = to_scene(np.array(cr.p)[:, :2], manifest)
+        tan = np.gradient(np.array(cr.p)[:, :2], axis=0)
+        hd = np.arctan2(tan[:, 1], tan[:, 0]) + rot
+    else:
+        main = next(rt for rt in model["routes"] if rt["aiIndex"] == 0)
+        pts = to_scene(np.array([[q["x"], q["y"]] for q in main["samples"]]), manifest)
+        hd = np.array([q["heading"] for q in main["samples"]]) + rot
+    if lay_def is not None:
+        # the start/finish line (the last checkpoint) where the layout's line is: its own, else the main one
+        line = (lay_def["startFinish"]["position"] if own else
+                [next(rt for rt in model["routes"] if rt["aiIndex"] == 0)["samples"][0][k] for k in ("x", "y")])
+        want = to_scene(np.array([line[:2]]), manifest)[0]
+        fin = obs.get(cps[-1])  # its origin is the road centre it spans
+        got = np.array(fin.matrix_world.translation[:2]) if fin is not None else np.array([np.inf, np.inf])
+        check(float(np.hypot(*(got - want[:2]))) < 3.0, f"{name}: the last checkpoint (start/finish) is on the layout's line",
+              f"{float(np.hypot(*(got - want[:2]))):.1f} m from it")
     off = []
     for x in sp + ["#startpointcarchange"]:
         o = obs[x]

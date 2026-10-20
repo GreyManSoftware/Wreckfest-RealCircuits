@@ -172,7 +172,7 @@ figure-8 with a bridge, loop with an alt route and jumps, hilly circuit, custom 
 `tests/output/`. `tests/test_elevation_markers.py` covers the marker profile (through every marker, monotone,
 closed loops), custom and preset elevation, alt-route joins, bridges, flat crossings and the elevation rules.
 `tests/test_service.py` covers the HTTP service and keeps the contract fixtures in
-`tests/contract/` current. The `realcadwell` sample is an imported track (Cadwell Park); imported tracks are also
+`tests/contract/` current. The `cadwellpark` and `anglesey` samples are imported tracks; imported tracks are also
 covered by the `imported-*` vectors and the "imported" tests in `test_pipeline.py`, and
 `tests/test_import_real_track.py` tests the importer's offline parts (projection, stitching, registration, easing).
 

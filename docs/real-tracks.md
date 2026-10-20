@@ -4,12 +4,54 @@ A real circuit becomes a TrackSpec with `sketch.imported` (schema: `schema/READM
 centreline with per-point heights and camber, the surrounding ground, woodland and named places. The geometry core
 uses it as given, the builder cambers the road and plants the real woods, and the web editor shows it read-only.
 
+**Naming (2026-10-20):** a real track is named after the circuit alone, no "Real" prefix: display name "Cadwell
+Park", slug `cadwellpark` (the importer's default: the name in lower case, letters and digits only; it refuses a
+"Real…" name or a slug that isn't the name's default). Events read "<track> <layout>", e.g. "Cadwell Park Club".
+Cadwell Park and Anglesey were RealCadwell / `realcadwell` and RealAnglesey / `realanglesey` until then; zips,
+renders and caches made before keep the old names.
+
+## MSV pack
+
+Chris is building every MotorSport Vision circuit as a real-world track, one mod per circuit (all its layouts in
+one base scene), one circuit at a time, plus Anglesey (not MSV). Build order and layouts (current official
+layouts; lengths from Wikipedia unless noted, to verify per circuit under the standing rules below):
+
+| # | Circuit (mod, slug) | Layouts (main first) | Status |
+|---|---|---|---|
+| 1 | Cadwell Park (`cadwellpark`) | Full 3.502 km, Club 2.375 km, Woodlands 1.365 km (the bike chicane variant isn't used by cars) | built 2026-10-20 |
+| – | Anglesey (`anglesey`, not MSV) | International 3.380 km, Coastal 2.494 km, National 1.931 km, Club 1.287 km | built 2026-10-20 |
+| 2 | Brands Hatch | Grand Prix 3.916 km, Indy 1.944 km (1.928 km in the text) | next |
+| 3 | Oulton Park | International 4.307 km, Island 3.616 km, Fosters 2.656 km | |
+| 4 | Snetterton | 300 4.779 km, 200 3.219 km, 100 1.577 km | |
+| 5 | Donington Park | Grand Prix 4.020 km, National 3.149 km | |
+| 6 | Bedford Autodrome | GT, South West, SEN, West, South, North, East (MSV / PalmerSport list; lengths conflict between sources: check MSV's own Bedford page) | |
+| 7 | Circuito de Navarra | Full 4.313 km, Medium 2.693 km, Short 1.391 km (since 2024) | outside the UK: needs a Spanish open DTM in `load_dtm` |
+
+**Standing requirements (Chris, 2026-10-20), for every circuit in the pack:**
+
+1. **All official layouts.** Check the circuit's own pages (msv.com, the circuit's site), Wikipedia and other
+   reliable sources (racingcircuits.info maps, the Motorsport UK yearbook lengths) for every current official
+   layout and build each one as a layout of the circuit's mod. Record each layout's source in the recipe
+   (`layoutSource`).
+2. **Race direction and start/finish line from official sources.** For every layout, verify the real racing
+   direction and the real start/finish line position from official sources (the circuit's map, MSV track guides;
+   racingcircuits.info maps and race reports second), not from OSM way direction alone. Some circuits use a
+   different line per layout (Cadwell Park Club, Anglesey National and Club): give such a layout its own
+   `startFinish`. In the built files the line, the grid facing and the AI route direction must match: checkpoint
+   0 / the finish checkpoint on the real line, the grid ahead of it facing the driving direction, the compiled AI
+   route in checkpoint order. Record the sources in the recipe (`directionSource`, `startFinishSource`); the
+   importer and `geom/tests/test_import_real_track.py` fail a recipe without them, and `check_scene` /
+   `check_export` check the line, the grid facing and the driving order in every layout.
+3. As before: correct direction (`otherway`, route vs checkpoint order), road flush with the grass, a 24-car grid
+   on tarmac per layout, dividers between close sections, selective barriers with grass run-off, kerbs (and green
+   strips on fast exits), a minimap `.tcat` per layout, within the stock scene limits.
+
 ## Importer
 
 ```powershell
 # downloads are cached in E:\Source\wreckfest\.local\<slug>\ (gitignored); never commit them
-geom\.venv\Scripts\python tools\import_real_track.py tools\real_tracks\cadwell.json `
-    --out geom\tests\samples\realcadwell.json --report E:\Source\wreckfest\.local\realcadwell\report.json --verify
+geom\.venv\Scripts\python tools\import_real_track.py tools\real_tracks\cadwellpark.json `
+    --out geom\tests\samples\cadwellpark.json --report E:\Source\wreckfest\.local\cadwellpark\report.json --verify
 ```
 
 A recipe (`tools/real_tracks/<name>.json`) names the OSM `highway=raceway` ways of one lap in driving order, the
@@ -36,27 +78,37 @@ Other circuits: write a recipe (find the way ids with Overpass, e.g.
 (EA DTM, the default) or Wales (`"dtm": "wales"`: the Welsh Government / NRW 1 m DTM COG read by range requests);
 elsewhere add another open DTM to `load_dtm`.
 
-Recipe extras (RealAnglesey, `tools/real_tracks/anglesey.json`):
+Recipe extras (Anglesey, `tools/real_tracks/anglesey.json`):
 
 - `altLayouts`: further layouts sharing the base, each with its own `lap` of ways (`[way, from_node, to_node]`
-  takes part of a way), `measuredLapLengthM` and `publishedLapLengthM`. Each lap is fitted like the main one and
-  the part that leaves the main line becomes `sketch.imported.altLayouts[]` (ends moved onto the main line);
-  `mainLayoutName` names the main layout. `--verify` reports each layout's lap and every route's fit to the DTM.
-- `startFinish: {"node": id}`: an OSM node on the lap.
+  takes part of a way, backwards when `from_node` comes after `to_node`: a link mapped against the driving
+  direction), `measuredLapLengthM` (the OSM polyline) and `publishedLapLengthM`. Each lap is fitted like the main
+  one; the part that leaves the main line (around the ways the main lap doesn't use, grown while it stays more
+  than 1 m off the main line, plus 10 m) becomes `sketch.imported.altLayouts[]` (ends moved onto the main line);
+  `mainLayoutName` names the main layout. `--verify` reports each layout's lap, sections, grid and every route's
+  fit to the DTM.
+- `altLayouts[].startFinish` (optional, same forms as the main one): the layout's own start/finish line, for
+  circuits that time a layout elsewhere (Cadwell Park Club, Anglesey National and Club). Without it the layout
+  shares the main line and grid, and its lap must pass the main line.
+- `startFinish`: `{"node": id}` (an OSM node on a fetched way, projected onto the lap), `{"alongWay": id,
+  "fraction": f}` or `{"lat", "lon"}`.
+- `layoutSource`, `directionSource`, `startFinishSource` (required, top level and per alternative layout): where
+  the layout's route, racing direction and line come from (see "MSV pack", standing rules). The importer and
+  `test_import_real_track.py` fail without them.
 - `lapNames`: `null` drops an unnamed way's label.
 - `seaLevelODN`: no-data (sea) cells become seabed 3 m below it and the spec gets `seaLevelM`; the `coastal`
   environment floods below it.
 - `horizon`: the distant skyline (3-45 km, 32 m DTM overview) for a painted `#horizon` texture (Wales only).
 - `terrainCellM`: heightfield cell (default 6 m; 10 m for a wide coastal margin).
 
-Every recipe (2026-10-19, after RealCadwell drove backwards):
+Every recipe (2026-10-19, after Cadwell Park drove backwards):
 
 - `expectedCornerOrder`: the published lap order of the named corners (track guides). The importer fails when
   the OSM labels, in driving order from the start line, don't follow it (a rotation is fine, reversed isn't);
   `geom/tests/test_import_real_track.py` drives each recipe's committed sample through it in every layout and
   checks the recipe's `clockwise`. The builder's AI routes, start points and checkpoints follow increasing s, and
   `check_export` reads the built `.scne` to confirm the game drives that way (worker README, "Driving direction
-  and `otherway`"). RealCadwell's spec was always right; the game drove it backwards because bgeometry flips an
+  and `otherway`"). Cadwell Park's spec was always right; the game drove it backwards because bgeometry flips an
   AI strip it considers non-canonical unless `otherway` is set.
 - `gridSize` 24: the game races up to 24 cars and parks any without a start point beside the grid, on the grass.
 - `kerbs` (optional): per-corner kerb data from real sources, `{"corner": <label>, "entry"|"apex"|"exit"|"green":
@@ -74,10 +126,38 @@ Every recipe (2026-10-19, after RealCadwell drove backwards):
 | Heights, camber, terrain (Wales) | Welsh Government / NRW LIDAR composite DTM, 1 m (COG on DataMapWales) | Open Government Licence v3.0 | Contains Natural Resources Wales information © Natural Resources Wales and database right |
 | Heights, camber, terrain | Environment Agency LIDAR Composite DTM, 1 m (bare earth; WCS `environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs`) | Open Government Licence v3.0 | © Environment Agency copyright and/or database right 2022 |
 
-The committed sample (`geom/tests/samples/realcadwell.json`) is derived data (a 2 m centreline, a 6 m grid and
+The committed sample (`geom/tests/samples/cadwellpark.json`) is derived data (a 2 m centreline, a 6 m grid and
 simplified woods), not the raw downloads. A published mod that uses it should carry the same attribution.
 
-## RealCadwell (Cadwell Park full circuit, 2026-10-19)
+## Cadwell Park: Full, Club and Woodlands (2026-10-20)
+
+One base scene, three layouts (`cadwellpark_race` = Full, `cadwellpark_club`, `cadwellpark_woodlands`; events
+"Cadwell Park Full / Club / Woodlands"). Recipe `tools/real_tracks/cadwellpark.json` (every source is in it),
+sample `geom/tests/samples/cadwellpark.json`, report `.local\cadwellpark\report.json`, zip
+`E:\WreckfestMods\cadwellpark.zip` (7.0 MB), installed and enabled as "Cadwell Park".
+
+| | Full | Club | Woodlands |
+|---|---|---|---|
+| Source of the layout | MSV car circuit map (cadwellpark.co.uk) | racingcircuits.info Club map + history; MSV map "Club Hairpin Grandstand" | racingcircuits.info Woodlands map; MSV: "the rarely used Woodlands circuit" |
+| Route | the whole lap | Full minus the Mountain loop: the Club Hairpin (OSM 117987847) from the end of the run to the Mountain back onto the start straight | the Mountain loop: start straight, a hairpin at its Coppice end (OSM 396424044) onto the run to the Mountain, Mountain, Hall Bends, Hairpin, Barn |
+| Lap (built) | 3,496.9 m | 2,371.4 m | 1,349.6 m |
+| Published | 3,502 m (Wikipedia; MSV 3.54 km): −0.15 % | 2,375 m (1.476 mi; motorsport-timing 2.37 km): −0.15 % | 1,365 m (0.848 mi; motorsport-timing 1.36 km): −1.1 % |
+| OSM polyline | 3,494 m | 2,383 m | 1,372 m |
+| Direction | clockwise (MSV map arrow from Barn towards Coppice) | clockwise | clockwise |
+| Start/finish | on the start straight where the pit garage lane rejoins the pit lane, 153 m from Barn (MSV map flag ≈155 m; ukCircuits: lights opposite the start of the pit exit lane) | own line just after Mansfield, 44 m along the run to the Mountain (racingcircuits.info: "a separate timing loop was installed just after Mansfield"; its Club map's "Finish" flag) | shares the Full line (racingcircuits.info Woodlands map) |
+| Grid | 24 slots on the start straight | 24 slots after its own line (grade ≤ 3.0 %) | the Full grid |
+| Hairpin | | radius 7.3 m (the real tight hairpin; was eased to 11 m before) | radius 7.1 m |
+
+The Club and Woodlands hairpins turn back between the start straight and the run to the Mountain, which lie only
+a few metres apart there (the DTM shows one paved V where they meet). No junction mouth fits, so the builder
+paves the gap where the turn crosses it (an apron, worker README "Imported U-turn links"), with an apex kerb and
+a green strip on its inside; the dividers between the two roads stop there. Real Club races grid on the start
+straight before the hairpin joins it and finish after Mansfield; that first part of the straight isn't on the
+Club lap, so in the game the Club grid sits just past its own (finish) line.
+
+Renders: `.local\renders\cadwellpark-club-{start,grid,hairpin-approach,hairpin,oblique}.png`.
+
+## Cadwell Park full circuit (as built 2026-10-19)
 
 | | Value | Real world |
 |---|---|---|
@@ -113,18 +193,35 @@ the Gooseneck entry, apex, exit + green; Hall Bends entry + apex; sources in the
 Built `E:\WreckfestMods\realcadwell.zip` (6.7 MB; barriers on 27-29 % of each side, 414 barrier props instead of
 1,312; built route checked to run in checkpoint order) and installed; renders
 `.local\renders\realcadwell-v3-{driver,driver-parallel,driver-mountain,driver-gooseneck,oblique,horizon}.png`.
-RealAnglesey got the same rebuild (geometric kerbs: no OSM, LIDAR or guide data on kerbs there):
+Anglesey got the same rebuild (geometric kerbs: no OSM, LIDAR or guide data on kerbs there):
 `E:\WreckfestMods\realanglesey.zip`, renders `.local\renders\realanglesey-v2-*.png`, installed.
 
 **Minimap (2026-10-20):** both circuits had no in-race minimap: the mods shipped no `.tcat`, which the game needs
 to set the minimap up (it draws the compiled AI route; there is no minimap image). Every layout now gets a
 generated `.tcat` (worker README, "Track data and the minimap"); both zips rebuilt.
 
-## RealAnglesey (Anglesey Circuit / Trac Môn, International + Coastal, 2026-10-19)
+## Anglesey: National and Club added (2026-10-20)
 
-One base scene with two layouts (`realanglesey_race` = International, `realanglesey_coastal` = Coastal). Data
+All four current layouts now (Wikipedia, racingcircuits.info maps): `anglesey_race` International,
+`anglesey_coastal`, `anglesey_national`, `anglesey_club`; zip `E:\WreckfestMods\anglesey.zip` (6.0 MB), installed
+and enabled as "Anglesey".
+
+| | International | Coastal | National | Club |
+|---|---|---|---|---|
+| Lap (built) / published | 3,286.8 / 3,380 m (−2.8 %) | 2,463.8 / 2,494 m (−1.2 %) | 1,898.9 / 1,931 m (−1.7 %) | 1,272.1 / 1,287 m (−1.2 %) |
+| Route | full lap | Corkscrew link (OSM 108374690) | School Corner (OSM 108374691) from the end of the return straight, Rocket, Peel, Seamans, Tom Pryce Straight, Hairpin, return straight | start straight, Target, Banking, Church, Club Hairpin (OSM 264840722) |
+| Direction | clockwise (racingcircuits.info arrows; BRSCC notes) | clockwise | clockwise (ACU 2012: first corner the uphill right School Corner) | clockwise |
+| Start/finish | OSM "Start/Finish" node by the 2007 pits | shares International | own: the return straight beside the National pit lane, 62 % along it (ACU 2012: the original pre-2007 line and pit lane; map flag) | own: 22 m after the Club Hairpin joins the start straight (map flag; the International line is 34 m before that junction) |
+
+The International's grid now passes the Club Hairpin's mouth (junctions with other layouts' branches no longer end
+an imported track's first sector). At the Bus Stop the Coastal joins one OSM node before the National leaves; the
+builder keeps their two stitches on separate edge segments.
+
+## Anglesey International + Coastal (as built 2026-10-19)
+
+One base scene with two layouts (`anglesey_race` = International, `anglesey_coastal` = Coastal). Data
 phase, sources and the environment brief: `docs/real-tracks/anglesey.md`. Recipe `tools/real_tracks/anglesey.json`,
-sample `geom/tests/samples/realanglesey.json`, report `.local\realanglesey\report.json`.
+sample `geom/tests/samples/anglesey.json`, report `.local\anglesey\report.json`.
 
 | | International | Coastal |
 |---|---|---|
@@ -149,9 +246,9 @@ Game data checked for the sea: Wreckfest 1 has no sea material. The only water i
 `#noshadow` plane. Stone walls: stock `prop_stone_wall_01/02` (3.4 × 1.6 × 1.6 m) exist and are used.
 
 Unverified in game: the sea plane and the painted horizon, the second layout's checkpoints and AI, how 12 m
-and the Banking's camber drive. Not installed yet (waiting for confirmation that RealCadwell loads and for the
+and the Banking's camber drive. Not installed yet (waiting for confirmation that Cadwell Park loads and for the
 imported-track direction fix; rebuild after that lands).
 
-Zip `E:\WreckfestMods\realanglesey.zip` (two events, RealAnglesey International and RealAnglesey Coastal; 3,896
+Zip `E:\WreckfestMods\realanglesey.zip` (two events, Anglesey International and Anglesey Coastal; 3,896
 subscenes, 6.97 M vertices with every subscene, within the stock limits). Renders:
 `.local\renders\realanglesey-{oblique,horizon,driver,driver-corkscrew,driver-banking,driver-rocket,driver-school}.png`.

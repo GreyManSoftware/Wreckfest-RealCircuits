@@ -62,7 +62,7 @@ def _layout_for_tcat(name: str, slug: str, layouts: list[dict]) -> str | None:
 
 def layout_title(name: str, lay: dict) -> str:
     """Event title: the track name, the layout's own name when it has one (imported multi-layout tracks, e.g.
-    "RealAnglesey Coastal"), and "Reverse" for the reverse layout."""
+    "Anglesey Coastal"), and "Reverse" for the reverse layout."""
     return name + (f" {lay['title']}" if lay.get("title") else "") + (" Reverse" if lay["reverse"] else "")
 
 

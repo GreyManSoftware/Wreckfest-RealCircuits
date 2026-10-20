@@ -41,6 +41,7 @@ WALL_SETBACK = 12.0           # scenery stays behind this (+2.5 m) from the road
 DIVIDER_GAP = 30.0            # another section of track within this of the road edge gets a divider mid-gap
 DIVIDER_MIN = 1.5             # ...at least this far from either edge
 DIVIDER_JUNCTION_CLEAR = 40.0 # no divider within this (along the road) of a junction, flat crossing or bridge
+DIVIDER_MERGE_M = 60.0        # imported tracks: no divider where a branch within this of its junction merges into its road
 DIVIDER_BANK_MIN_GAP = 9.0    # drawn tracks: a grass bank under the divider where the gap is at least this...
 DIVIDER_BANK_HALF = 4.0       # ...up to this half width (2.5 m clear of each road edge)...
 DIVIDER_BANK_H = 0.8          # ...and this high

@@ -5,6 +5,7 @@ Public entry point: :func:`build_track_model`.
 
 from __future__ import annotations
 
+import itertools
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -322,6 +323,8 @@ class _Builder:
         self.lap = float(self.options["lapLengthKm"]) * 1000.0
         self.reverse = bool(self.options["reverseLayout"])
         self.imported = self.sketch.get("imported")
+        self.own_line: dict[str, tuple[str, float]] = {}  # imported layout id -> (route, s) of its own line
+        self.by_id_all: dict[str, _Route] = {}
 
     def warn(self, code: str, message: str) -> None:
         self.warnings.append(GeometryWarning(code, message))
@@ -355,27 +358,55 @@ class _Builder:
             self.warn("imported-lap-length", f"The imported centreline is {self.lap:.0f} m; lapLengthKm ({want:.0f} m) is ignored.")
         self.routes = [self.main]
         self.alt_gaps = {}
+        self.by_id_all = {"main": self.main}
         alts = _unique_by_id(self.imported.get("altLayouts") or [], "imported-layout", self.warnings)
         for k, alt in enumerate(alts):
             r = self._imported_branch(alt, -(k + 1))
             if r is None:
                 continue
             self.routes.append(r)
-            s0, s1 = float(self.main.s[r.start_join]), float(self.main.s[r.end_join])
-            self.layouts.append(LayoutRecord(alt["id"], alt["name"], s0 + r.length + (self.lap - s1), [
-                {"route": "main", "fromS": 0.0, "toS": s0},
-                {"route": r.id, "fromS": 0.0, "toS": r.length},
-                {"route": "main", "fromS": s1, "toS": self.lap},
-            ]))
+            self.by_id_all[r.id] = r
+            sections = self._layout_sections(alt, r)
+            self.layouts.append(LayoutRecord(alt["id"], alt["name"], sum(x["toS"] - x["fromS"] for x in sections),
+                                             sections))
         if self.layouts:
             name = self.imported.get("mainLayoutName") or "Main"
             self.layouts.insert(0, LayoutRecord("main", name, self.lap, [{"route": "main", "fromS": 0.0, "toS": self.lap}]))
         self.by_id = {r.id: r for r in self.routes}
 
+    def _layout_sections(self, alt: Mapping[str, Any], r: _Route) -> list[dict[str, Any]]:
+        """An alternative layout's lap as sections in driving order from its start/finish line: the branch, then
+        the main route from the branch end round to the branch start (through main s = 0 when the branch rejoins
+        later than it leaves). Without ``startFinish`` the line is the main one (main s = 0, which that lap then
+        passes: _imported_branch checks it); with it, the point projected onto the nearest section."""
+        s0, s1 = float(self.main.s[r.start_join]), float(self.main.s[r.end_join])
+        cycle = [(r.id, 0.0, r.length)]
+        cycle += [("main", s1, s0)] if s1 < s0 else [("main", s1, self.lap), ("main", 0.0, s0)]
+        if alt.get("startFinish"):
+            q = np.array([float(alt["startFinish"]["x"]), float(alt["startFinish"]["y"])])
+            best: tuple[float, int, float] | None = None
+            for k, (rid, a, b) in enumerate(cycle):
+                route = self.by_id_all[rid]
+                ss = np.linspace(a, b, max(2, int((b - a) / 0.5) + 1))
+                d = np.hypot(*(np.array([route.at(v) for v in ss]) - q).T)
+                i = int(np.argmin(d))
+                if best is None or d[i] < best[0]:
+                    best = (float(d[i]), k, float(ss[i]))
+            assert best is not None
+            _, k, sl = best
+            self.own_line[alt["id"]] = (cycle[k][0], sl)
+        else:
+            k = next(k for k, c in enumerate(cycle) if c[0] == "main" and c[1] == 0.0)
+            sl = 0.0
+        rid, a, b = cycle[k]
+        rot = [(rid, sl, b)] + cycle[k + 1:] + cycle[:k] + [(rid, a, sl)]
+        return [{"route": x, "fromS": y, "toS": z} for x, y, z in rot if z - y > 1e-6]
+
     def _imported_branch(self, alt: Mapping[str, Any], ai_index: int) -> _Route | None:
         """An imported alternative layout's branch: an open route whose ends are snapped to the nearest main
-        centreline points (used as given otherwise). The branch must leave and rejoin the main route after the
-        start/finish line in driving order, so every layout shares the line and the grid."""
+        centreline points (used as given otherwise). Without its own start/finish line (``startFinish``) the
+        branch must leave and rejoin the main route after the main line in driving order, so the layout shares
+        the line and the grid."""
         pts = np.array([[p["x"], p["y"]] for p in alt["centreline"]], dtype=np.float64)
         z = np.array([p["z"] for p in alt["centreline"]], dtype=np.float64)
         bank = np.radians([p["bankDeg"] for p in alt["centreline"]])
@@ -383,10 +414,10 @@ class _Builder:
         i0 = int(np.argmin(np.hypot(*(m.pts - pts[0]).T)))
         i1 = int(np.argmin(np.hypot(*(m.pts - pts[-1]).T)))
         gap0, gap1 = float(np.hypot(*(m.pts[i0] - pts[0]))), float(np.hypot(*(m.pts[i1] - pts[-1])))
-        if not m.s[i0] < m.s[i1]:
+        if i0 == i1 or (not m.s[i0] < m.s[i1] and not alt.get("startFinish")):
             self.warn("imported-layout-unsupported",
-                      f"Layout {alt['id']} must leave and rejoin the main centreline after the start/finish line; "
-                      "it is left out.")
+                      f"Layout {alt['id']} must leave and rejoin the main centreline after the start/finish line "
+                      "(or have its own startFinish); it is left out.")
             return None
         pts[0], pts[-1] = m.pts[i0], m.pts[i1]
         z[0], z[-1] = m.imported_z[i0], m.imported_z[i1]
@@ -799,10 +830,10 @@ class _Builder:
             elif any(o.route == m.route and r.dist_to(m.s, o.a, o.b) == 0.0 for o in ramps):
                 m.feature = "bridge"
 
-    def _grid_max_grade(self) -> float:
-        """Steepest grade of the main loop's marker profile over the grid area (behind the line to the
-        first checkpoint)."""
-        m = self.main
+    def _grid_max_grade(self, route: _Route | None = None) -> float:
+        """Steepest grade of the main loop's (or an imported layout's own lap's) marker profile over the grid
+        area (behind the line to the first checkpoint)."""
+        m = route or self.main
         end = self._grid_zone_end()
         idx = np.flatnonzero((m.s <= end) | (m.s >= m.length - C.START_CLEAR_M))
         steepest = 0.0
@@ -945,7 +976,9 @@ class _Builder:
 
     def _first_sector(self) -> float:
         """Clear road ahead of the start line, where the grid sits: up to the first tight corner, a turn of
-        more than GRID_MAX_TURN_DEG, or a crossing, jump, bridge ramp or junction."""
+        more than GRID_MAX_TURN_DEG, or a crossing, jump, bridge ramp or junction. An imported track's junctions
+        with its other layouts' branches don't count: the main layout doesn't drive them, and a real grid may
+        pass a branch's mouth (Anglesey's Club Hairpin joins 34 m past the International line)."""
         m = self.main
         r = pl.radii(m.pts, True, C.RADIUS_WINDOW)
         sharp = np.flatnonzero(r < C.GRID_SHARP_RADIUS_M)
@@ -953,14 +986,66 @@ class _Builder:
         far = np.flatnonzero(np.abs(turn) > math.radians(C.GRID_MAX_TURN_DEG))
         ahead = [float(m.s[sharp[0]]) if len(sharp) else self.lap, float(m.s[far[0]]) if len(far) else self.lap]
         for o in self._obstacles() + self._ramp_intervals():
-            if o.route == "main":
+            if o.route == "main" and not (self.imported and o.kind == "junction"):
                 ahead.append(m.fwd_to(0.0, o.a, o.b))
         return min(ahead)
 
-    def _grid(self, first_sector: float) -> Grid:
+    def _layout_route(self, lay: LayoutRecord) -> _Route:
+        """An imported layout's lap as one closed route from its start/finish line (its sections joined, about
+        every SAMPLE_SPACING_M), with the heights (also as the marker profile) and camber of its sources."""
+        pts, z, bank = [], [], []
+        for sec in lay.sections:
+            src = self.by_id_all[sec["route"]]
+            a, b = float(sec["fromS"]), float(sec["toS"])
+            ss = np.linspace(a, b, max(2, int(math.ceil((b - a) / C.SAMPLE_SPACING_M)) + 1))[:-1]
+            pts += [src.at(v) for v in ss]
+            z += [src.z_at(v) for v in ss]
+            bank += [src.bank_at(v) for v in ss]
+        r = _Route(lay.id, np.array(pts), True, 0)
+        r.finalize()
+        r.z = np.array(z)
+        r.m = r.z.copy()
+        r.bank = np.array(bank)
+        return r
+
+    def _layout_first_sector(self, r: _Route, lay: LayoutRecord) -> float:
+        """_first_sector on an imported layout's own lap: up to its first tight corner, big turn or junction
+        (where the lap changes route)."""
+        ahead = [r.length]
+        radius = pl.radii(r.pts, True, C.RADIUS_WINDOW)
+        sharp = np.flatnonzero(radius < C.GRID_SHARP_RADIUS_M)
+        turn = np.unwrap(r.heading) - r.heading[0]
+        far = np.flatnonzero(np.abs(turn) > math.radians(C.GRID_MAX_TURN_DEG))
+        ahead += [float(r.s[sharp[0]])] if len(sharp) else []
+        ahead += [float(r.s[far[0]])] if len(far) else []
+        s = 0.0
+        for a, b in itertools.pairwise(lay.sections):
+            s += float(a["toS"]) - float(a["fromS"])
+            if a["route"] != b["route"]:
+                ahead.append(max(s - C.JUNCTION_CLEAR_M, 0.0))
+        return min(ahead)
+
+    def _layout_grids(self) -> None:
+        """Own start/finish line and grid of each imported layout with ``startFinish`` (on its own lap)."""
+        for lay in self.layouts:
+            if lay.id not in self.own_line:
+                continue
+            r = self._layout_route(lay)
+            fs = self._layout_first_sector(r, lay)
+            self.layout_first_sectors[lay.id] = fs
+            lay.grid = self._grid(fs, r)
+            rid, s = self.own_line[lay.id]
+            src = self.by_id_all[rid]
+            p = src.at(s)
+            lay.start_finish = {"route": rid, "s": s, "position": [float(p[0]), float(p[1]), src.z_at(s)],
+                                "heading": src.heading_at(s)}
+            self.layout_routes[lay.id] = r
+
+    def _grid(self, first_sector: float, route: _Route | None = None) -> Grid:
         """Grid slots ahead of the start line (to verify in game): the back row GRID_LINE_OFFSET_M past the
-        line, the pole row furthest ahead, in pairs gridSlotWidthM apart."""
-        m = self.main
+        line, the pole row furthest ahead, in pairs gridSlotWidthM apart. ``route``: an imported layout's own
+        lap (from its own line) instead of the main loop."""
+        m = route or self.main
         n = int(self.options["gridSize"])
         rows = math.ceil(n / 2)
         spacing = float(self.consts["gridRowSpacingM"])
@@ -1015,6 +1100,9 @@ class _Builder:
         self._marker_features()
         first_sector = self._first_sector()
         grid = self._grid(first_sector)
+        self.layout_routes: dict[str, _Route] = {}
+        self.layout_first_sectors: dict[str, float] = {}
+        self._layout_grids()
         checkpoints = self._checkpoints()
 
         half_w = self.width / 2.0
@@ -1156,7 +1244,7 @@ class _Builder:
             layouts=self.layouts,
         )
         facts: dict[str, Any] = {
-            "firstSectorLengthM": _round(first_sector),
+            "firstSectorLengthM": _round(min([first_sector] + list(self.layout_first_sectors.values()))),
             "maxAbsCoordinateM": _round(max_abs),
             "minCornerRadiusM": _round(min(min_radius, 1e5)),
             "crossings": self._crossing_facts(),
@@ -1173,7 +1261,8 @@ class _Builder:
                 }
                 for m in self.markers
             },
-            "gridMaxGradePct": _round(min(100.0 * self._grid_max_grade(), C.MAX_REPORTED_GRADE_PCT)),
+            "gridMaxGradePct": _round(min(100.0 * max([self._grid_max_grade()] + [
+                self._grid_max_grade(r) for r in self.layout_routes.values()]), C.MAX_REPORTED_GRADE_PCT)),
             "heightRangeM": _round(float(all_z.max() - all_z.min())),
             "maxGradePct": _round(
                 min(100.0 * max(r.max_grade(C.GRADE_BASELINE_M) for r in self.routes), C.MAX_REPORTED_GRADE_PCT)
