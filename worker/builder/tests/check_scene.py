@@ -253,12 +253,14 @@ def check_maps(out: str, model: dict, spec: dict, manifest: dict) -> None:
     band = clutter[j, i, 1][(d > 8.0) & (d < 35.0)]
     far = clutter[j, i, 1][d > 100.0]
     fb = float(np.mean(far)) if len(far) else 0.0
-    check(len(band) > 20 and float(np.mean(band)) >= max(20.0, 3.0 * fb),
-          "maps: clutter grass (G) forms a band beside the road and fades out far from it",
-          f"band mean {np.mean(band) if len(band) else 0:.0f}, far {fb:.0f}")
     # the whole mask within the stock clutter budget (more crashed the game: "Out of vertex buffer memory")
     from wfbuild.maps import clutter_density
     ha, local = clutter_density(clutter[:, :, :3] / 255.0, size)
+    # a long lap (a real 4-5 km circuit, several layouts) thins its band to the budget: a lower floor then
+    band_min = 10.0 if ha >= 0.9 * C.CLUTTER_MAX_HA else 20.0
+    check(len(band) > 20 and float(np.mean(band)) >= max(band_min, 3.0 * fb),
+          "maps: clutter grass (G) forms a band beside the road and fades out far from it",
+          f"band mean {np.mean(band) if len(band) else 0:.0f} (min {band_min:.0f}), far {fb:.0f}, {ha:.1f} ha")
     check(ha <= C.CLUTTER_MAX_HA + 0.05 and local <= C.CLUTTER_MAX_LOCAL + 0.005,
           "maps: clutter mask within the stock budget",
           f"{ha:.1f} ha at full density (max {C.CLUTTER_MAX_HA}), 400 m window max {local:.3f} (max {C.CLUTTER_MAX_LOCAL})")
