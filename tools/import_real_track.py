@@ -50,6 +50,10 @@ IMPORTED_MIN_INNER_EDGE_RADIUS_M = float(json.loads(
     (Path(__file__).resolve().parents[1] / "schema" / "track-rules.json").read_text(encoding="utf-8")
 )["constants"]["importedMinInnerEdgeRadiusM"])
 
+# Centreline heights in mm: at 2 m spacing, cm rounding alone moves a step's grade by up to 0.5 % (Brands Hatch's
+# grid, a steady ~3.7 % climb, read 4.01 % against the 4 % imported-grid-level rule).
+Z_DECIMALS = 3
+
 ATTRIBUTION = ("Layout and woodland (c) OpenStreetMap contributors, ODbL 1.0. Heights: Environment Agency "
                "LIDAR Composite DTM 1 m, (c) Environment Agency copyright and/or database right 2022, "
                "Open Government Licence v3.0.")
@@ -746,7 +750,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         bank_b = np.degrees(np.arctan(gauss_open(bb, 10.0 / step)))
         loc_b = (br - centre) / k_scale
         alt_specs.append({"id": alt["id"], "name": alt["name"],
-                          "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), 2),
+                          "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), Z_DECIMALS),
                                           "bankDeg": round(float(bk), 2)} for (x, y), zv, bk in zip(loc_b, zb, bank_b)]})
         if alt.get("startFinish"):  # the layout's own line, snapped onto the fitted road (main or branch)
             q_sf = start_finish_point(alt["startFinish"], osm)
@@ -843,7 +847,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     imported = {
         "source": ATTRIBUTION_WALES if recipe.get("dtm") == "wales" else ATTRIBUTION,
         "datumM": datum,
-        "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), 2),
+        "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), Z_DECIMALS),
                         "bankDeg": round(float(bk), 2)} for (x, y), zv, bk in zip(loc, z, bank)],
         "terrain": {"originX": round(float(origin[0]), 2), "originY": round(float(origin[1]), 2),
                     "cellM": round(cell / k_scale, 4), "nx": nx, "ny": ny,
