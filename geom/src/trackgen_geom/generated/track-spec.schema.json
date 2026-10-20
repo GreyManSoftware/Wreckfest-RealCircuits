@@ -493,9 +493,9 @@
     },
     "Environment": {
       "title": "Environment",
-      "description": "Environment preset (stock textures and props). parkland: lush grass, deciduous woods and grass banks. coastal: open, windswept coastal grassland with gorse, rocks along the shore, stone walls and the sea.",
+      "description": "Environment preset (stock textures and props). parkland: lush grass, deciduous woods and grass banks. coastal: open, windswept coastal grassland with gorse, rocks along the shore, stone walls and the sea. airfield: a flat, open former airfield: short dry grass, few trees, arable fields beyond, a low horizon.",
       "type": "string",
-      "enum": ["gravel_pit", "farmland", "forest", "industrial", "sandpit", "parkland", "coastal"]
+      "enum": ["gravel_pit", "farmland", "forest", "industrial", "sandpit", "parkland", "coastal", "airfield"]
     },
     "Weather": {
       "title": "Weather",

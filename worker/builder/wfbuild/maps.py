@@ -127,6 +127,9 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
             shore = smooth01((planner.sea + 3.0 + (n_fine - 0.5) * 2.5 - zg) / 1.5)
             b = np.maximum(b, np.maximum(shore, steep * smooth01((planner.sea + 14.0 - zg) / 4.0)))
             b = b * smooth01((d - 8.0) / 6.0)
+    elif env_name == "airfield":
+        # open short grass round the circuit (the old airfield); big patches of ploughed arable land well beyond
+        b = smooth01((n_big - 0.5) / 0.1) * smooth01((d - 220.0) / 60.0)
     elif env_name == "sandpit":
         b = smooth01((n_big - 0.5) / 0.12) * smooth01((d - 25.0) / 15.0)
     elif env_name == "gravel_pit":
