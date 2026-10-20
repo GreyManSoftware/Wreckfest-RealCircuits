@@ -4,7 +4,7 @@ One base scene, two layouts (`brandshatch_race` = Grand Prix, `brandshatch_indy`
 and "Brands Hatch Indy"). Recipe `tools/real_tracks/brandshatch.json` (every source is in it), sample
 `geom/tests/samples/brandshatch.json`, raw data and report in `E:\Source\wreckfest\.local\realtracks\brandshatch\`
 (OSM, `osm-extras.json`, EA DTM tiles, `report.json`, the MSV map PDFs' content summarised below), zip
-`E:\WreckfestMods\brandshatch.zip` (7.35 MB), installed and enabled as "Brands Hatch".
+`E:\WreckfestMods\brandshatch.zip` (7.3 MB), installed and enabled as "Brands Hatch".
 
 ## Layouts and sources
 
@@ -23,8 +23,8 @@ bike-only variant is in use.
 | Start/finish | Brabham Straight, OSM node 1825805766 (`raceway=start-finish`), 176 m from Clark Curve: the MSV maps' chequered flag in front of the pit garages; driver61's GPS for the line is 19 m further on (BARC: start and finish lines ~20 m apart) | shares the GP line (same flag on the MSV Indy map) and grid |
 | Grid | 24 slots ahead of the line, max grade 3.90 % (the straight climbs ~3.7 % to the crest before Paddock Hill) | the GP grid |
 
-The GP and the Indy share everything but McLaren: the Indy branch (213.7 m) leaves the GP lap at Surtees (s 1,258 m)
-and rejoins at Clearways (s 3,445 m). MSV lists pole on the left for the GP and on the right for the Indy; the
+The GP and the Indy share everything but McLaren: the Indy branch (207.8 m) leaves the GP lap at Surtees (s 1,248 m)
+and rejoins at Clearways (s 3,429 m). MSV lists pole on the left for the GP and on the right for the Indy; the
 builder puts pole on the inside of the first corner (Paddock Hill Bend, a right-hander), i.e. on the right for both.
 
 ## Numbers (GP, from the importer report)
