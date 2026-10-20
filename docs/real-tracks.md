@@ -21,7 +21,7 @@ layouts; lengths from Wikipedia unless noted, to verify per circuit under the st
 | 1 | Cadwell Park (`cadwellpark`) | Full 3.502 km, Club 2.375 km, Woodlands 1.365 km (the bike chicane variant isn't used by cars) | built 2026-10-20 |
 | – | Anglesey (`anglesey`, not MSV) | International 3.380 km, Coastal 2.494 km, National 1.931 km, Club 1.287 km | built 2026-10-20 |
 | 2 | Brands Hatch (`brandshatch`) | Grand Prix 3.916 km, Indy 1.944 km (MSV) | built 2026-10-20: GP 3,903 m (−0.3 %), Indy 1,930 m (−0.7 %); [details](real-tracks/brandshatch.md) |
-| 3 | Oulton Park | International 4.307 km, Island 3.616 km, Fosters 2.656 km | |
+| 3 | Oulton Park (`oultonpark`) | International 4.307 km, Island 3.616 km, Fosters 2.656 km (MSV) | built 2026-10-20: 4,317 m (+0.2 %), 3,564 m (−1.4 %), 2,676 m (+0.8 %); [details](real-tracks/oultonpark.md) |
 | 4 | Snetterton | 300 4.779 km, 200 3.219 km, 100 1.577 km | |
 | 5 | Donington Park | Grand Prix 4.020 km, National 3.149 km | |
 | 6 | Bedford Autodrome | GT, South West, SEN, West, South, North, East (MSV / PalmerSport list; lengths conflict between sources: check MSV's own Bedford page) | |
