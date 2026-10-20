@@ -345,8 +345,10 @@ class LayoutBuilder:
         layout.info["checkpoints"] = names
 
     # ----------------------------------------------------------------------------------- grid
-    def startpoints(self, layout: Layout, direction: int) -> tuple[float, float]:
-        g = self.model["grid"]
+    def startpoints(self, layout: Layout, direction: int, grid: dict | None = None) -> tuple[float, float]:
+        """Start points from the TrackModel's grid (``grid``: an imported layout's own grid, slot s along its own
+        lap). Returns the start/finish line's s and the first checkpoint's s on self.main."""
+        g = grid or self.model["grid"]
         slots = g["slots"]
         main = self.main
         if direction > 0:
@@ -406,7 +408,8 @@ class LayoutBuilder:
     def _build_imported(self, defs: list[dict]) -> list[Layout]:
         """One layout per TrackModel ``layouts`` entry (imported tracks with alternative layouts): the main
         layout drives the main route only (no alternative-route strips), each alternative one its own closed
-        route (main up to the branch, the branch, main after it). All share the start/finish line and grid."""
+        route (its sections from its start/finish line: the branch and the main route). A layout with its own
+        line (``startFinish``) gets its own grid there; the others share the main line and grid."""
         out = []
         saved = (self.main, self.alts, self.joins)
         for d in defs:
@@ -415,7 +418,9 @@ class LayoutBuilder:
                          False)
             r = saved[0] if is_main else composite_route(self.model, d)
             self.main, self.alts, self.joins = r, [], []
-            line_s, first_s = self.startpoints(lay, 1)
+            line_s, first_s = self.startpoints(lay, 1, d.get("grid"))
+            if d.get("startFinish"):
+                lay.info["startFinish"] = d["startFinish"]
             i_line = r.index_at(line_s)
             lay.info.update({"title": d["name"], "lapLengthM": round(r.length, 1), "lineS": round(line_s, 3)})
             self.ai_meshes(lay, i_line, 1)

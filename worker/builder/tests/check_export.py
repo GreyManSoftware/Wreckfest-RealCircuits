@@ -216,6 +216,45 @@ def check_road_flush(full, model: dict, manifest: dict) -> None:
           "edge and the ground 30 m out)", f"{dips} of {n} probes dip")
 
 
+def to_scene_xy(p, manifest: dict) -> np.ndarray:
+    """TrackModel x/y -> scene x/y (the builder's rotation and shift, manifest ``transform``)."""
+    t = manifest.get("transform", {})
+    a = math.radians(t.get("rotateDeg", 0))
+    ca, sa = round(math.cos(a)), round(math.sin(a))
+    shift = np.array(t.get("shift", [0.0, 0.0, 0.0]))[:2]
+    return np.array([p[0] * ca - p[1] * sa, p[0] * sa + p[1] * ca]) + shift
+
+
+def check_start_finish(scene: str, lay, model: dict, manifest: dict, info: dict | None) -> None:
+    """The layout's start/finish line in the exported layout: the last checkpoint (the finish) sits on the line
+    the TrackModel gives the layout (its own ``startFinish``, e.g. Cadwell Park's Club after Mansfield, else
+    the main line at main s = 0), and the start points face away from it along the road, the way the race
+    runs (the first sector of the compiled route; check_driving_order checks the rest of the lap)."""
+    own = (info or {}).get("startFinish")
+    main = next(r for r in model["routes"] if r["aiIndex"] == 0)
+    line = own["position"][:2] if own else [main["samples"][0]["x"], main["samples"][0]["y"]]
+    want = to_scene_xy(line, manifest)
+    cps = sorted((o for o in lay.objects if o.name.startswith("#checkpoint") and o.tris), key=lambda o: o.name)
+    if not cps:
+        check(False, f"{scene}: checkpoints exported")
+        return
+    fin = to_world(cps[-1], [(0.0, 0.0, 0.0)])[0]
+    d = float(np.hypot(*(fin[:2] - want)))
+    check(d < 3.0, f"{scene}: the finish checkpoint {cps[-1].name} is on the layout's start/finish line",
+          f"{d:.1f} m from it ({'own line' if own else 'main line'})")
+    sp = [o for o in lay.objects if o.name.startswith("#startpoint") and o.name != "#startpointcarchange"]
+    first = to_world(cps[0], [(0.0, 0.0, 0.0)])[0]
+    bad = []
+    for o in sp:
+        p0, p1 = to_world(o, [(0.0, 0.0, 0.0), (0.0, 1.0, 0.0)])  # local +Y is the car's forward
+        fwd = (p1 - p0)[:2]
+        to_cp1 = (first - p0)[:2]
+        if float(np.dot(fwd, to_cp1)) <= 0.0 or float(np.dot(fwd, p0[:2] - want)) <= 0.0:
+            bad.append(o.name)
+    check(sp and not bad, f"{scene}: start points ahead of the line, facing the first checkpoint",
+          f"{len(sp)} checked; wrong way: {bad[:3]}")
+
+
 def check_driving_order(scene: str, scne: str) -> None:
     """The game drives a compiled AI route in its stored sector order (every stock layout's checkpoints run in
     that order, with or without otherway), and bgeometry picks that order itself (layout.needs_otherway). Our
@@ -366,6 +405,9 @@ def main() -> None:
                   base[0].xref if base else "missing")
             if base and road is not None:
                 check_on_road(scene, b, base[0], road)
+            if model.get("layouts"):  # imported multi-layout tracks: each layout's own or shared line
+                check_start_finish(scene, b, model, manifest,
+                                   next((l for l in manifest["layouts"] if l["name"] == scene), None))
             sp = [o for o in b.objects if o.name.startswith("#startpoint")]
             check(all(o.kind == "OBJD" for o in sp) and len(sp) == model["grid"]["size"] + 1,
                   f"{scene}: start points exported as dummies", f"{len(sp)}")
