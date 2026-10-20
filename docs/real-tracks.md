@@ -25,7 +25,7 @@ layouts; lengths from Wikipedia unless noted, to verify per circuit under the st
 | 4 | Snetterton (`snetterton`) | 300 4.779 km, 200 3.219 km, 100 1.577 km (MSV) | built 2026-10-20: 4,789 m (+0.2 %), 3,195 m (−0.8 %), 1,556 m (−1.3 %); the 100's own line is estimated; [details](real-tracks/snetterton.md) |
 | 5 | Donington Park (`doningtonpark`) | Grand Prix 4.020 km, National 3.186 km (MSV; Wikipedia 3.149 km) | built 2026-10-20 |
 | 6 | Bedford Autodrome (`bedfordautodrome`) | GT 6.11 km, SW 4.50 km, West 3.0 km, SEN 3.70 km (MSV's circuit-layouts page; North, South and East no longer listed) | built 2026-10-20 |
-| 7 | Circuito de Navarra | Full 4.313 km, Medium 2.693 km, Short 1.391 km (since 2024) | outside the UK: needs a Spanish open DTM in `load_dtm` |
+| 7 | Circuito de Navarra (`navarra`) | Main Track 4.313 km, Medium 2.693 km, Short 1.391 km (MSV, since September 2024) | built 2026-10-20 (IGN MDT05 heights, UTM 30N) |
 
 **Standing requirements (Chris, 2026-10-20), for every circuit in the pack:**
 
@@ -161,6 +161,7 @@ Every recipe (2026-10-19, after Cadwell Park drove backwards):
 | Layout (raceway ways), woodland polygons | OpenStreetMap via the Overpass API | ODbL 1.0 | © OpenStreetMap contributors |
 | Heights, camber, terrain (Wales) | Welsh Government / NRW LIDAR composite DTM, 1 m (COG on DataMapWales) | Open Government Licence v3.0 | Contains Natural Resources Wales information © Natural Resources Wales and database right |
 | Heights, camber, terrain | Environment Agency LIDAR Composite DTM, 1 m (bare earth; WCS `environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs`) | Open Government Licence v3.0 | © Environment Agency copyright and/or database right 2022 |
+| Heights, camber, terrain (Spain) | IGN MDT05, 5 m, from the PNOA LIDAR (WCS `servicios.idee.es/wcs-inspire/mdt`, coverage `Elevacion25830_5`, ETRS89 / UTM 30N) | CC BY 4.0 | MDT05 © Instituto Geográfico Nacional de España (IGN), derived from PNOA LIDAR |
 
 The committed sample (`geom/tests/samples/cadwellpark.json`) is derived data (a 2 m centreline, a 6 m grid and
 simplified woods), not the raw downloads. A published mod that uses it should carry the same attribution.
@@ -348,7 +349,7 @@ corner over an airfield service road (OSM 449592525, paved between the mapped gr
 | | GT | SW | West | SEN |
 |---|---|---|---|---|
 | Source of the layout | MSV GT map (3.8 mi / 6.11 km, 10 left + 8 right corners); racingcircuits.info GT map T1–T18 | MSV SW map (2.8 mi / 4.50 km); racingcircuits.info South West map | MSV West map (1.87 mi / 3 km); OSM's West circuit way, matching the maps turn for turn | MSV SEN map (2.3 mi / 3.70 km); racingcircuits.info SEN map |
-| Lap (built) / published | 5,880.8 / 6,110 m (−3.8 %) | 4,585.3 / 4,500 m (+1.9 %) | 2,798.4 / 3,000 m (−6.7 %) | 3,594.1 / 3,700 m (−2.9 %) |
+| Lap (built) / published | 5,880.8 / 6,110 m (−3.8 %) | 4,585.3 / 4,500 m (+1.9 %) | 2,798.4 / 3,000 m (−6.7 %) | 3,593.7 / 3,700 m (−2.9 %) |
 | OSM polyline | 5,899 m | 4,592 m | 2,806 m | 3,592 m |
 | Direction | anticlockwise (racingcircuits.info turn numbering; evo.co.uk: the Hangar Hairpin first) | anticlockwise | anticlockwise (lapmeta: counter-clockwise) | anticlockwise |
 | Start/finish | inner (pit) straight before T1, OSM node 305063847, 159 m before the pit lane merges (racingcircuits.info flag, mapped by an affine fit of the West loop) | shares the GT line | shares the GT line | own: the south straight where the South pit lane rejoins, after the small west loop (racingcircuits.info SEN flag) |
@@ -379,3 +380,47 @@ uniformly short: MSV rounds to 0.1 mi (±80 m), and its West figure (3.0 km) loo
 - **Check in game:** the SEN's merge across the paved area after its small west loop, the GT/SEN crossing from the
   North S-bend to the South top corner, how open the run-off feels (AI resets), the 12 m width.
 
+## Circuito de Navarra: Main Track, Medium and Short (2026-10-20)
+
+One base scene, three layouts (`navarra_race` = Main Track, `navarra_medium`, `navarra_short`; events "Circuito de
+Navarra Main Track / Medium / Short"). Recipe `tools/real_tracks/navarra.json`, sample `geom/tests/samples/navarra.json`,
+raw data and report in `.local\realtracks\navarra\` (MSV and racingcircuits.info maps in `maps\`), zip
+`E:\WreckfestMods\navarra.zip` (7.3 MB), installed and enabled as "Circuito de Navarra". Slug `navarra` (the name's
+last word, now allowed by the importer).
+
+**Layouts.** MSV's own circuit-layouts page (circuitodenavarra.com) lists the 2024 Main Track, Medium and Short;
+Wikipedia and racingcircuits.info have the same three for September 2024 to date (the 650 m extension with the new
+Turns 11-14). racingcircuits.info's "Bike" Long and Medium are bike-only and not built. OSM's
+"Circuito de Velocidad" way is the 2024 lap.
+
+| | Main Track | Medium | Short |
+|---|---|---|---|
+| Source of the layout | MSV Main Track map (2.679 mi / 4.313 km, 6 left + 11 right); racingcircuits.info Speed Circuit Long 2024 (T1-T17) | MSV Medium map (1.673 mi / 2.693 km); the diagonal link (OSM 103746068) from T5 to T14 | MSV Short map (0.864 mi / 1.391 km); the Main Track's T8-T11 and the hook from the T11 hairpin's exit back to the T7-T8 road (OSM 1539678089, joined to the lap by `nodeJoins`: it ends 2.3 m off it) |
+| Lap (built) / published | 4,280.0 / 4,313 m (−0.8 %) | 2,637.4 / 2,693 m (−2.1 %) | 1,347.7 / 1,391 m (−3.1 %; OSM's hook is coarse, `lapLengthNote`) |
+| Direction | clockwise (racingcircuits.info arrows; MSV's 11 right / 6 left fit only clockwise) | clockwise | clockwise |
+| Start/finish | main straight opposite the middle of the pit building, 263 m from T17 (MSV map line; OSM pit building 121-402 m along the straight; racingcircuits.info draws its flag ~160 m further on) | shares the Main Track line | own: the T10-T11 straight 70 m after T10 (racingcircuits.info Short flag on that straight; placed where the 24-car grid stays under 4 %) |
+
+Corner labels are racingcircuits.info's turn numbers ("Turn 1" … "Turn 17", `cornerLabels` at OSM nodes); Navarra's
+corners have no published names. The OSM lap has exactly MSV's 11 right and 6 left corners.
+
+- **Heights:** Spain's IGN MDT05 (5 m, from the PNOA LIDAR, CC BY 4.0, "© Instituto Geográfico Nacional"), from the
+  IDEE INSPIRE WCS in ETRS89 / UTM 30N; the importer now projects to UTM 30N for it (`"dtm": "es-mdt05"`). Road
+  heights 427-447 m (range 20.3 m), climb 45 m per lap, +9.3 % / −13.5 % over 10 m (the back straight between T8
+  and T9 crosses a 3 m hump), camber up to 7.4° (T11 is banked). The 5 m grid is too coarse to register the OSM
+  line to (with 3 m allowed the three layouts' fits drifted apart), so the line is used as mapped; heights and
+  camber are smoothed over 10 m and 15 m. Fit to the DTM: centre RMS 0.13 m (max 0.7 m at the hump).
+- **Width:** not published; 12 m.
+- **Kerbs:** OSM has none and no track guide with kerb detail for the 2024 layout was found: geometric kerbs.
+- **Environment:** the new `arid` preset: the stock sandpit03 palette (sand, pebbles, dry ground, sandpit3 dry-grass
+  clutter, the landscape1 vista), low scrub, rocks and a few pines, bare rolling hills on the far ground; light
+  concrete barrier rows (stock barrier8) only where needed, metal crowd fences; crowds at Turns 3, 11 and 17.
+  No OSM woods inside the terrain box.
+- **Checks:** builder `check_scene` + `check_export` pass for all three layouts (dividers: 43 probes, none open;
+  grids on the road under 4 %; lines and route order; a minimap `.tcat` per layout; base 3,822 subscenes, 8.5 M
+  vertices with every instance (the first build was 10.7 M with barrier7a crowd fences, now metal fences), clutter
+  5.0 ha). The Short first failed in bgeometry ("safe area did not overlap all sectors"): its start line runs
+  nearly east-west, so the route and the narrower safe/race strips disagreed on bgeometry's canonical orientation;
+  the builder now runs the strips on past the line until they agree, and `check_scene` checks it.
+- **Renders:** `.local\renders\navarra-{oblique,horizon,driver,driver-t3,driver-t11}.png`.
+- **Check in game:** the Short's hook inside the T11 hairpin (its road and divider run inside the hairpin), the
+  back-straight hump, the banked T11, how the arid ground and sandpit textures read on tarmac.
