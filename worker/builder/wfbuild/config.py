@@ -131,6 +131,7 @@ GRASS_BAND = (5.0, 80.0)      # clutter grass from this far to this far outside 
 CLUTTER_MAX_HA = 5.0          # sum of the mask (R+G+B, 0..1) x pixel area
 CLUTTER_MAX_LOCAL = 0.18      # highest mean of the mask within a CLUTTER_WINDOW_M square
 CLUTTER_WINDOW_M = 400.0
+CLUTTER_MIN_BAND_M = 45.0     # over budget, the grass band's outer edge comes in to this before thinning
 
 # --- edge decal ------------------------------------------------------------------------------------
 EDGE_DECAL_OUT = 0.3          # the decal's broken asphalt edge sits this far outside the road edge
