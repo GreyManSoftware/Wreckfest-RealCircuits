@@ -776,7 +776,7 @@ def node_bng(osm: dict, node: int) -> np.ndarray:
 
 def branch_of(alt: np.ndarray, main: np.ndarray, step: float, blend_m: float = 30.0,
               core: tuple[float, float] | None = None, off_m: float = 1.0,
-              join_within_m: float | None = None) -> np.ndarray:
+              join_within_m=None) -> np.ndarray:
     """The part of a fitted alternative lap that leaves the main line, with its ends moved onto the nearest main
     points (the move fades out over ``blend_m``). ``core``: the fractions of the lap (from its first point)
     where it runs on ways the main lap doesn't use (``non_main_span``); the branch is that span grown at both
@@ -809,16 +809,24 @@ def branch_of(alt: np.ndarray, main: np.ndarray, step: float, blend_m: float = 3
                 cur = None
     ext = int(round(10.0 / step))
     idx = [(k0 + k) % n for k in range(best[0] - ext, best[1] + ext + 1)]
-    if join_within_m:  # a shallow merge: join where the line first comes within join_within_m of the main one
-        while len(idx) > 2 * ext + 2 and d[idx[-1]] <= join_within_m and d[idx[-2]] <= join_within_m:
+    # a shallow merge: join where the line first comes within join_within_m of the main one; a number trims both
+    # ends, [start, end] each end on its own (null: that end as usual)
+    jw = join_within_m if isinstance(join_within_m, (list, tuple)) else [join_within_m, join_within_m]
+    if jw[1]:
+        while len(idx) > 2 * ext + 2 and d[idx[-1]] <= jw[1] and d[idx[-2]] <= jw[1]:
             idx.pop()
-        while len(idx) > 2 * ext + 2 and d[idx[0]] <= join_within_m and d[idx[1]] <= join_within_m:
+    if jw[0]:
+        while len(idx) > 2 * ext + 2 and d[idx[0]] <= jw[0] and d[idx[1]] <= jw[0]:
             idx.pop(0)
     b = alt[idx].copy()
     s = arc(b)
-    for end, w in ((0, np.clip(1.0 - s / blend_m, 0.0, 1.0)), (-1, np.clip(1.0 - (s[-1] - s) / blend_m, 0.0, 1.0))):
+    for end in (0, -1):
         j = int(np.argmin(np.hypot(*(main - b[end]).T)))
-        b += (main[j] - b[end])[None, :] * w[:, None]
+        move = main[j] - b[end]
+        # the move fades out over blend_m, or five times its size when a trimmed end (joinWithinM) sits metres off
+        bl = max(blend_m, 5.0 * float(np.hypot(*move)))
+        w = np.clip(1.0 - (s if end == 0 else s[-1] - s) / bl, 0.0, 1.0)
+        b += move[None, :] * w[:, None]
     return resample_open(b, step)
 
 
