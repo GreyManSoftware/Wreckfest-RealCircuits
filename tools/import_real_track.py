@@ -167,6 +167,31 @@ def fetch_osm(bbox: list[float], cache: Path) -> dict:
     raise RuntimeError(f"Overpass failed: {last}")
 
 
+def with_extra_ways(osm: dict, ids: list[int], cache: Path) -> dict:
+    """``osm`` plus the recipe's ``extraWays`` (by id, with geometry; cached in ``osm_extra.json``): ways that
+    aren't ``highway=raceway`` but carry a layout, e.g. Bedford's service road between two of its loops."""
+    if not ids:
+        return osm
+    path = cache / "osm_extra.json"
+    extra = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"elements": []}
+    have = {e["id"] for e in extra["elements"] if e["type"] == "way"}
+    if not set(ids) <= have:
+        q = f'[out:json][timeout:60];way(id:{",".join(str(i) for i in ids)});out body geom;'
+        last = None
+        for url in OVERPASS:
+            try:
+                raw = _get(url, urllib.parse.urlencode({"data": q}).encode())
+                extra = json.loads(raw)
+                path.write_bytes(raw)
+                break
+            except Exception as exc:  # try the next mirror
+                last = exc
+        else:
+            raise RuntimeError(f"Overpass failed: {last}")
+    known = {e["id"] for e in osm["elements"] if e["type"] == "way"}
+    return {**osm, "elements": osm["elements"] + [e for e in extra["elements"] if e["type"] == "way" and e["id"] not in known]}
+
+
 def parse_geoserver_text(text: str) -> tuple[float, float, np.ndarray]:
     """GeoServer's WCS ``text/plain`` coverage: a header with the "Grid to world" affine (cell centre of
     column 0 / row 0 in ``elt_0_2`` / ``elt_1_2``, row step ``elt_1_1`` = -1 for north-up), then "Band 0:" and
@@ -309,35 +334,61 @@ ATTRIBUTION_WALES = ("Layout (c) OpenStreetMap contributors, ODbL 1.0. Heights: 
 
 
 # ------------------------------------------------------------------------------------------------ layout
-def stitch(osm: dict, lap: list) -> tuple[list[tuple[float, float]], list[tuple[int, int, str]]]:
-    """The lap's way geometries joined end to end (each way must start where the previous one ends). An item
-    ``[way, from_node, to_node]`` takes only that part of the way, driven backwards when ``from_node`` comes after
-    ``to_node`` (a link mapped against the driving direction, e.g. Cadwell's Club Hairpin). Returns the lat/lon
-    points (closed loop, first point not repeated) and (way id, first point index, name)."""
+def way_part(w: dict, item) -> tuple[list[int], list[dict]]:
+    """The nodes and geometry of one lap item: a way id (the whole way), ``[way, from_node, to_node]`` (that part,
+    backwards when ``from_node`` comes after ``to_node``) or ``[way, from_node, to_node, "fwd"|"rev"]`` on a closed
+    way (a loop such as Bedford's circuits): along or against the way's direction from ``from_node`` to
+    ``to_node``, through the closing node when needed."""
+    nodes, geom = w["nodes"], w["geometry"]
+    if not isinstance(item, list):
+        return nodes, geom
+    if len(item) > 3:
+        if nodes[0] != nodes[-1]:
+            raise ValueError(f"way {w['id']}: a direction ({item[3]!r}) is only for closed ways")
+        n = len(nodes) - 1  # the loop without its repeated closing node
+        i, j = nodes.index(item[1]) % n, nodes.index(item[2]) % n
+        d = {"fwd": 1, "rev": -1}[item[3]]
+        k = (j - i) % n if d == 1 else (i - j) % n
+        idx = [(i + d * t) % n for t in range(k + 1 if k else n + 1)]
+        return [nodes[t] for t in idx], [geom[t] for t in idx]
+    i, j = nodes.index(item[1]), nodes.index(item[2])
+    if i <= j:
+        return nodes[i:j + 1], geom[i:j + 1]
+    return nodes[j:i + 1][::-1], geom[j:i + 1][::-1]
+
+
+def stitch_nodes(osm: dict, lap: list) -> tuple[list[tuple[float, float]], list[tuple[int, int, str]], list[int]]:
+    """``stitch`` plus the OSM node id of every point."""
     ways = {e["id"]: e for e in osm["elements"] if e["type"] == "way"}
     pts: list[tuple[float, float]] = []
+    ids: list[int] = []
     marks: list[tuple[int, int, str]] = []
     prev_end = first = None
     for item in lap:
         wid = item[0] if isinstance(item, list) else item
         w = ways[wid]
-        nodes, geom = w["nodes"], w["geometry"]
-        if isinstance(item, list):  # part of a way, against its direction when from comes after to
-            i, j = nodes.index(item[1]), nodes.index(item[2])
-            if i <= j:
-                nodes, geom = nodes[i:j + 1], geom[i:j + 1]
-            else:
-                nodes, geom = nodes[j:i + 1][::-1], geom[j:i + 1][::-1]
+        nodes, geom = way_part(w, item)
         if prev_end is not None and nodes[0] != prev_end:
             raise ValueError(f"way {wid} doesn't start where the previous way ends ({nodes[0]} != {prev_end})")
         first = nodes[0] if first is None else first
         marks.append((wid, len(pts), w.get("tags", {}).get("name", "")))
         seq = [(g["lat"], g["lon"]) for g in geom]
         pts.extend(seq if not pts else seq[1:])
+        ids.extend(nodes if not ids else nodes[1:])
         prev_end = nodes[-1]
     if prev_end != first:
         raise ValueError("the lap doesn't close")
-    return pts[:-1], marks
+    return pts[:-1], marks, ids[:-1]
+
+
+def stitch(osm: dict, lap: list) -> tuple[list[tuple[float, float]], list[tuple[int, int, str]]]:
+    """The lap's way geometries joined end to end (each way must start where the previous one ends). An item
+    ``[way, from_node, to_node]`` takes only that part of the way, driven backwards when ``from_node`` comes after
+    ``to_node`` (a link mapped against the driving direction, e.g. Cadwell's Club Hairpin); on a closed way
+    ``[way, from_node, to_node, "fwd"|"rev"]`` gives the direction (``way_part``). Returns the lat/lon points
+    (closed loop, first point not repeated) and (way id, first point index, name)."""
+    pts, marks, _ = stitch_nodes(osm, lap)
+    return pts, marks
 
 
 def woods(osm: dict) -> list[list[tuple[float, float]]]:
@@ -513,13 +564,14 @@ def normals_open(p: np.ndarray) -> np.ndarray:
     return np.column_stack([-t[:, 1], t[:, 0]])
 
 
-def fit_loop(bng: np.ndarray, dtm: Dtm, width: float, step: float) -> tuple[np.ndarray, np.ndarray, float]:
+def fit_loop(bng: np.ndarray, dtm: Dtm, width: float, step: float,
+             max_shift: float = 6.0) -> tuple[np.ndarray, np.ndarray, float]:
     """Smooth the OSM polyline (it has corners at its nodes), register it to the road in the DTM and ease
     corners tighter than rule min-corner-radius. Returns the points, the registration shifts and the largest
     easing move."""
     p = resample_closed(gauss_closed(resample_closed(bng, 1.0), 5.0), step)
     _, nl = normals(p)
-    shift = register(dtm, p, nl, width, step)
+    shift = register(dtm, p, nl, width, step, max_shift=max_shift) if max_shift > 0 else np.zeros(len(p))
     p = resample_closed(gauss_closed(p + shift[:, None] * nl, 1.5), step)
     need = (width / 2.0 + IMPORTED_MIN_INNER_EDGE_RADIUS_M) * 1.03  # rule min-corner-radius for real tracks, +3 %
     p, eased = ease_corners(p, need)
@@ -535,7 +587,7 @@ def node_bng(osm: dict, node: int) -> np.ndarray:
 
 
 def branch_of(alt: np.ndarray, main: np.ndarray, step: float, blend_m: float = 30.0,
-              core: tuple[float, float] | None = None) -> np.ndarray:
+              core: tuple[float, float] | None = None, off_m: float = 1.0) -> np.ndarray:
     """The part of a fitted alternative lap that leaves the main line, with its ends moved onto the nearest main
     points (the move fades out over ``blend_m``). ``core``: the fractions of the lap (from its first point)
     where it runs on ways the main lap doesn't use (``non_main_span``); the branch is that span grown at both
@@ -543,7 +595,7 @@ def branch_of(alt: np.ndarray, main: np.ndarray, step: float, blend_m: float = 3
     samples more than 1 m off (a lap fitted independently can differ from the main one by more than that
     elsewhere, so recipes get the core). Raises if the layouts share nothing."""
     d = np.min(np.hypot(alt[:, None, 0] - main[None, :, 0], alt[:, None, 1] - main[None, :, 1]), axis=1)
-    off = d > 1.0
+    off = d > off_m
     if off.all() or not off.any():
         raise ValueError("the alternative layout doesn't share part of the main lap")
     n = len(alt)
@@ -608,21 +660,42 @@ def source_problems(recipe: dict) -> list[str]:
     return out
 
 
-def non_main_span(ll: list[tuple[float, float]], marks: list[tuple[int, int, str]], main_lap: list) -> tuple[float, float]:
-    """The fractions of a stitched alternative lap (from its first point, by OSM arc length) between the start of
-    its first and the end of its last item on a way the main lap doesn't use: where the layout leaves the main
-    line (``branch_of``'s core). The lap must have one such run."""
-    main_ways = {it[0] if isinstance(it, list) else it for it in main_lap}
+def non_main_span(ll: list[tuple[float, float]], ids: list[int], main_ids: list[int]) -> tuple[float, float]:
+    """The fractions of a stitched alternative lap (from its first point, by OSM arc length) of its run of OSM
+    segments (node to node, in the driving direction) that the main lap doesn't drive: where the layout leaves
+    the main line (``branch_of``'s core). Segments, not ways, so a layout may use part of a way the main lap
+    uses another part of (Bedford's loops). The lap must have one such run."""
+    main_edges = {(a, b) for a, b in zip(main_ids, main_ids[1:] + main_ids[:1])}
+    n = len(ids)
+    own = [(ids[k], ids[(k + 1) % n]) not in main_edges for k in range(n)]
+    if not any(own):
+        raise ValueError("the alternative layout uses only the main lap's segments")
+    if all(own):
+        raise ValueError("the alternative layout doesn't share part of the main lap")
+    k0 = own.index(False)  # start the scan on a shared segment so no run wraps
+    runs, cur = [], None
+    for t in range(1, n + 1):
+        k = (k0 + t) % n
+        if own[k] and t < n:
+            cur = (k, k) if cur is None else (cur[0], k)
+        elif cur is not None:
+            runs.append(cur)
+            cur = None
+    if len(runs) != 1:
+        raise ValueError("the alternative layout leaves the main lap more than once")
     p = np.array([to_bng(a, b) for a, b in ll])
     s = arc(np.vstack([p, p[:1]]))
-    own = [k for k, (wid, _, _) in enumerate(marks) if wid not in main_ways]
-    if not own:
-        raise ValueError("the alternative layout uses only the main lap's ways")
-    if own != list(range(own[0], own[-1] + 1)):
-        raise ValueError("the alternative layout leaves the main lap more than once")
-    a = s[marks[own[0]][1]]
-    b = s[marks[own[-1] + 1][1]] if own[-1] + 1 < len(marks) else s[-1]
-    return float(a / s[-1]), float(b / s[-1])
+    # one point on from the run's first and last points, as the earlier way-based span did (it read each item's
+    # mark, the point after the shared junction node), so existing samples don't change; branch_of grows the
+    # core while the line stays off the main one anyway
+    # (at most 25 m on, the most any earlier recipe used: Bedford's long airfield segments would carry the core hundreds of metres along a shared
+    # straight)
+    st, en = runs[0]
+    a = 0 if st == 0 else st + 1
+    b = n if en + 1 >= n else min(en + 2, n)
+    sa = min(float(s[a]), float(s[st]) + 25.0) if a > st else float(s[a])
+    sb = min(float(s[b]), float(s[min(en + 1, n)]) + 25.0)
+    return sa / float(s[-1]), sb / float(s[-1])
 
 
 def corner_order_problem(names: list[str], expected: list[str] | None) -> str | None:
@@ -682,8 +755,8 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     if missing:
         raise ValueError("recipe sources: " + "; ".join(missing))
     cell = float(cell or recipe.get("terrainCellM", 6.0))
-    osm = fetch_osm(recipe["bbox"], cache)
-    ll, marks = stitch(osm, recipe["lap"])
+    osm = with_extra_ways(fetch_osm(recipe["bbox"], cache), recipe.get("extraWays", []), cache)
+    ll, marks, main_ids = stitch_nodes(osm, recipe["lap"])
     bng = np.array([to_bng(a, b) for a, b in ll])
     lat_c, lon_c = np.mean([q[0] for q in ll]), np.mean([q[1] for q in ll])
     k_scale = grid_scale_factor(*wgs84_to_osgb36(lat_c, lon_c))
@@ -697,7 +770,10 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     width = float(recipe["widthM"])
 
     # 1. Smooth the OSM polyline and register it to the road in the DTM.
-    p, shift, eased = fit_loop(bng, dtm, width, step)
+    # registrationMaxShiftM 0: keep the OSM line (flat ground such as an airfield has no road signal in the DTM, so
+    # the registration only drifts, differently per layout)
+    max_shift = float(recipe.get("registrationMaxShiftM", 6.0))
+    p, shift, eased = fit_loop(bng, dtm, width, step, max_shift)
 
     # 2. Start/finish: the recipe's point; sample 0 sits on it.
     ways = {e["id"]: e for e in osm["elements"] if e["type"] == "way"}
@@ -732,12 +808,14 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     # main line (its ends moved onto it), with its own heights and camber.
     alt_specs, alt_reports = [], []
     for alt in recipe.get("altLayouts", []):
-        ll_a, marks_a = stitch(osm, alt["lap"])
+        ll_a, marks_a, ids_a = stitch_nodes(osm, alt["lap"])
         bng_a = np.array([to_bng(x, y) for x, y in ll_a])
         if (signed_area(bng_a) < 0) != clockwise:
             raise ValueError(f"layout {alt['id']} runs the other way round from the main lap")
-        pa, shift_a, eased_a = fit_loop(bng_a, dtm, width, step)
-        br = branch_of(pa, p, step, core=non_main_span(ll_a, marks_a, recipe["lap"]))
+        pa, shift_a, eased_a = fit_loop(bng_a, dtm, width, step, max_shift)
+        # branchOffM: how far off the main line a layout's line counts as its own (default 1 m; unregistered OSM
+        # lines on shared ways match exactly but are sampled out of phase, up to 1 m apart vertex to vertex)
+        br = branch_of(pa, p, step, core=non_main_span(ll_a, ids_a, main_ids), off_m=float(recipe.get("branchOffM", 1.0)))
         nl_b = normals_open(br)
         ab, bb, res_b = cross_fit(dtm, br, nl_b, offs)
         if np.isnan(ab).any():
@@ -830,6 +908,8 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         sg = arc(g)
         mid = np.array([np.interp(sg[-1] / 2, sg, g[:, 0]), np.interp(sg[-1] / 2, sg, g[:, 1])])
         corners.append({"name": label, "sM": round(project_s(p, mid) / k_scale, 1)})
+    for c in recipe.get("cornerLabels", []):  # names at OSM nodes (corners of a long way, e.g. a whole loop)
+        corners.append({"name": c["name"], "sM": round(project_s(p, node_bng(osm, int(c["node"]))) / k_scale, 1)})
     corners.sort(key=lambda c: c["sM"])
     order_problem = corner_order_problem([c["name"] for c in corners], recipe.get("expectedCornerOrder"))
     if order_problem:

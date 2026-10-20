@@ -96,6 +96,22 @@ Recipe extras (Anglesey, `tools/real_tracks/anglesey.json`):
   the layout's route, racing direction and line come from (see "MSV pack", standing rules). The importer and
   `test_import_real_track.py` fail without them.
 - `lapNames`: `null` drops an unnamed way's label.
+- Closed ways (2026-10-20, Bedford, where OSM maps each circuit as one loop): `[way, from_node, to_node, "fwd"|"rev"]`
+  takes the part of a closed way from one node to the other along or against the way, through its closing node when
+  needed; a bare way id still takes the whole way. Alternative layouts are cut where they leave the main lap by OSM
+  *segment* (node to node, in the driving direction), so a layout may use another part of a way the main lap uses.
+- `extraWays`: ids of non-raceway ways a layout drives (Bedford's airfield service road between two loops), fetched
+  by id into `osm_extra.json`.
+- `cornerLabels`: `[{"name", "node"}]`, names placed at OSM nodes on the main lap, for corners on a long way (a loop
+  way, or numbered turns); they join the way labels in `corners` and `expectedCornerOrder`.
+- `registrationMaxShiftM` (default 6): 0 keeps the OSM line as mapped (flat ground such as an airfield has no road
+  signal in the DTM, so the registration only drifts, differently per layout). `branchOffM` (default 1): how far a
+  layout's fitted line must be from the main one to count as its own branch (unregistered lines on shared ways
+  match exactly but are sampled out of phase, up to 1 m apart).
+- `lapLengthTolerancePct` + `lapLengthNote` (main or per layout): a larger gap to the published length than the
+  test's 3 %, only with a note of at least 40 characters explaining it (`test_import_real_track.py`).
+- Lap length: `options.lapLengthKm` is informational for imported tracks and may be up to 7 km (schema); drawn
+  tracks stay at 5 km or less (rule `drawn-lap-length-max`).
 - `seaLevelODN`: no-data (sea) cells become seabed 3 m below it and the spec gets `seaLevelM`; the `coastal`
   environment floods below it.
 - `horizon`: the distant skyline (3-45 km, 32 m DTM overview) for a painted `#horizon` texture (Wales only).
@@ -257,7 +273,8 @@ subscenes, 6.97 M vertices with every subscene, within the stock limits). Render
 
 One base scene, two layouts (`doningtonpark_race` = Grand Prix, `doningtonpark_national`; events "Donington Park
 Grand Prix / National"). Recipe `tools/real_tracks/doningtonpark.json` (every source is in it), sample
-`geom/tests/samples/doningtonpark.json`, raw data and report in `.localealtracks\doningtonpark\`, zip
+`geom/tests/samples/doningtonpark.json`, raw data and report in `.local
+ealtracks\doningtonpark\`, zip
 `E:\WreckfestMods\doningtonpark.zip` (6.7 MB), installed and enabled as "Donington Park". MSV's own
 circuit-layouts page lists exactly these two layouts (Wikipedia and racingcircuits.info: the same pair, 2010 to
 date); the 2010 Tilke GP extension was never built.
@@ -290,6 +307,7 @@ Esses, Melbourne Hairpin, Goddards; the National leaves after Starkey's Straight
   24 start points and slot footprints on the road; finish checkpoint on the line in both layouts; route in
   checkpoint order with `otherway`; minimap `.tcat` per layout matching the compiled route; base 2,705 subscenes,
   3.4 M vertices with every instance, clutter 5.0 ha, all within the stock limits).
-- **Renders:** `.localenders\doningtonpark-{oblique,horizon,driver,driver-craner,driver-melbourne}.png`.
+- **Renders:** `.local
+enders\doningtonpark-{oblique,horizon,driver,driver-craner,driver-melbourne}.png`.
 - **Check in game:** the Craner Curves descent and Old Hairpin, the Melbourne Hairpin divider, the 11 m width.
 
