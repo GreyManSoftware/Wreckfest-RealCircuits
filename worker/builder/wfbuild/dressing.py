@@ -188,11 +188,17 @@ class Planner:
         # the sea (an imported track's seaLevelM, in environments with a sea): nothing but shore rocks below it
         imp = getattr(geo, "imported", None) or {}
         self.sea = float(imp["seaLevelM"]) if (self.e.get("sea") and imp.get("seaLevelM") is not None) else None
+        # lakes (imported, environments with "lake"): nothing placed on the water or within ~3 m of its shore
+        lakes = ([np.array([[q["x"], q["y"]] for q in lk["points"]]) for lk in (imp.get("lakes") or [])]
+                 if self.e.get("lake") else [])
+        self.lakes = WoodMask(lakes, self.frame, soft=3.0) if lakes else None
         self.main = geo.main
         self._nogo()
 
     def dry(self, x: float, y: float, above: float = 0.8) -> bool:
-        """Land at least ``above`` metres over the sea (always true without a sea)."""
+        """Land at least ``above`` metres over the sea (always true without a sea) and not in a lake."""
+        if self.lakes is not None and float(self.lakes.at([x, y])[0]) > 0.02:
+            return False
         return self.sea is None or float(self.geo.ground(np.array([[x, y]]))[0]) >= self.sea + above
 
     # ------------------------------------------------------------------------------------- woods

@@ -154,10 +154,13 @@ class Surface:
         return None
 
 
+CAMBER_RUNOUT = 1.5  # wfbuild.config.CAMBER_RUNOUT
+
+
 def check_road_flush(full, model: dict, manifest: dict) -> None:
     """Road and grass meet like stock tracks: on the exported base, the terrain 2 m outside a plain road edge
-    (away from other roads) lies 0-20 cm below the edge (no lip, no step up; the camber continues 1.5 m past a
-    low edge), and between 2 and 15 m out it
+    (away from other roads) lies 0-20 cm below the edge (no lip, no step up; beside a low edge the camber continues 1.5 m
+    past it, and that run-out is allowed for: Brands Hatch's 6-7 degree banking), and between 2 and 15 m out it
     doesn't dip more than 0.3 m below both the edge and the ground 30 m out (no ditch or embankment look).
     Cadwell Park sat on a 0.5-1 m lip (2026-10-19): the terrain took the lowest road within ~10 m along a
     graded road."""
@@ -204,7 +207,10 @@ def check_road_flush(full, model: dict, manifest: dict) -> None:
                     continue
                 ez = float(scene(edge[i:i + 1])[0, 2])
                 n += 1
-                steps.append(ez - z[0])
+                # beside a low (cambered) edge the ground follows the camber CAMBER_RUNOUT (1.5 m) further down
+                bank = float(smp[i].get("banking", 0.0)) * side
+                runout = CAMBER_RUNOUT * math.tan(-bank) if bank < 0 else 0.0
+                steps.append(ez - z[0] - runout)
                 if min(z[:4]) < min(ez, z[4]) - 0.3:
                     dips += 1
     steps = np.array(steps)

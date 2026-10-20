@@ -38,6 +38,7 @@ def test_stitch_joins_ways_in_order_and_checks_continuity() -> None:
     osm = _osm([(1, [1, 2, 3]), (2, [3, 4]), (3, [4, 1])])
     pts, marks = irt.stitch(osm, [1, 2, 3])
     assert len(pts) == 4 and [m[0] for m in marks] == [1, 2, 3]
+    assert [m[1] for m in marks] == [0, 2, 3]  # each way's first point (shared with the previous way's last)
     with pytest.raises(ValueError, match="doesn't start"):
         irt.stitch(osm, [1, 3, 2])
     with pytest.raises(ValueError, match="doesn't close"):
@@ -90,6 +91,28 @@ def test_registration_finds_the_road_and_the_fit_its_camber() -> None:
     _, b, res = irt.cross_fit(dtm, q, nl, np.arange(-3.8, 3.81, 0.5))
     assert math.degrees(math.atan(np.median(b))) == pytest.approx(3.0, abs=0.2)  # left (-x) edge higher
     assert np.median(res) < 0.02
+
+
+def test_lakes_take_the_lidar_water_level_and_keep_clear_of_the_road() -> None:
+    # a 5 % hillside with a flat 60 x 40 m pond at 2.0 m; a second pond the road runs through; a third too small
+    xs = np.arange(-100, 100) + 0.5
+    ys = np.arange(-100, 100)[::-1] + 0.5
+    gx, gy = np.meshgrid(xs, ys)
+    z = 5.0 + 0.05 * gx
+    pond = (np.abs(gx - 20) < 30) & (np.abs(gy - 40) < 20)
+    z = np.where(pond, 2.0, z)
+    z[(gx > 40) & (gx < 45) & (gy > 25) & (gy < 30)] = np.nan  # a few no-data cells on the water
+    dtm = irt.Dtm(-100.0, 100.0, 1.0, z)
+    sq = lambda x0, y0, w, h: np.array([[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h]], dtype=float)  # noqa: E731
+    road = np.column_stack([np.linspace(-90, 90, 91), np.full(91, -50.0)])
+    water = [("Pond", sq(-10, 20, 60, 40)), ("Crossed", sq(-30, -60, 40, 20)), ("Puddle", sq(80, 80, 5, 5))]
+    lakes = irt.lakes_from(water, dtm, road, 500.0, 9.0)
+    assert [lk["name"] for lk in lakes] == ["Pond"]
+    assert lakes[0]["level"] == pytest.approx(2.0, abs=1e-6)
+    assert lakes[0]["areaM2"] == pytest.approx(2400.0)
+    # a pond within clear_m of the road (but not crossed by it) is left out too
+    near = irt.lakes_from([("Near", sq(-10, -45, 40, 20))], dtm, road, 500.0, 9.0)
+    assert near == []
 
 
 def test_corner_easing_reaches_the_rule_radius() -> None:
@@ -170,7 +193,7 @@ def test_imported_sample_drives_the_recipes_corner_order_in_every_layout(recipe_
         src = alts.get(lay.id, recipe) if lay else recipe
         xy = _lap(model, secs)
         if recipe.get("clockwise") is not None:
-            assert (irt.signed_area(xy) < 0) == bool(recipe["clockwise"]), lay.id if lay else "main"
+            assert (irt.signed_area(xy) < 0) == bool(src.get("clockwise", recipe["clockwise"])), lay.id if lay else "main"
         if src.get("publishedLapLengthM"):
             lap = lay.lap_length_m if lay else model.lap_length_m
             assert abs(lap / src["publishedLapLengthM"] - 1.0) <= 0.03, (src.get("id"), lap)

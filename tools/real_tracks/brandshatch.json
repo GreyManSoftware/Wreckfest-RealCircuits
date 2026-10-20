@@ -1,0 +1,70 @@
+{
+  "description": "Recipe for tools/import_real_track.py: Brands Hatch (West Kingsdown, Kent, UK), MSV. The Grand Prix circuit with the Indy circuit sharing its base: both current layouts (MSV's circuit-layouts page lists exactly these two; Wikipedia and racingcircuits.info give the same two, 2003 to date).",
+  "name": "Brands Hatch",
+  "trackDescription": "Brands Hatch, Grand Prix (3.92 km) and Indy (1.94 km) circuits from OpenStreetMap, with heights, camber and terrain from the Environment Agency LIDAR Composite DTM (1 m). A wooded natural bowl in the Kent Downs with grass spectator banks.",
+  "bbox": [51.350, 0.250, 51.364, 0.272],
+  "terrainMarginM": 400,
+  "lap": [
+    25805012, 25804653, 171570161, 25804669, 171570167, 25804846, 25804824, 25804875, 820329314, 171570164,
+    25804935, 171570162, 4906929, 25804993, 25804999, 25805047, 171570163, 25805049, 171570165, 25805072,
+    171570251, 171570252, 820329315, 25804641, 171570166
+  ],
+  "mainLayoutName": "Grand Prix",
+  "layoutSource": "MSV official map 'Brands Hatch Grand Prix Circuit' (brandshatch.co.uk/about/circuit-layouts, docs.msv.com 'BH Map_GP Circuit.pdf'): Brabham Straight - Paddock Hill Bend - Hailwoods Hill - Druids Bend - Graham Hill Bend - Cooper Straight - Surtees - Pilgrims Drop - Hawthorn Hill - Hawthorn Bend - Derek Minter Straight - Westfield Bend - Dingle Dell - Sheene Curve - Stirling's Bend - Clearways - Clark Curve; 2.433 mi / 3.916 km (MSV, Wikipedia, racingcircuits.info).",
+  "directionSource": "MSV official GP map: the arrow beside the chequered flag on Brabham Straight points towards Paddock Hill Bend (clockwise); Wikipedia: run clockwise since 1954; track guides (driver61.com, coachdaveacademy.com) start the lap with Paddock Hill Bend, then Druids.",
+  "startFinish": { "node": 1825805766, "note": "OSM node raceway=start-finish on Brabham Straight, 176 m from the Clark Curve end (236 m before Paddock Hill Bend)." },
+  "startFinishSource": "MSV official GP and Indy maps: the chequered flag on Brabham Straight in front of the pit garages and the Pit Straight Grandstand, a little before half way from Clark Curve to Paddock Hill Bend; OSM node 1825805766 (raceway=start-finish) at 176 m from the Clark Curve end; driver61.com gives the line at 51 21'37.1\"N 0 15'37.2\"E (195 m, 19 m further on: BARC's Indy briefing notes have the start and finish lines about 20 m apart).",
+  "altLayouts": [
+    {
+      "id": "indy",
+      "name": "Indy",
+      "lap": [25805012, 25804653, 171570161, 25804669, 171570167, 25804846, 25804824, 25804875, 4928103, 820329315, 25804641, 171570166],
+      "layoutSource": "MSV official map 'Brands Hatch Indy Circuit' (docs.msv.com 'BH Map_Indy Circuit.pdf'): the GP circuit as far as Surtees, then McLaren (OSM way 4928103) to Clearways and Clark Curve; 1.208 mi / 1.944 km (MSV, Wikipedia infobox, racingcircuits.info; Wikipedia text 1.928 km).",
+      "directionSource": "MSV official Indy map: the same arrow by the flag towards Paddock Hill Bend (clockwise); BARC Brands Hatch Indy briefing notes: 'Lap length: 1,944 metres, Clockwise'.",
+      "startFinishSource": "MSV official Indy map: the chequered flag at the same place on Brabham Straight as on the GP map, so the Indy shares the GP line and grid (MSV lists pole on the right for the Indy and on the left for the GP; the builder puts pole on the inside of the first corner, Paddock Hill Bend, a right-hander).",
+      "measuredLapLengthM": 1930,
+      "publishedLapLengthM": 1944
+    }
+  ],
+  "lapNames": {
+    "25804653": "Paddock Hill Bend",
+    "171570167": null,
+    "171570164": null,
+    "4906929": "Hawthorn Bend",
+    "171570163": "Dingle Dell",
+    "171570165": null,
+    "171570251": null,
+    "171570166": null
+  },
+  "publishedLapLengthM": 3916,
+  "measuredLapLengthM": 3903,
+  "widthM": 11.0,
+  "widthNote": "Not published; about 10-12 m on aerial imagery. One value for the whole lap.",
+  "clockwise": true,
+  "viewingSpots": ["Paddock Hill Bend", "Druids Bend", "Clearways"],
+  "expectedCornerOrder": ["Brabham Straight", "Paddock Hill Bend", "Hailwoods Hill", "Druids Bend", "Graham Hill Bend", "Cooper Straight", "Surtees", "Pilgrims Drop", "Hawthorn Hill", "Hawthorn Bend", "Derek Minter Straight", "Westfield Bend", "Dingle Dell", "Sheene Curve", "Stirlings Bend", "Clearways", "Clark Curve"],
+  "expectedCornerOrderNote": "Clockwise GP lap as on the MSV map and in the track guides. McLaren (the Indy's link from Surtees to Clearways) isn't on the GP lap, so it isn't labelled.",
+  "kerbs": [
+    { "corner": "Paddock Hill Bend", "apex": true, "exit": true, "source": "driver61.com Indy guide: a two-stage inside kerb; 'you can take all of the kerb on the left-hand side' on the exit; coachdaveacademy.com GP guide likewise" },
+    { "corner": "Druids Bend", "apex": true, "exit": true, "source": "coachdaveacademy.com GP guide: hug the inside kerb; use the exit kerb, a tyre barrier beyond it; driver61.com: some of the left-hand exit kerb" },
+    { "corner": "Graham Hill Bend", "entry": true, "apex": true, "exit": true, "green": true, "source": "driver61.com Indy guide: an entry kerb on the outside, an aggressive inside kerb, the outside exit kerb usable in full; coachdaveacademy.com: 'the exit kerb and matting are there to be used'" },
+    { "corner": "Surtees", "apex": true, "exit": true, "source": "driver61.com and coachdaveacademy.com: the inside kerb with a kink where it thins out; too much exit kerb unsettles the car" },
+    { "corner": "Hawthorn Bend", "apex": true, "exit": true, "source": "coachdaveacademy.com GP guide: hug the inside kerb; the exit kerb can be used" },
+    { "corner": "Westfield Bend", "apex": true, "exit": true, "green": true, "source": "coachdaveacademy.com GP guide: cut the inside kerb; 'use the exit kerb and all the matting available'" },
+    { "corner": "Sheene Curve", "apex": true, "exit": false, "source": "coachdaveacademy.com GP guide: commit to the inside kerb; 'no exit kerb here, just grass'" },
+    { "corner": "Stirlings Bend", "apex": true, "exit": true, "source": "coachdaveacademy.com GP guide: the left front over the inside kerb; the exit kerb is there to be used" },
+    { "corner": "Clearways", "apex": true, "source": "driver61.com Indy guide: the inside kerb grows towards the apex, 'you can just touch the kerb here'" },
+    { "corner": "Clark Curve", "apex": true, "exit": false, "source": "coachdaveacademy.com GP guide: apex at the inside kerb's midway point; no exit kerb, lots of room on the exit" }
+  ],
+  "kerbsNote": "OSM has no kerb features on the circuit (Overpass 2026-10-20: the only barrier=kerb ways are karting traffic islands; no area:highway or kerb=*), and the 1 m DTM can't resolve kerbs, so these overrides come from track guides; Pilgrims Drop, Dingle Dell and McLaren get the geometric placement.",
+  "options": {
+    "surface": "tarmac",
+    "kerbs": true,
+    "walls": "tyres",
+    "environment": "parkland",
+    "gridSize": 24,
+    "weathers": ["morning", "midday", "afternoon"],
+    "reverseLayout": false,
+    "defaultLaps": 5
+  }
+}

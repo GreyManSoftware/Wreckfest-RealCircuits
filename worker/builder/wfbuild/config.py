@@ -40,6 +40,7 @@ WALL_SETBACK = 12.0           # scenery stays behind this (+2.5 m) from the road
 # Barriers only where needed (geometry.wall_plan); elsewhere open grass run-off.
 DIVIDER_GAP = 30.0            # another section of track within this of the road edge gets a divider mid-gap
 DIVIDER_MIN = 1.5             # ...at least this far from either edge
+DIVIDER_OVERRUN = 2           # ...and on for this many samples (~4 m) past the end of the gap
 DIVIDER_JUNCTION_CLEAR = 40.0 # no divider within this (along the road) of a junction, flat crossing or bridge
 DIVIDER_MERGE_M = 60.0        # imported tracks: no divider where a branch within this of its junction merges into its road
 DIVIDER_BANK_MIN_GAP = 9.0    # drawn tracks: a grass bank under the divider where the gap is at least this...
@@ -131,6 +132,7 @@ GRASS_BAND = (5.0, 80.0)      # clutter grass from this far to this far outside 
 CLUTTER_MAX_HA = 5.0          # sum of the mask (R+G+B, 0..1) x pixel area
 CLUTTER_MAX_LOCAL = 0.18      # highest mean of the mask within a CLUTTER_WINDOW_M square
 CLUTTER_WINDOW_M = 400.0
+CLUTTER_MIN_BAND_M = 45.0     # over budget, the grass band's outer edge comes in to this before thinning
 
 # --- edge decal ------------------------------------------------------------------------------------
 EDGE_DECAL_OUT = 0.3          # the decal's broken asphalt edge sits this far outside the road edge
@@ -148,6 +150,8 @@ HORIZON_REPEATS = 4           # vista texture repeats around the ring
 BACKDROP_LIMIT = LIMIT_M - 10.0
 TREE_CARD_HEIGHT = (28.0, 40.0)
 TREE_CARD_QUAD = 8.0          # card strips are built from 8 m quads (stock foliage_bgrforest00N)
+LAKE_CELL_M = 4.0             # imported lakes: water plane cell size
+LAKE_REACH_M = 8.0            # ...over ground below the water level up to this far outside the lake outline
 REAL_GROUND_FADE = 120.0      # imported tracks: the far ground follows the real heightfield, fading to hills over this
 TREE_CARD_SINK = 5.0          # card feet are buried this deep in the far-ground hills (soft base)
 

@@ -400,10 +400,27 @@ class LayoutBuilder:
         mid = min(range(1, n), key=lambda k: abs(pos[k] - L / 2.0)) if n > 2 else None
         names = []
         for k, s in enumerate(pos):
+            if k < len(pos) - 1:  # the start/finish line stays where it is
+                s = self._on_built_road(r, s)
             name = f"#checkpoint{k + 1:02d}" + ("_split" if k in (0, mid) else "")
             layout.meshes.append(self._checkpoint_mesh(name, r, r.index_at(s % L), 1))
             names.append({"name": name, "route": r.id, "s": round(s % L, 2), "lapPos": round(s, 2)})
         layout.info["checkpoints"] = names
+
+    def _on_built_road(self, r: Route, s: float, step: float = 4.0, reach: float = 40.0) -> float:
+        """``s``, or the nearest s within ``reach`` (in ``step`` steps) whose point of the layout's route lies on
+        a built road: within half a width less 0.5 m of a road sample that is built (a branch's samples beyond its
+        junction cut aren't; Oulton Park's Island Hairpin link ends on Hilltop 30 m after its cut) or on a paved
+        apron link."""
+        geo = self.geo
+        pts = [(rr.p[geo.svalid[rr.index] | (rr.index in geo.apron_routes), :2], rr.width / 2.0 - 0.5) for rr in geo.routes]
+        L = r.length
+        for d in [0.0] + [sg * k * step for k in range(1, int(reach / step) + 1) for sg in (1, -1)]:
+            q = r.p[r.index_at((s + d) % L), :2]
+            if any(len(P) and float(np.min(np.hypot(*(P - q).T))) <= hw for P, hw in pts):
+                return s + d
+        self.warnings.append(f"checkpoint at s {s:.0f} of {r.id}: no built road within {reach:.0f} m")
+        return s
 
     def _build_imported(self, defs: list[dict]) -> list[Layout]:
         """One layout per TrackModel ``layouts`` entry (imported tracks with alternative layouts): the main

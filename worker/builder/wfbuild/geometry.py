@@ -1375,7 +1375,23 @@ class TrackGeometry:
                 g = gaps[(r.index, side)]
                 reasons: list[tuple[np.ndarray, np.ndarray]] = []  # (mask, offset per sample)
                 div = np.isfinite(g["gap"]) & g["owner"]
-                reasons.append((div, np.maximum(g["gap"] / 2.0, C.DIVIDER_MIN)))
+                half = np.maximum(g["gap"] / 2.0, C.DIVIDER_MIN)
+                # a divider runs DIVIDER_OVERRUN samples past the last probe that saw the other road, so a road
+                # that turns away right there (Oulton Park's Island Hairpin link beside Brittens) is still divided
+                # where it leaves (the line stays clear of other roads: _edge_ok below)
+                grown, half_g = div.copy(), half.copy()
+                for k in range(1, C.DIVIDER_OVERRUN + 1):
+                    for sh in (k, -k):
+                        src = np.roll(div, sh) if r.closed else np.concatenate(
+                            [np.zeros(max(sh, 0), bool), div[max(-sh, 0):len(div) - max(sh, 0)], np.zeros(max(-sh, 0), bool)])
+                        hv = np.roll(np.where(div, half, np.inf), sh) if r.closed else np.concatenate(
+                            [np.full(max(sh, 0), np.inf), np.where(div, half, np.inf)[max(-sh, 0):len(div) - max(sh, 0)],
+                             np.full(max(-sh, 0), np.inf)])
+                        new = src & ~grown
+                        half_g = np.where(new, hv, half_g)
+                        grown |= src
+                div = grown
+                reasons.append((div, half_g))
                 reasons.append((near & self.svalid[r.index], np.full(r.n, C.WALL_OFFSET)))
                 crowd = np.zeros(r.n, dtype=bool)
                 for sr, i, sside, length in spots:

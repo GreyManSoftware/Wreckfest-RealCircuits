@@ -127,6 +127,9 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
             shore = smooth01((planner.sea + 3.0 + (n_fine - 0.5) * 2.5 - zg) / 1.5)
             b = np.maximum(b, np.maximum(shore, steep * smooth01((planner.sea + 14.0 - zg) / 4.0)))
             b = b * smooth01((d - 8.0) / 6.0)
+    elif env_name == "airfield":
+        # open short grass round the circuit (the old airfield); big patches of ploughed arable land well beyond
+        b = smooth01((n_big - 0.5) / 0.1) * smooth01((d - 220.0) / 60.0)
     elif env_name == "sandpit":
         b = smooth01((n_big - 0.5) / 0.12) * smooth01((d - 25.0) / 15.0)
     elif env_name == "gravel_pit":
@@ -201,21 +204,32 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
 
     # ---- clutter mask: G grass 5-80 m from the road, not on dirt or fields; sparse R bushes, B flowers
     lo, hi = C.GRASS_BAND
-    band = smooth01((dj - lo) / 3.0) * smooth01((hi - dj) / 25.0)
-    # a strong, continuous grass band next to the road (thinning towards its outer edge and under the canopy),
-    # with fine gaps so it doesn't read as a stripe
-    grass = band * (0.75 + 0.25 * smooth01((n_fine - 0.25) / 0.3)) * (1 - r) * (1 - b * 0.7) * (1 - canopy * 0.4)
-    grass = np.maximum(grass, 0.35 * smooth01((dj - lo) / 3.0) * smooth01((n_mid - 0.55) / 0.1) * (1 - r) * (1 - b))
-    bushes = band * smooth01((n_mid - 0.66) / 0.08) * (1 - r) * 0.6
-    flowers = band * smooth01((n_fine - 0.72) / 0.1) * (1 - r) * 0.6
-    if env_name == "coastal":
-        # windswept: no grass blades on the rock, sparser flowers (the yellow gorse is placed as bushes)
-        grass = grass * (1 - b)
-        bushes = bushes * (1 - b) * 0.6
-        flowers = flowers * (1 - b) * 0.5
-    clutter = np.stack([bushes, grass, flowers], axis=2)
-    # keep within the stock clutter budget (config.CLUTTER_MAX_*): thin the whole mask evenly
+
+    def clutter_mask(hi: float) -> np.ndarray:
+        band = smooth01((dj - lo) / 3.0) * smooth01((hi - dj) / 25.0)
+        # a strong, continuous grass band next to the road (thinning towards its outer edge and under the
+        # canopy), with fine gaps so it doesn't read as a stripe
+        grass = band * (0.75 + 0.25 * smooth01((n_fine - 0.25) / 0.3)) * (1 - r) * (1 - b * 0.7) * (1 - canopy * 0.4)
+        cap = smooth01((hi - dj) / 25.0) if hi < C.GRASS_BAND[1] else 1.0  # sparse patches further out
+        grass = np.maximum(grass, 0.35 * smooth01((dj - lo) / 3.0) * cap * smooth01((n_mid - 0.55) / 0.1) * (1 - r) * (1 - b))
+        bushes = band * smooth01((n_mid - 0.66) / 0.08) * (1 - r) * 0.6
+        flowers = band * smooth01((n_fine - 0.72) / 0.1) * (1 - r) * 0.6
+        if env_name == "coastal":
+            # windswept: no grass blades on the rock, sparser flowers (the yellow gorse is placed as bushes)
+            grass = grass * (1 - b)
+            bushes = bushes * (1 - b) * 0.6
+            flowers = flowers * (1 - b) * 0.5
+        return np.stack([bushes, grass, flowers], axis=2)
+
+    clutter = clutter_mask(hi)
     ha, local = clutter_density(clutter, size)
+    # over the stock budget (a long lap, or several layouts): first pull the band's outer edge in (down to
+    # CLUTTER_MIN_BAND_M), so the grass right beside the road stays dense, then thin what is left evenly
+    while (ha > C.CLUTTER_MAX_HA or local > C.CLUTTER_MAX_LOCAL) and hi > C.CLUTTER_MIN_BAND_M:
+        hi = max(C.CLUTTER_MIN_BAND_M, hi - 10.0)
+        clutter = clutter_mask(hi)
+        ha, local = clutter_density(clutter, size)
+    # keep within the stock clutter budget (config.CLUTTER_MAX_*): thin the whole mask evenly
     clutter_scale = min(1.0, C.CLUTTER_MAX_HA / max(ha, 1e-9), C.CLUTTER_MAX_LOCAL / max(local, 1e-9))
     clutter = clutter * clutter_scale * 255.0
     clutter_a = np.full((n, n), float(e.get("clutterAlpha", 128)))
@@ -243,4 +257,4 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
              for k, arr in (("blendTerrain", blend_terrain), ("colorTerrain", color_terrain), ("clutter", clutter))}
     return {"frame": [round(v, 3) for v in fr], "res": n, "pixelM": round(px, 3), "paths": paths, "meanRGB": stats,
             "clutter": {"fullDensityHa": round(ha * clutter_scale, 2), "localMax": round(local * clutter_scale, 3),
-                        "scale": round(clutter_scale, 3)}}
+                        "scale": round(clutter_scale, 3), "grassBandM": [lo, hi]}}
