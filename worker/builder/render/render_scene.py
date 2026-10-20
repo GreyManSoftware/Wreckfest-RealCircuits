@@ -464,14 +464,22 @@ def cameras(stock: bool, man, target: str, objs) -> dict:
     # extra driver views along the main route: RENDER_DRIVER_AT="mountain=2580,hallbends=2900" (name=metres from
     # the start line), 2.2 m above the road centre looking at the road 60 m ahead
     main = next(r for r in model["routes"] if r["aiIndex"] == 0)
-    smp = main["samples"]
-    s_all = np.array([q["s"] for q in smp])
+    # ("name=route:metres" on another route, e.g. "clubhairpin=club:10" on Cadwell Park's Club Hairpin link)
     for item in filter(None, os.environ.get("RENDER_DRIVER_AT", "").split(",")):
         name, _, s_txt = item.partition("=")
-        s0 = float(s_txt) % main["lengthM"]
-        i = int(np.argmin(np.abs(s_all - s0)))
-        j = int(np.argmin(np.abs(s_all - (s0 + 60.0) % main["lengthM"])))
-        a, b = tp([smp[i]["x"], smp[i]["y"], smp[i]["z"]]), tp([smp[j]["x"], smp[j]["y"], smp[j]["z"]])
+        rt = main
+        if ":" in s_txt:
+            rid, _, s_txt = s_txt.partition(":")
+            rt = next(r for r in model["routes"] if r["id"] == rid.strip())
+        rs = rt["samples"]
+        s_rt = np.array([q["s"] for q in rs])
+        L = rt["lengthM"]
+        s0 = float(s_txt) % L if rt["closed"] else min(float(s_txt), L)
+        i = int(np.argmin(np.abs(s_rt - s0)))
+        j = int(np.argmin(np.abs(s_rt - ((s0 + 60.0) % L if rt["closed"] else min(s0 + 60.0, L)))))
+        if j == i:
+            j = max(i - 1, 0)
+        a, b = tp([rs[i]["x"], rs[i]["y"], rs[i]["z"]]), tp([rs[j]["x"], rs[j]["y"], rs[j]["z"]])
         out[f"driver-{name.strip()}"] = (tuple(a + np.array([0, 0, 2.2])), tuple(b + np.array([0, 0, 0.8])), 24.0)
     return out
 
