@@ -169,11 +169,12 @@ class LayoutBuilder:
             mesh.face((l0, r0, r1, l1), mat, [(0, k), (1, k), (1, k + 1), (0, k + 1)])
         return mesh
 
-    def main_sequence(self, i0: int, direction: int) -> list[int]:
-        """Main-route sample indices of the AI sector lines, in driving order from sample ``i0``."""
+    def main_sequence(self, i0: int, direction: int, extra: int = 0) -> list[int]:
+        """Main-route sample indices of the AI sector lines, in driving order from sample ``i0``; the strip runs
+        AI_END_OVERLAP past the line (plus ``extra`` samples, see ai_meshes)."""
         r = self.main
         n = r.n
-        ov = round(C.AI_END_OVERLAP / 2.0)
+        ov = round(C.AI_END_OVERLAP / 2.0) + extra
         forced = {((j - i0) * direction) % n for j in self.joins}
         ks = set(range(0, n, C.AI_SECTOR_SAMPLES)) | forced | {0}
         out = []
@@ -221,10 +222,22 @@ class LayoutBuilder:
         """AI strips in driving order (from the start line, ``direction`` along s). ``otherway = true`` on
         ``#ai_route_main`` wherever bgeometry would otherwise store the route the other way (needs_otherway):
         a forward layout can need it and a reverse one can do without it."""
-        seq = self.main_sequence(i_line, direction)
-        self._narrow_folds(self.main, seq, direction)
-        fixed = {0, len(seq) - 1} | {k for k, i in enumerate(seq) if i in self.joins}
-        seq = self._valid_sequence(seq, lambda i, kind: self._dline(self.main, i, kind, direction), fixed)
+        # bgeometry orients each strip by its own canonical test and applies the route's otherway to all three, so
+        # the route, safe and race strips must agree on it (they can differ when the start line runs nearly
+        # east-west and the strips' widths decide the test: Navarra's Short; bgeometry then asserts "safe area did
+        # not overlap all sectors"). Run the strips further past the line until they agree.
+        for extra in range(0, 4 * C.AI_SECTOR_SAMPLES + 1, 2):
+            seq = self.main_sequence(i_line, direction, extra)
+            self._narrow_folds(self.main, seq, direction)
+            fixed = {0, len(seq) - 1} | {k for k, i in enumerate(seq) if i in self.joins}
+            seq = self._valid_sequence(seq, lambda i, kind: self._dline(self.main, i, kind, direction), fixed)
+            tests = {self.needs_otherway([self._dline(self.main, i, kind, direction) for i in seq])
+                     for kind in ("route", "safe", "race")}
+            if len(tests) == 1:
+                break
+        else:
+            self.warnings.append("ai-otherway-ambiguous: the route, safe and race strips disagree on bgeometry's "
+                                 "canonical orientation")
         route_lines = [self._dline(self.main, i, "route", direction) for i in seq]
         otherway = self.needs_otherway(route_lines)
         custom_route = "otherway = true" if otherway else ""

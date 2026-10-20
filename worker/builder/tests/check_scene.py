@@ -582,6 +582,10 @@ def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manife
     check(("otherway = true" in cd) == (not canonical),
           f"{name}: otherway = true exactly when the driving-order strip isn't bgeometry's canonical orientation",
           f"{cd!r}, firstR.y {rl[0][1][1]:.1f}, lastL.y {rl[-1][0][1]:.1f}")
+    # bgeometry orients every strip by its own canonical test and the route's otherway: all three must agree
+    # (else "safe area did not overlap all sectors"; Navarra's Short)
+    tests = {(sl := strip_lines(o))[0][1][1] <= sl[-1][0][1] for o in (r, s, c)}
+    check(len(tests) == 1, f"{name}: route, safe and race strips agree on bgeometry's canonical orientation")
     # the racing strip (inside the road) lies on the road surface, across its camber too
     multi = model.get("layouts") or []
     lay_def = next((d for d in multi if d["id"] == ("main" if lay["key"] == "forward" else lay["key"])), None)
