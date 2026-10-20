@@ -23,7 +23,7 @@ layouts; lengths from Wikipedia unless noted, to verify per circuit under the st
 | 2 | Brands Hatch | Grand Prix 3.916 km, Indy 1.944 km (1.928 km in the text) | next |
 | 3 | Oulton Park | International 4.307 km, Island 3.616 km, Fosters 2.656 km | |
 | 4 | Snetterton | 300 4.779 km, 200 3.219 km, 100 1.577 km | |
-| 5 | Donington Park | Grand Prix 4.020 km, National 3.149 km | |
+| 5 | Donington Park (`doningtonpark`) | Grand Prix 4.020 km, National 3.186 km (MSV; Wikipedia 3.149 km) | built 2026-10-20 |
 | 6 | Bedford Autodrome | GT, South West, SEN, West, South, North, East (MSV / PalmerSport list; lengths conflict between sources: check MSV's own Bedford page) | |
 | 7 | Circuito de Navarra | Full 4.313 km, Medium 2.693 km, Short 1.391 km (since 2024) | outside the UK: needs a Spanish open DTM in `load_dtm` |
 
@@ -252,3 +252,44 @@ imported-track direction fix; rebuild after that lands).
 Zip `E:\WreckfestMods\realanglesey.zip` (two events, Anglesey International and Anglesey Coastal; 3,896
 subscenes, 6.97 M vertices with every subscene, within the stock limits). Renders:
 `.local\renders\realanglesey-{oblique,horizon,driver,driver-corkscrew,driver-banking,driver-rocket,driver-school}.png`.
+
+## Donington Park: Grand Prix and National (2026-10-20)
+
+One base scene, two layouts (`doningtonpark_race` = Grand Prix, `doningtonpark_national`; events "Donington Park
+Grand Prix / National"). Recipe `tools/real_tracks/doningtonpark.json` (every source is in it), sample
+`geom/tests/samples/doningtonpark.json`, raw data and report in `.localealtracks\doningtonpark\`, zip
+`E:\WreckfestMods\doningtonpark.zip` (6.7 MB), installed and enabled as "Donington Park". MSV's own
+circuit-layouts page lists exactly these two layouts (Wikipedia and racingcircuits.info: the same pair, 2010 to
+date); the 2010 Tilke GP extension was never built.
+
+| | Grand Prix | National |
+|---|---|---|
+| Source of the layout | MSV GP Circuit map (donington-park.co.uk/about/circuit-layouts): 2.49 mi / 4.02 km, 12 corners | MSV National Circuit map: 1.98 mi / 3.186 km, 10 corners; the Roberts chicane (OSM 27131003, "short cut used on National circuit") in place of the Melbourne Loop |
+| Lap (built) / published | 3,999.7 / 4,020 m (−0.5 %) | 3,183.8 / 3,186 m (−0.1 %; Wikipedia 3,149 m: +1.1 %) |
+| OSM polyline | 4,006 m | 3,180 m |
+| Direction | clockwise: the MSV map's start/finish chevrons point down the Wheatcroft Straight towards Redgate; guides (driver61.com, oversteer48.com) start the lap at Redgate, a right-hander | clockwise (same map and guides) |
+| Start/finish | on the Wheatcroft Straight 197 m from Goddards, beside the middle of the pit lane (driver61.com coordinates 52°49′47.3″N 1°22′46.4″W; MSV maps) | shares the GP line and grid (same chevrons on the MSV National map) |
+| Grid | 24 slots towards Redgate, grade ≤ 2.5 % | the GP grid |
+
+Corners (OSM names, driving order): Wheatcroft Straight, Redgate, Hollywood, Craner Curves, Old Hairpin,
+Starkey's Bridge, Schwantz Curve (unnamed in OSM), McLeans, Coppice, Starkey's Straight (unnamed in OSM), Fogarty
+Esses, Melbourne Hairpin, Goddards; the National leaves after Starkey's Straight through Roberts.
+
+- **Ground:** EA 1 m DTM, heights 63.0–98.9 m (range 36 m), climb 48 m per lap; the Craner Curves drop at −8.1 %
+  over 10 m, McLeans climbs +7.4 %. Camber up to 2.7° (p95 1.6°). Fit: centre RMS 0.014 m, inner edges 0.025 m;
+  registration shifts −2.0…+0.5 m, no corner easing (min radius 15.9 m at the Melbourne Hairpin).
+- **Width:** not published; 11 m (`widthNote`).
+- **Kerbs:** OSM has none; seven corners from the driver61.com guide (Redgate, Craner Curves, Old Hairpin apex +
+  exit, Schwantz Curve, McLeans apex + exit + green concrete, Coppice, Goddards' sausage kerb as an apex kerb), the
+  rest geometric.
+- **Environment:** `parkland` with the 18 OSM woods (Donington Hall's woods along the Craner Curves and Coppice);
+  crowds at Redgate, the Craner Curves, the Old Hairpin and the Melbourne Hairpin; tyre barrier rows on 22 % of a
+  side at most. East Midlands Airport lies about 1 km south, outside the 400 m terrain margin, so it isn't
+  modelled (the horizon is the stock fields vista).
+- **Checks:** builder `check_scene` + `check_export` pass (a divider between the two legs of the Melbourne Loop;
+  24 start points and slot footprints on the road; finish checkpoint on the line in both layouts; route in
+  checkpoint order with `otherway`; minimap `.tcat` per layout matching the compiled route; base 2,705 subscenes,
+  3.4 M vertices with every instance, clutter 5.0 ha, all within the stock limits).
+- **Renders:** `.localenders\doningtonpark-{oblique,horizon,driver,driver-craner,driver-melbourne}.png`.
+- **Check in game:** the Craner Curves descent and Old Hairpin, the Melbourne Hairpin divider, the 11 m width.
+
