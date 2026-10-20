@@ -504,10 +504,10 @@
       "properties": {
         "lapLengthKm": {
           "title": "Lap length (km)",
-          "description": "Target lap length; the sketch is scaled to match.",
+          "description": "Target lap length; the sketch is scaled to match. Drawn tracks up to 5 km (rule drawn-lap-length-max); an imported track's is informational (its centreline's length), up to 7 km (Bedford Autodrome GT, 5.9 km).",
           "type": "number",
           "minimum": 0.8,
-          "maximum": 5.0,
+          "maximum": 7.0,
           "default": 1.5
         },
         "widthM": {
