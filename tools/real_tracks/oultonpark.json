@@ -1,0 +1,91 @@
+{
+  "description": "Recipe for tools/import_real_track.py: Oulton Park (Little Budworth, Cheshire, UK), MSV. The International circuit with the Island and Fosters circuits sharing its base: all three current layouts (MSV's circuit-layouts page lists exactly these three; Wikipedia and racingcircuits.info give the same three, 2003 to date).",
+  "name": "Oulton Park",
+  "trackDescription": "Oulton Park, International (4.31 km), Island (3.62 km) and Fosters (2.66 km) circuits from OpenStreetMap, with heights, camber and terrain from the Environment Agency LIDAR Composite DTM (1 m). Cheshire parkland with mature woodland and Oulton Lake inside the circuit.",
+  "bbox": [53.168, -2.630, 53.188, -2.598],
+  "terrainMarginM": 400,
+  "lakes": { "minAreaM2": 2000, "depthM": 1.0, "note": "OSM natural=water: Oulton Park Lake (inside the circuit, beside Lakeside), Budworth Pool, Oulton Mill Pond and the small ponds; levels from the LIDAR water surface." },
+  "lap": [
+    820427227, 820427217, 820427218, 820427219, 820427212, 820427210, 21831735, 820427211, 820427206, 820427207,
+    820427208, 820427202, 820427209, 820427213, 820427214, 820427216, 820427215, 820427224, 820427225, 820427222,
+    820427223, 820427226, 820427220, 820427221
+  ],
+  "mainLayoutName": "International",
+  "layoutSource": "MSV official map 'Oulton Park International Circuit' (oultonpark.co.uk/about/circuit-layouts, 'OP Map_International Circuit.pdf'): Old Hall Corner - The Avenue - Dentons - Cascades - Lakeside - Island Bend - Shell Oils Corner - Brittens - Hilltop - Hislops - Knickerbrook - Clay Hill - Druids Corner - Warwick Bridge - Lodge Corner - Deer Leap; 2.69 mi / 4.30 km (MSV; Wikipedia 4.307 km; racingcircuits.info 4.333 km).",
+  "directionSource": "MSV official International map: the arrow beside the chequered flag on the pit straight points down towards Old Hall Corner (clockwise); coachdaveacademy.com and driver61.com track guides: Old Hall is turn 1 and Deer Leap the final kink onto the start/finish straight.",
+  "startFinish": { "node": 235311718, "note": "OSM node raceway=start-finish where Deer Leap meets the pit straight." },
+  "startFinishSource": "MSV official International, Island and Fosters maps: the chequered flag on the pit straight just after Deer Leap, beside race control and the pit garages; OSM node 235311718 (raceway=start-finish) at the end of Deer Leap; coachdaveacademy.com: Deer Leap is 'the final left kink onto the start/finish straight'.",
+  "altLayouts": [
+    {
+      "id": "island",
+      "name": "Island",
+      "lap": [
+        820427227, 820427217, 820427218, 820427219, 820427212, 820427210, 27299255, 820427876,
+        820427202, 820427209, 820427213, 820427214, 820427216, 820427215, 820427224, 820427225, 820427222,
+        820427223, 820427226, 820427220, 820427221
+      ],
+      "layoutSource": "MSV official map 'Oulton Park Island Circuit' ('OP Map_Island Circuit.pdf'): the International with the Island Hairpin (OSM ways 27299255, 820427876) from the end of Lakeside straight onto Hilltop, missing Island Bend, Shell Oils Corner and Brittens; 2.26 mi / 3.616 km (MSV, Wikipedia; racingcircuits.info 3.637 km).",
+      "directionSource": "MSV official Island map: the same arrow by the flag towards Old Hall Corner (clockwise).",
+      "startFinishSource": "MSV official Island map: the chequered flag at the same place on the pit straight as on the International map, so the Island shares its line and grid.",
+      "measuredLapLengthM": 3573,
+      "publishedLapLengthM": 3616
+    },
+    {
+      "id": "fosters",
+      "name": "Fosters",
+      "lap": [
+        820427227, 820427217, 820427218, 820427219, [820427212, 235311735, 299689559], 29187915,
+        820427209, 820427213, 820427214, 820427216, 820427215, 820427224, 820427225, 820427222,
+        820427223, 820427226, 820427220, 820427221
+      ],
+      "layoutSource": "MSV official map 'Oulton Park Fosters Circuit' ('OP Map_Fosters Circuit.pdf'): the International to Cascades, then Fosters (OSM way 29187915 \"Foster's\") across to Hislops and Knickerbrook; 1.66 mi / 2.656 km (MSV, Wikipedia; racingcircuits.info 2.662 km).",
+      "directionSource": "MSV official Fosters map: the same arrow by the flag towards Old Hall Corner (clockwise); racingcircuits.info: Fosters diverts 'off after Cascades to a tight right-hander leading to Knickerbrook'.",
+      "startFinishSource": "MSV official Fosters map: the chequered flag at the same place on the pit straight as on the International map, so the Fosters shares its line and grid.",
+      "measuredLapLengthM": 2670,
+      "publishedLapLengthM": 2656
+    }
+  ],
+  "lapNames": {
+    "820427227": null,
+    "820427219": "Dentons",
+    "820427211": null,
+    "820427207": null,
+    "820427208": "Brittens",
+    "820427209": "Hislops",
+    "820427214": null,
+    "820427215": null,
+    "820427225": null,
+    "820427226": null
+  },
+  "publishedLapLengthM": 4307,
+  "measuredLapLengthM": 4324,
+  "widthM": 10.0,
+  "widthNote": "Not published; about 9-11 m on imagery. One value for the whole lap.",
+  "clockwise": true,
+  "viewingSpots": ["Lodge Corner", "Old Hall Corner", "Knickerbrook", "Druids Corner"],
+  "expectedCornerOrder": ["Old Hall Corner", "The Avenue", "Dentons", "Cascades", "Lakeside", "Island Bend", "Shell Oils Corner", "Brittens", "Hilltop", "Hislops", "Knickerbrook", "Clay Hill", "Water Tower", "Druids Corner", "Warwick Bridge", "Lodge Corner", "Deer Leap"],
+  "expectedCornerOrderNote": "Clockwise International lap as on the MSV map and in the coachdaveacademy.com / driver61.com guides (Water Tower, the kink between Clay Hill and Druids, is named in OSM, not on the MSV map). The Island Hairpin and Fosters links aren't on the International lap, so they aren't labelled.",
+  "kerbs": [
+    { "corner": "Old Hall Corner", "apex": true, "exit": true, "source": "coachdaveacademy.com Oulton guide: inside front wheel onto the kerb; 'use all of the exit kerb available' (strict track limits)" },
+    { "corner": "Cascades", "apex": true, "exit": true, "green": true, "source": "coachdaveacademy.com: apex at the kerb where the inside armco ends; the matting beyond the exit kerb is usable" },
+    { "corner": "Island Bend", "apex": true, "source": "coachdaveacademy.com: the inside kerb is usable with the inside wheels" },
+    { "corner": "Shell Oils Corner", "entry": true, "apex": true, "exit": true, "source": "coachdaveacademy.com: touch the entry kerb early on turn-in (a hairpin)" },
+    { "corner": "Brittens", "apex": true, "exit": true, "green": true, "source": "coachdaveacademy.com: kerbs and matting through Britten's chicane; driver61.com: a 'huge first kerb'" },
+    { "corner": "Hislops", "apex": true, "exit": true, "source": "coachdaveacademy.com: the flat part of the first red and white kerb, the inside kerb at the second apex; driver61.com: a 'large first kerb'" },
+    { "corner": "Knickerbrook", "apex": true, "exit": true, "source": "coachdaveacademy.com: front right over the apex kerb; the exit kerb is usable but bites back" },
+    { "corner": "Clay Hill", "apex": true, "source": "coachdaveacademy.com: late apex around the middle of the inside kerb" },
+    { "corner": "Druids Corner", "apex": true, "exit": true, "source": "coachdaveacademy.com: hit the first kerb; use the exit kerb for the straight" },
+    { "corner": "Lodge Corner", "apex": true, "exit": true, "green": true, "source": "coachdaveacademy.com: front right onto the inside kerb; the exit kerb is usable, the matting beyond it is track limits" }
+  ],
+  "kerbsNote": "OSM has no kerb or run-off features at Oulton Park (Overpass 2026-10-20: no barrier=kerb, kerb=* or area:highway), and the 1 m DTM can't resolve kerbs, so these overrides come from track guides; other corners (Dentons, Hilltop, Water Tower, Warwick Bridge, Deer Leap, the Island Hairpin and Fosters) get the geometric placement.",
+  "options": {
+    "surface": "tarmac",
+    "kerbs": true,
+    "walls": "tyres",
+    "environment": "parkland",
+    "gridSize": 24,
+    "weathers": ["morning", "midday", "afternoon"],
+    "reverseLayout": false,
+    "defaultLaps": 5
+  }
+}
