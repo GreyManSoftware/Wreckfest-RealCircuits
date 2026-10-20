@@ -16,6 +16,31 @@ irt = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(irt)
 
 
+def test_utm30_projection_and_scale() -> None:
+    # ETRS89 / UTM 30N (Spain's IGN MDT): on the central meridian (3 W) the easting is 500 km and the northing the
+    # meridian arc times 0.9996 (integrated here); the scale factor grows off the meridian
+    irt.set_projection({"dtm": "es-mdt05"})
+    try:
+        e, n = irt.to_grid(40.0, -3.0)
+        a, b = irt.GRS80
+        e2 = 1 - b * b / (a * a)
+        phi = np.linspace(0.0, math.radians(40.0), 20001)
+        m = np.trapezoid(a * (1 - e2) / (1 - e2 * np.sin(phi) ** 2) ** 1.5, phi)
+        assert e == pytest.approx(500000.0, abs=1e-6) and n == pytest.approx(0.9996 * m, abs=0.01)
+        assert irt.grid_scale_at(40.0, -3.0) == pytest.approx(0.9996, abs=1e-9)
+        assert irt.grid_scale_at(42.56, -2.17) > 0.9996
+    finally:
+        irt.set_projection({})
+    assert irt.to_grid(53.31, -0.063) == irt.to_bng(53.31, -0.063)  # back on the National Grid
+
+
+def test_parse_arcgrid_reads_a_wcs_multipart_response() -> None:
+    text = ("--wcs\nContent-Type: application/asc\n\nncols 3\nnrows 2\nxllcorner 100.0\nyllcorner 200.0\n"
+            "cellsize 5.0\nNODATA_value -9999\n 1 2 3\n 4 -9999 6\n--wcs--\n")
+    x0, y1, cs, z = irt.parse_arcgrid(text)
+    assert (x0, y1, cs) == (100.0, 210.0, 5.0) and z.shape == (2, 3) and math.isnan(z[1, 1]) and z[0, 2] == 3.0
+
+
 def test_national_grid_projection_matches_the_os_worked_example() -> None:
     # Ordnance Survey, "A guide to coordinate systems in Great Britain", annex C: OSGB36 52 39 27.2531 N,
     # 1 43 4.5177 E -> E 651409.903, N 313177.270
@@ -64,6 +89,12 @@ def test_stitch_takes_parts_of_closed_loops_either_way_through_the_closing_node(
         irt.way_part(osm["elements"][1], [2, 4, 2, "fwd"])
     _, _, ids = irt.stitch_nodes(osm, [[1, 2, 4, "fwd"], 2])
     assert ids == [2, 3, 4, 9]
+    # nodeJoins: a way starting at a node a few metres from the previous way's end (not joined in OSM)
+    o2 = _osm([(1, [1, 2, 3]), (2, [8, 4]), (3, [4, 1])])
+    with pytest.raises(ValueError, match="doesn't start"):
+        irt.stitch_nodes(o2, [1, 2, 3])
+    _, _, j_ids = irt.stitch_nodes(o2, [1, 2, 3], joins=[[3, 8]])
+    assert j_ids == [1, 2, 3, 4]
     # non_main_span works on segments: the alternative uses another part of the way the main lap drives whole
     m_ll, _, m_ids = irt.stitch_nodes(osm, [1])
     ll, _, a_ids = irt.stitch_nodes(osm, [[1, 1, 4, "fwd"], [2, 4, 2], [1, 2, 1, "rev"]])  # 1-2-3-4, 4-9-2, 2-1
@@ -163,6 +194,7 @@ def test_corner_order_problem_accepts_a_rotation_and_rejects_the_reverse() -> No
 def test_recipe_slug_is_the_plain_track_name() -> None:
     assert irt.recipe_slug({"name": "Cadwell Park"}) == "cadwellpark"
     assert irt.recipe_slug({"name": "Brands Hatch", "slug": "brandshatch"}) == "brandshatch"
+    assert irt.recipe_slug({"name": "Circuito de Navarra", "slug": "navarra"}) == "navarra"  # the name's last word
     with pytest.raises(ValueError, match="Real"):
         irt.recipe_slug({"name": "RealCadwell"})
     with pytest.raises(ValueError, match="default"):

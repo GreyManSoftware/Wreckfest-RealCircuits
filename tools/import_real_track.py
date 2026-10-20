@@ -9,7 +9,8 @@ Data (downloaded once and cached under E:\\Source\\wreckfest\\.local\\<slug>\\, 
 - **Heights:** the Environment Agency LIDAR Composite DTM 1 m (bare earth, Open Government Licence v3) through
   its WCS, in British National Grid (EPSG:27700); or, with ``"dtm": "wales"``, the Welsh Government / NRW
   LIDAR composite DTM 1 m (OGL v3) read from its national Cloud Optimised GeoTIFF by range requests
-  (``tools/real_tracks_data/cog.py``).
+  (``tools/real_tracks_data/cog.py``); or, with ``"dtm": "es-mdt05"`` (Spain), the IGN MDT05 5 m (PNOA LIDAR, CC BY
+  4.0) from the IDEE WCS in ETRS89 / UTM 30N (EPSG:25830), the OSM line projected to UTM 30N instead.
 
 Multi-layout recipes (``altLayouts``: each with its own ``lap`` of ways; ``[way, from_node, to_node]`` takes part
 of a way) fit every lap the same way and keep, per alternative layout, the branch that leaves the main lap, with
@@ -100,10 +101,11 @@ def wgs84_to_osgb36(lat_deg: float, lon_deg: float) -> tuple[float, float]:
     return _to_latlon(q, AIRY1830)
 
 
-def tm_project(lat: float, lon: float) -> tuple[float, float]:
-    """OSGB36 latitude/longitude (radians) -> British National Grid easting/northing (OS formulae)."""
-    a, b = AIRY1830
-    F0, lat0, lon0, E0, N0 = NG["F0"], NG["lat0"], NG["lon0"], NG["E0"], NG["N0"]
+def tm_project(lat: float, lon: float, ell: tuple[float, float] = AIRY1830, ng: dict = NG) -> tuple[float, float]:
+    """Latitude/longitude (radians) -> transverse Mercator easting/northing (OS formulae): by default OSGB36 ->
+    British National Grid; with ``ell=GRS80, ng=utm_params(zone)`` ETRS89 -> UTM."""
+    a, b = ell
+    F0, lat0, lon0, E0, N0 = ng["F0"], ng["lat0"], ng["lon0"], ng["E0"], ng["N0"]
     e2 = 1 - (b * b) / (a * a)
     n = (a - b) / (a + b)
     sl, cl = math.sin(lat), math.cos(lat)
@@ -129,20 +131,51 @@ def tm_project(lat: float, lon: float) -> tuple[float, float]:
     return E, N
 
 
-def grid_scale_factor(lat: float, lon: float) -> float:
-    """Point scale factor of the National Grid at OSGB36 (lat, lon) radians."""
-    a, b = AIRY1830
+def grid_scale_factor(lat: float, lon: float, ell: tuple[float, float] = AIRY1830, ng: dict = NG) -> float:
+    """Point scale factor of the National Grid (or another transverse Mercator grid) at (lat, lon) radians."""
+    a, b = ell
     e2 = 1 - (b * b) / (a * a)
     sl = math.sin(lat)
-    nu = a * NG["F0"] / math.sqrt(1 - e2 * sl * sl)
-    rho = a * NG["F0"] * (1 - e2) / (1 - e2 * sl * sl) ** 1.5
-    d = lon - NG["lon0"]
+    nu = a * ng["F0"] / math.sqrt(1 - e2 * sl * sl)
+    rho = a * ng["F0"] * (1 - e2) / (1 - e2 * sl * sl) ** 1.5
+    d = lon - ng["lon0"]
     cl = math.cos(lat)
-    return NG["F0"] * (1 + (d * cl) ** 2 / 2 * (nu / rho) + (d * cl) ** 4 / 24 * (5 - 4 * math.tan(lat) ** 2))
+    return ng["F0"] * (1 + (d * cl) ** 2 / 2 * (nu / rho) + (d * cl) ** 4 / 24 * (5 - 4 * math.tan(lat) ** 2))
 
 
 def to_bng(lat_deg: float, lon_deg: float) -> tuple[float, float]:
     return tm_project(*wgs84_to_osgb36(lat_deg, lon_deg))
+
+
+GRS80 = (6378137.0, 6356752.314140)
+
+
+def utm_params(zone: int) -> dict:
+    return dict(F0=0.9996, lat0=0.0, lon0=math.radians(zone * 6 - 183), E0=500000.0, N0=0.0)
+
+
+# The projected grid of the recipe's DTM: "bng" (British National Grid via OSGB36: the EA and Welsh DTMs) or "utm30"
+# (ETRS89 / UTM zone 30N, EPSG:25830: Spain's IGN MDT; ETRS89 is taken as WGS84, under 1 m apart there). Set per
+# recipe by set_projection (build, verify).
+_GRID = {"name": "bng"}
+
+
+def set_projection(recipe: dict) -> None:
+    _GRID["name"] = "utm30" if recipe.get("dtm") == "es-mdt05" else "bng"
+
+
+def to_grid(lat_deg: float, lon_deg: float) -> tuple[float, float]:
+    """WGS84 degrees -> the recipe's grid (metres)."""
+    if _GRID["name"] == "utm30":
+        return tm_project(math.radians(lat_deg), math.radians(lon_deg), GRS80, utm_params(30))
+    return to_bng(lat_deg, lon_deg)
+
+
+def grid_scale_at(lat_deg: float, lon_deg: float) -> float:
+    """The recipe grid's point scale factor at WGS84 degrees (grid metres per ground metre)."""
+    if _GRID["name"] == "utm30":
+        return grid_scale_factor(math.radians(lat_deg), math.radians(lon_deg), GRS80, utm_params(30))
+    return grid_scale_factor(*wgs84_to_osgb36(lat_deg, lon_deg))
 
 
 # ------------------------------------------------------------------------------------------------ fetching
@@ -339,13 +372,86 @@ def horizon_profile(recipe: dict, eye: np.ndarray, eye_z: float, cache: Path, se
     return {"stepDeg": step, "elevationDeg": elev, "sea": sea}
 
 
+ES_WCS = "https://servicios.idee.es/wcs-inspire/mdt"
+ES_COVERAGE = "Elevacion25830_5"  # IGN MDT05 (PNOA LIDAR), 5 m, ETRS89 / UTM 30N
+
+
+def parse_arcgrid(text: str) -> tuple[float, float, float, np.ndarray]:
+    """An ESRI ASCII grid (possibly inside a WCS multipart response): (x of the west edge, y of the north edge,
+    cell size, z[row, col] with row 0 at the north edge; no-data as NaN)."""
+    lines = text[text.index("ncols"):].splitlines()
+    head = {}
+    k = 0
+    while k < len(lines) and lines[k].split() and lines[k].split()[0][:1].isalpha():
+        key, val = lines[k].split()[:2]
+        head[key.lower()] = float(val)
+        k += 1
+    nc, nr, cs = int(head["ncols"]), int(head["nrows"]), head["cellsize"]
+    vals = []
+    for ln in lines[k:]:
+        if ln.startswith("--"):
+            break
+        vals.extend(ln.split())
+    z = np.array(vals[:nc * nr], dtype=np.float64).reshape(nr, nc)
+    if "nodata_value" in head:
+        z[z == head["nodata_value"]] = np.nan
+    z[(z < -100) | (z > 5000)] = np.nan
+    x0 = head["xllcorner"] if "xllcorner" in head else head["xllcenter"] - cs / 2
+    y0 = head["yllcorner"] if "yllcorner" in head else head["yllcenter"] - cs / 2
+    return x0, y0 + nr * cs, cs, z
+
+
+def fetch_dtm_es(e0: float, n0: float, e1: float, n1: float, cache: Path, tile: int = 1000) -> Dtm:
+    """Spain's IGN MDT05 (5 m DTM from the PNOA LIDAR, CC BY 4.0) over [e0, e1] x [n0, n1] (ETRS89 / UTM 30N
+    metres), from the IDEE INSPIRE WCS as ASCII grids in 1 km tiles, cached."""
+    cs = 5.0
+    e0, n0 = math.floor(e0 / tile) * tile, math.floor(n0 / tile) * tile
+    e1, n1 = math.ceil(e1 / tile) * tile, math.ceil(n1 / tile) * tile
+    nx, ny = int((e1 - e0) / tile), int((n1 - n0) / tile)
+    m = int(tile / cs)
+    full = np.full((ny * m, nx * m), np.nan)
+    tdir = cache / "dtm"
+    tdir.mkdir(parents=True, exist_ok=True)
+    for ty in range(ny):
+        for tx in range(nx):
+            te, tn = e0 + tx * tile, n0 + ty * tile
+            path = tdir / f"mdt05_{te:.0f}_{tn:.0f}_{tile}.npy"
+            if not path.exists():
+                params = [("service", "WCS"), ("version", "2.0.1"), ("request", "GetCoverage"),
+                          ("CoverageId", ES_COVERAGE), ("format", "application/asc"),
+                          ("subset", f"x({te},{te + tile})"), ("subset", f"y({tn},{tn + tile})")]
+                url = ES_WCS + "?" + urllib.parse.urlencode(params)
+                for attempt in range(3):
+                    try:
+                        raw = _get(url, timeout=300)
+                        break
+                    except Exception:
+                        if attempt == 2:
+                            raise
+                        time.sleep(5)
+                x0, y1, c, z = parse_arcgrid(raw.decode("ascii", "replace"))
+                if abs(c - cs) > 1e-6 or abs(x0 - te) > 1e-6 or abs(y1 - (tn + tile)) > 1e-6 or z.shape != (m, m):
+                    raise RuntimeError(f"MDT05 tile {te},{tn}: got origin {x0},{y1} cell {c} shape {z.shape}")
+                np.save(path, z.astype(np.float32))
+            z = np.load(path).astype(np.float64)
+            r0 = int(round((n1 - (tn + tile)) / cs))
+            c0 = int(round((te - e0) / cs))
+            full[r0:r0 + m, c0:c0 + m] = z
+    return Dtm(e0, n1, cs, full)
+
+
 def load_dtm(recipe: dict, e0: float, n0: float, e1: float, n1: float, cache: Path) -> Dtm:
-    """The recipe's DTM (``"dtm": "ea"`` England, the default, or ``"wales"``)."""
+    """The recipe's DTM (``"dtm": "ea"`` England, the default, ``"wales"`` or ``"es-mdt05"`` Spain, IGN MDT05 in
+    UTM 30N)."""
+    if recipe.get("dtm") == "es-mdt05":
+        return fetch_dtm_es(e0, n0, e1, n1, cache)
     if recipe.get("dtm", "ea") == "wales":
         return fetch_dtm_wales(math.floor(e0), math.floor(n0), math.ceil(e1), math.ceil(n1), cache)
     return fetch_dtm(e0, n0, e1, n1, cache)
 
 
+ATTRIBUTION_ES = ("Layout and woodland (c) OpenStreetMap contributors, ODbL 1.0. Heights: MDT05 (c) Instituto "
+                  "Geografico Nacional de Espana (IGN), derived from PNOA LIDAR, CC BY 4.0 (scne.es).")
 ATTRIBUTION_WALES = ("Layout (c) OpenStreetMap contributors, ODbL 1.0. Heights: Welsh Government / Natural Resources "
                      "Wales LIDAR composite DTM 1 m, contains Natural Resources Wales information (c) Natural "
                      "Resources Wales and database right, Open Government Licence v3.0.")
@@ -375,8 +481,11 @@ def way_part(w: dict, item) -> tuple[list[int], list[dict]]:
     return nodes[j:i + 1][::-1], geom[j:i + 1][::-1]
 
 
-def stitch_nodes(osm: dict, lap: list) -> tuple[list[tuple[float, float]], list[tuple[int, int, str]], list[int]]:
-    """``stitch`` plus the OSM node id of every point."""
+def stitch_nodes(osm: dict, lap: list, joins=()) -> tuple[list[tuple[float, float]], list[tuple[int, int, str]], list[int]]:
+    """``stitch`` plus the OSM node id of every point. ``joins``: pairs of OSM nodes a few metres apart that are one
+    junction on the ground but not joined in OSM (a recipe's ``nodeJoins``, e.g. Navarra's Short link starting 2 m
+    off the lap); a way may start at its partner of the previous way's end, and its first point is moved there."""
+    pair = {frozenset(map(int, j)) for j in joins}
     ways = {e["id"]: e for e in osm["elements"] if e["type"] == "way"}
     pts: list[tuple[float, float]] = []
     ids: list[int] = []
@@ -386,6 +495,8 @@ def stitch_nodes(osm: dict, lap: list) -> tuple[list[tuple[float, float]], list[
         wid = item[0] if isinstance(item, list) else item
         w = ways[wid]
         nodes, geom = way_part(w, item)
+        if prev_end is not None and nodes[0] != prev_end and frozenset((nodes[0], prev_end)) in pair:
+            nodes, geom = [prev_end] + list(nodes[1:]), [prev_geom] + list(geom[1:])
         if prev_end is not None and nodes[0] != prev_end:
             raise ValueError(f"way {wid} doesn't start where the previous way ends ({nodes[0]} != {prev_end})")
         first = nodes[0] if first is None else first
@@ -395,7 +506,7 @@ def stitch_nodes(osm: dict, lap: list) -> tuple[list[tuple[float, float]], list[
         seq = [(g["lat"], g["lon"]) for g in geom]
         pts.extend(seq if not pts else seq[1:])
         ids.extend(nodes if not ids else nodes[1:])
-        prev_end = nodes[-1]
+        prev_end, prev_geom = nodes[-1], geom[-1]
     if prev_end != first:
         raise ValueError("the lap doesn't close")
     return pts[:-1], marks, ids[:-1]
@@ -659,7 +770,7 @@ def node_bng(osm: dict, node: int) -> np.ndarray:
     for e in osm["elements"]:
         if e["type"] == "way" and node in e["nodes"]:
             g = e["geometry"][e["nodes"].index(node)]
-            return np.array(to_bng(g["lat"], g["lon"]))
+            return np.array(to_grid(g["lat"], g["lon"]))
     raise ValueError(f"node {node} isn't on any fetched way")
 
 
@@ -716,13 +827,13 @@ def start_finish_point(sf: dict, osm: dict) -> np.ndarray:
     "fraction": f}`` (that far along the way) or ``{"lat", "lon"}``."""
     if "alongWay" in sf:
         way = next(e for e in osm["elements"] if e["type"] == "way" and e["id"] == sf["alongWay"])
-        g = np.array([to_bng(q["lat"], q["lon"]) for q in way["geometry"]])
+        g = np.array([to_grid(q["lat"], q["lon"]) for q in way["geometry"]])
         s_way = arc(g)
         t = float(sf.get("fraction", 0.5)) * s_way[-1]
         return np.array([np.interp(t, s_way, g[:, 0]), np.interp(t, s_way, g[:, 1])])
     if "node" in sf:
         return node_bng(osm, int(sf["node"]))
-    return np.array(to_bng(sf["lat"], sf["lon"]))
+    return np.array(to_grid(sf["lat"], sf["lon"]))
 
 
 SOURCE_KEYS = ("layoutSource", "directionSource", "startFinishSource")
@@ -766,7 +877,7 @@ def non_main_span(ll: list[tuple[float, float]], ids: list[int], main_ids: list[
             cur = None
     if len(runs) != 1:
         raise ValueError("the alternative layout leaves the main lap more than once")
-    p = np.array([to_bng(a, b) for a, b in ll])
+    p = np.array([to_grid(a, b) for a, b in ll])
     s = arc(np.vstack([p, p[:1]]))
     # from the run's first point (where it leaves the main lap) to its last (where it rejoins), as the way-based
     # span with the way-start fix (4e47b37) gives for laps made of whole ways
@@ -815,27 +926,33 @@ def default_slug(name: str) -> str:
 def recipe_slug(recipe: dict) -> str:
     """The recipe's slug: ``slug`` when given, else the default for its ``name``. Real tracks are named after the
     circuit alone (2026-10-20, Chris: no "Real" prefix): the name may not start with "Real" and an explicit slug
-    must be the name's default."""
+    must be the default of the name or of its last words ("Circuito de Navarra" -> ``navarra``)."""
     name = recipe["name"]
     if re.match(r"Real(?=[A-Z\s])", name):
         raise ValueError(f"recipe name {name!r}: use the plain track name, no 'Real' prefix")
     slug = recipe.get("slug") or default_slug(name)
-    if slug != default_slug(name):
-        raise ValueError(f"recipe slug {slug!r} isn't the name's default {default_slug(name)!r}")
+    words = name.split()
+    if slug not in {default_slug(" ".join(words[k:])) for k in range(len(words))}:
+        raise ValueError(f"recipe slug {slug!r} isn't the name's default {default_slug(name)!r} (or its last words')")
     return slug
 
 
 def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = None, log=print) -> tuple[dict, dict]:
     """The TrackSpec and a report dict (lengths, heights, grades, camber, data checks)."""
+    set_projection(recipe)
     missing = source_problems(recipe)
     if missing:
         raise ValueError("recipe sources: " + "; ".join(missing))
     cell = float(cell or recipe.get("terrainCellM", 6.0))
     osm = with_extra_ways(fetch_osm(recipe["bbox"], cache), recipe.get("extraWays", []), cache)
-    ll, marks, main_ids = stitch_nodes(osm, recipe["lap"])
-    bng = np.array([to_bng(a, b) for a, b in ll])
+    joins = recipe.get("nodeJoins", [])
+    for a_, b_ in joins:  # near misses only
+        if float(np.hypot(*(node_bng(osm, int(a_)) - node_bng(osm, int(b_))))) > 5.0:
+            raise ValueError(f"nodeJoins {a_}-{b_}: more than 5 m apart")
+    ll, marks, main_ids = stitch_nodes(osm, recipe["lap"], joins)
+    bng = np.array([to_grid(a, b) for a, b in ll])
     lat_c, lon_c = np.mean([q[0] for q in ll]), np.mean([q[1] for q in ll])
-    k_scale = grid_scale_factor(*wgs84_to_osgb36(lat_c, lon_c))
+    k_scale = grid_scale_at(lat_c, lon_c)
     clockwise = signed_area(bng) < 0
     if recipe.get("clockwise") is not None and clockwise != bool(recipe["clockwise"]):
         raise ValueError(f"the OSM ways run {'clockwise' if clockwise else 'anticlockwise'}, the recipe says otherwise")
@@ -867,8 +984,11 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     if np.isnan(a).any():
         raise RuntimeError("the DTM has gaps under the road")
     z_raw_centre = dtm.sample(p[:, 0], p[:, 1])
-    z = gauss_closed(a, 4.0 / step)
-    slope = gauss_closed(b, 10.0 / step)
+    # height and camber smoothing (sigma, m): 4 and 10 m on a 1 m DTM, wider on a coarser one (the 5 m IGN MDT05
+    # steps by a decimetre or so between cells, a 4 % "grade" over a 2 m sample)
+    z_sig, b_sig = max(4.0, 2.0 * dtm.cell), max(10.0, 3.0 * dtm.cell)
+    z = gauss_closed(a, z_sig / step)
+    slope = gauss_closed(b, b_sig / step)
     bank_fit = np.degrees(np.arctan(slope))
     bank = np.clip(bank_fit, -IMPORTED_MAX_BANK_DEG, IMPORTED_MAX_BANK_DEG)
     datum = math.floor(float(z.min()))
@@ -885,8 +1005,8 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     # main line (its ends moved onto it), with its own heights and camber.
     alt_specs, alt_reports, alt_branches = [], [], []
     for alt in recipe.get("altLayouts", []):
-        ll_a, marks_a, ids_a = stitch_nodes(osm, alt["lap"])
-        bng_a = np.array([to_bng(x, y) for x, y in ll_a])
+        ll_a, marks_a, ids_a = stitch_nodes(osm, alt["lap"], joins)
+        bng_a = np.array([to_grid(x, y) for x, y in ll_a])
         # a layout normally winds the same way as the main lap; one that doesn't says so (Snetterton's 100 is the
         # 300's infield loop, driven the same way but anticlockwise as a loop): "clockwise": false
         if (signed_area(bng_a) < 0) != bool(alt.get("clockwise", clockwise)):
@@ -903,8 +1023,8 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         ab, bb, res_b = cross_fit(dtm, br, nl_b, offs)
         if np.isnan(ab).any():
             raise RuntimeError(f"the DTM has gaps under layout {alt['id']}")
-        zb = gauss_open(ab, 4.0 / step)
-        bank_b = np.clip(np.degrees(np.arctan(gauss_open(bb, 10.0 / step))), -IMPORTED_MAX_BANK_DEG, IMPORTED_MAX_BANK_DEG)
+        zb = gauss_open(ab, z_sig / step)
+        bank_b = np.clip(np.degrees(np.arctan(gauss_open(bb, b_sig / step))), -IMPORTED_MAX_BANK_DEG, IMPORTED_MAX_BANK_DEG)
         loc_b = (br - centre) / k_scale
         alt_specs.append({"id": alt["id"], "name": alt["name"],
                           "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), Z_DECIMALS),
@@ -947,16 +1067,16 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     nx, ny = int((hi[0] - lo[0]) // cell), int((hi[1] - lo[1]) // cell)
     ex = e0 + np.arange(nx + 1) * cell
     ny_ = n0 + np.arange(ny + 1) * cell
-    half = int(cell // 2)
+    half = max(int(cell / dtm.cell // 2), 0)  # block half-width in DTM cells
     zz = np.empty((ny + 1, nx + 1))
     with np.errstate(all="ignore"):
         import warnings  # noqa: PLC0415
         warnings.simplefilter("ignore", RuntimeWarning)
         for j, yv in enumerate(ny_):
-            r0 = int(round(dtm.y1 - yv)) - half
+            r0 = int(round((dtm.y1 - yv) / dtm.cell)) - half
             rows = dtm.z[max(r0, 0):max(r0, 0) + 2 * half + 1]
             for i, xv in enumerate(ex):
-                c0 = int(round(xv - dtm.x0)) - half
+                c0 = int(round((xv - dtm.x0) / dtm.cell)) - half
                 blk = rows[:, max(c0, 0):max(c0, 0) + 2 * half + 1]
                 zz[j, i] = np.nanmean(blk) if blk.size else np.nan
     sea = recipe.get("seaLevelODN")
@@ -973,7 +1093,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         lon_m = lat_m / max(math.cos(math.radians(lat_c)), 1e-6)
         s_, w_, n_, e_ = recipe["bbox"]
         wbox = [s_ - margin * lat_m, w_ - margin * lon_m, n_ + margin * lat_m, e_ + margin * lon_m]
-        water = [(nm, np.array([to_bng(a_, b_) for a_, b_ in ring])) for nm, ring in water_polygons(fetch_osm_water(wbox, cache))]
+        water = [(nm, np.array([to_grid(a_, b_) for a_, b_ in ring])) for nm, ring in water_polygons(fetch_osm_water(wbox, cache))]
         water = [(nm, w) for nm, w in water if (w.max(0) > lo).all() and (w.min(0) < hi).all()]
         roads = np.vstack([p] + [np.asarray(b_) for b_ in alt_branches])
         lake_list = lakes_from(water, dtm, roads, float(lk.get("minAreaM2", 2000.0)), width / 2.0 + 4.0)
@@ -989,7 +1109,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     box_lo, box_hi = (lo - centre) / k_scale, (hi - centre) / k_scale
     wood_polys = []
     for poly in woods(osm):
-        w = (np.array([to_bng(la, lo_) for la, lo_ in poly]) - centre) / k_scale
+        w = (np.array([to_grid(la, lo_) for la, lo_ in poly]) - centre) / k_scale
         if len(w) > 2 and np.allclose(w[0], w[-1]):
             w = w[:-1]
         if len(w) < 3 or (w.max(0) < box_lo).any() or (w.min(0) > box_hi).any():
@@ -1008,7 +1128,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     for label, wids in groups:
         if label is None:
             continue
-        g = np.vstack([np.array([to_bng(q_["lat"], q_["lon"]) for q_ in ways[w]["geometry"]]) for w in wids])
+        g = np.vstack([np.array([to_grid(q_["lat"], q_["lon"]) for q_ in ways[w]["geometry"]]) for w in wids])
         sg = arc(g)
         mid = np.array([np.interp(sg[-1] / 2, sg, g[:, 0]), np.interp(sg[-1] / 2, sg, g[:, 1])])
         corners.append({"name": label, "sM": round(project_s(p, mid) / k_scale, 1)})
@@ -1025,7 +1145,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     span = loc.max(0) - loc.min(0)
     W, H = float(math.ceil(span[0] + 2 * canvas_margin)), float(math.ceil(span[1] + 2 * canvas_margin))
     imported = {
-        "source": ATTRIBUTION_WALES if recipe.get("dtm") == "wales" else ATTRIBUTION,
+        "source": {"wales": ATTRIBUTION_WALES, "es-mdt05": ATTRIBUTION_ES}.get(recipe.get("dtm"), ATTRIBUTION),
         "datumM": datum,
         "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), Z_DECIMALS),
                         "bankDeg": round(float(bk), 2)} for (x, y), zv, bk in zip(loc, z, bank)],
@@ -1126,6 +1246,8 @@ def verify(spec: dict, report: dict, recipe: dict, cache: Path) -> dict:
     lap length against the published one, road heights (centreline and both cambered edges, on every route)
     against the DTM, camber, each layout's lap, and the model's rule verdict."""
     from trackgen_geom import build_track_model  # noqa: PLC0415 - optional dependency
+
+    set_projection(recipe)
 
     result = build_track_model(spec)
     if result.model is None:

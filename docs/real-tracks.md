@@ -108,6 +108,14 @@ Recipe extras (Anglesey, `tools/real_tracks/anglesey.json`):
   signal in the DTM, so the registration only drifts, differently per layout). `branchOffM` (default 1): how far a
   layout's fitted line must be from the main one to count as its own branch (unregistered lines on shared ways
   match exactly but are sampled out of phase, up to 1 m apart).
+- `nodeJoins`: `[[node_a, node_b]]`, OSM nodes under 5 m apart that are one junction on the ground but not joined in
+  OSM (Navarra's Short hook); a way may start at the partner of the previous way's end.
+- `"dtm": "es-mdt05"` (Spain): the IGN MDT05 (5 m, from the PNOA LIDAR, CC BY 4.0) from the IDEE INSPIRE WCS
+  (`servicios.idee.es/wcs-inspire/mdt`, coverage `Elevacion25830_5`, ASCII grids in 1 km tiles) in ETRS89 / UTM
+  30N: the importer then projects WGS84 (taken as ETRS89, under 1 m apart) to UTM 30N with the same transverse
+  Mercator formulae on GRS80, and the local frame uses the UTM scale factor. On a coarser DTM the heights and camber
+  are smoothed more (sigma max(4 m, 2 cells) and max(10 m, 3 cells)). An explicit `slug` may also be the default of
+  the name's last words ("Circuito de Navarra" -> `navarra`).
 - `altLayouts[].joinWithinM`: a branch that runs beside the main road before it merges (Bedford SEN) joins where it
   first comes within this distance of the main line, instead of overlapping it.
 - `lapLengthTolerancePct` + `lapLengthNote` (main or per layout): a larger gap to the published length than the
