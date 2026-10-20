@@ -16,6 +16,31 @@ irt = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(irt)
 
 
+def test_utm30_projection_and_scale() -> None:
+    # ETRS89 / UTM 30N (Spain's IGN MDT): on the central meridian (3 W) the easting is 500 km and the northing the
+    # meridian arc times 0.9996 (integrated here); the scale factor grows off the meridian
+    irt.set_projection({"dtm": "es-mdt05"})
+    try:
+        e, n = irt.to_grid(40.0, -3.0)
+        a, b = irt.GRS80
+        e2 = 1 - b * b / (a * a)
+        phi = np.linspace(0.0, math.radians(40.0), 20001)
+        m = np.trapezoid(a * (1 - e2) / (1 - e2 * np.sin(phi) ** 2) ** 1.5, phi)
+        assert e == pytest.approx(500000.0, abs=1e-6) and n == pytest.approx(0.9996 * m, abs=0.01)
+        assert irt.grid_scale_at(40.0, -3.0) == pytest.approx(0.9996, abs=1e-9)
+        assert irt.grid_scale_at(42.56, -2.17) > 0.9996
+    finally:
+        irt.set_projection({})
+    assert irt.to_grid(53.31, -0.063) == irt.to_bng(53.31, -0.063)  # back on the National Grid
+
+
+def test_parse_arcgrid_reads_a_wcs_multipart_response() -> None:
+    text = ("--wcs\nContent-Type: application/asc\n\nncols 3\nnrows 2\nxllcorner 100.0\nyllcorner 200.0\n"
+            "cellsize 5.0\nNODATA_value -9999\n 1 2 3\n 4 -9999 6\n--wcs--\n")
+    x0, y1, cs, z = irt.parse_arcgrid(text)
+    assert (x0, y1, cs) == (100.0, 210.0, 5.0) and z.shape == (2, 3) and math.isnan(z[1, 1]) and z[0, 2] == 3.0
+
+
 def test_national_grid_projection_matches_the_os_worked_example() -> None:
     # Ordnance Survey, "A guide to coordinate systems in Great Britain", annex C: OSGB36 52 39 27.2531 N,
     # 1 43 4.5177 E -> E 651409.903, N 313177.270
@@ -51,6 +76,33 @@ def test_stitch_joins_ways_in_order_and_checks_continuity() -> None:
     osm = _osm([(1, [1, 2, 3]), (2, [4, 3]), (3, [4, 1])])
     pts, _ = irt.stitch(osm, [1, [2, 3, 4], 3])
     assert len(pts) == 4 and pts[3] == (53 + 4e-4, 4e-4)
+
+
+def test_stitch_takes_parts_of_closed_loops_either_way_through_the_closing_node() -> None:
+    # Bedford: each circuit is one closed way; a layout takes a part of a loop, forwards or backwards
+    osm = _osm([(1, [1, 2, 3, 4, 5, 1]), (2, [4, 9, 2])])
+    w = osm["elements"][0]
+    assert irt.way_part(w, [1, 4, 2, "fwd"])[0] == [4, 5, 1, 2]       # through the closing node
+    assert irt.way_part(w, [1, 2, 4, "rev"])[0] == [2, 1, 5, 4]
+    assert irt.way_part(w, [1, 3, 3, "fwd"])[0] == [3, 4, 5, 1, 2, 3]  # the whole loop from 3
+    with pytest.raises(ValueError, match="closed"):
+        irt.way_part(osm["elements"][1], [2, 4, 2, "fwd"])
+    _, _, ids = irt.stitch_nodes(osm, [[1, 2, 4, "fwd"], 2])
+    assert ids == [2, 3, 4, 9]
+    # nodeJoins: a way starting at a node a few metres from the previous way's end (not joined in OSM)
+    o2 = _osm([(1, [1, 2, 3]), (2, [8, 4]), (3, [4, 1])])
+    with pytest.raises(ValueError, match="doesn't start"):
+        irt.stitch_nodes(o2, [1, 2, 3])
+    _, _, j_ids = irt.stitch_nodes(o2, [1, 2, 3], joins=[[3, 8]])
+    assert j_ids == [1, 2, 3, 4]
+    # non_main_span works on segments: the alternative uses another part of the way the main lap drives whole
+    m_ll, _, m_ids = irt.stitch_nodes(osm, [1])
+    ll, _, a_ids = irt.stitch_nodes(osm, [[1, 1, 4, "fwd"], [2, 4, 2], [1, 2, 1, "rev"]])  # 1-2-3-4, 4-9-2, 2-1
+    assert a_ids == [1, 2, 3, 4, 9, 2]
+    a, b = irt.non_main_span(ll, a_ids, m_ids)
+    assert 0.0 < a < b <= 1.0  # one run: the link and 2-1 driven against the main lap
+    with pytest.raises(ValueError, match="only the main"):
+        irt.non_main_span(m_ll, m_ids, m_ids)
 
 
 def test_branch_of_cuts_the_part_that_leaves_the_main_lap() -> None:
@@ -142,6 +194,7 @@ def test_corner_order_problem_accepts_a_rotation_and_rejects_the_reverse() -> No
 def test_recipe_slug_is_the_plain_track_name() -> None:
     assert irt.recipe_slug({"name": "Cadwell Park"}) == "cadwellpark"
     assert irt.recipe_slug({"name": "Brands Hatch", "slug": "brandshatch"}) == "brandshatch"
+    assert irt.recipe_slug({"name": "Circuito de Navarra", "slug": "navarra"}) == "navarra"  # the name's last word
     with pytest.raises(ValueError, match="Real"):
         irt.recipe_slug({"name": "RealCadwell"})
     with pytest.raises(ValueError, match="default"):
@@ -196,7 +249,10 @@ def test_imported_sample_drives_the_recipes_corner_order_in_every_layout(recipe_
             assert (irt.signed_area(xy) < 0) == bool(src.get("clockwise", recipe["clockwise"])), lay.id if lay else "main"
         if src.get("publishedLapLengthM"):
             lap = lay.lap_length_m if lay else model.lap_length_m
-            assert abs(lap / src["publishedLapLengthM"] - 1.0) <= 0.03, (src.get("id"), lap)
+            # within 3 %, unless the recipe explains a larger gap (OSM provably short or the published figure off)
+            tol = float(src.get("lapLengthTolerancePct", 3.0))
+            assert tol <= 3.0 or len(src.get("lapLengthNote", "")) >= 40, (src.get("id"), "no lapLengthNote")
+            assert abs(lap / src["publishedLapLengthM"] - 1.0) <= tol / 100.0, (src.get("id"), lap)
         # the line: the recipe's own startFinish gives the layout its own line and grid, else it shares main's
         own = lay is not None and lay.id in spec_alts and "startFinish" in spec_alts[lay.id]
         assert own == (lay is not None and lay.grid is not None and lay.start_finish is not None)

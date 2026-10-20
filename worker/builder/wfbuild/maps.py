@@ -130,7 +130,7 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
     elif env_name == "airfield":
         # open short grass round the circuit (the old airfield); big patches of ploughed arable land well beyond
         b = smooth01((n_big - 0.5) / 0.1) * smooth01((d - 220.0) / 60.0)
-    elif env_name == "sandpit":
+    elif env_name in ("sandpit", "arid"):
         b = smooth01((n_big - 0.5) / 0.12) * smooth01((d - 25.0) / 15.0)
     elif env_name == "gravel_pit":
         b = smooth01((n_mid - 0.58) / 0.1) * smooth01((d - 15.0) / 10.0)

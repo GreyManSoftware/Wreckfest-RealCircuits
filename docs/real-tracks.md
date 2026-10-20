@@ -23,9 +23,9 @@ layouts; lengths from Wikipedia unless noted, to verify per circuit under the st
 | 2 | Brands Hatch (`brandshatch`) | Grand Prix 3.916 km, Indy 1.944 km (MSV) | built 2026-10-20: GP 3,903 m (−0.3 %), Indy 1,930 m (−0.7 %); [details](real-tracks/brandshatch.md) |
 | 3 | Oulton Park (`oultonpark`) | International 4.307 km, Island 3.616 km, Fosters 2.656 km (MSV) | built 2026-10-20: 4,317 m (+0.2 %), 3,564 m (−1.4 %), 2,676 m (+0.8 %); [details](real-tracks/oultonpark.md) |
 | 4 | Snetterton (`snetterton`) | 300 4.779 km, 200 3.219 km, 100 1.577 km (MSV) | built 2026-10-20: 4,789 m (+0.2 %), 3,195 m (−0.8 %), 1,556 m (−1.3 %); the 100's own line is estimated; [details](real-tracks/snetterton.md) |
-| 5 | Donington Park | Grand Prix 4.020 km, National 3.149 km | |
-| 6 | Bedford Autodrome | GT, South West, SEN, West, South, North, East (MSV / PalmerSport list; lengths conflict between sources: check MSV's own Bedford page) | |
-| 7 | Circuito de Navarra | Full 4.313 km, Medium 2.693 km, Short 1.391 km (since 2024) | outside the UK: needs a Spanish open DTM in `load_dtm` |
+| 5 | Donington Park (`doningtonpark`) | Grand Prix 4.020 km, National 3.186 km (MSV; Wikipedia 3.149 km) | built 2026-10-20 |
+| 6 | Bedford Autodrome (`bedfordautodrome`) | GT 6.11 km, SW 4.50 km, West 3.0 km, SEN 3.70 km (MSV's circuit-layouts page; North, South and East no longer listed) | built 2026-10-20 |
+| 7 | Circuito de Navarra (`navarra`) | Main Track 4.313 km, Medium 2.693 km, Short 1.391 km (MSV, since September 2024) | built 2026-10-20 (IGN MDT05 heights, UTM 30N) |
 
 **Standing requirements (Chris, 2026-10-20), for every circuit in the pack:**
 
@@ -96,6 +96,32 @@ Recipe extras (Anglesey, `tools/real_tracks/anglesey.json`):
   the layout's route, racing direction and line come from (see "MSV pack", standing rules). The importer and
   `test_import_real_track.py` fail without them.
 - `lapNames`: `null` drops an unnamed way's label.
+- Closed ways (2026-10-20, Bedford, where OSM maps each circuit as one loop): `[way, from_node, to_node, "fwd"|"rev"]`
+  takes the part of a closed way from one node to the other along or against the way, through its closing node when
+  needed; a bare way id still takes the whole way. Alternative layouts are cut where they leave the main lap by OSM
+  *segment* (node to node, in the driving direction), so a layout may use another part of a way the main lap uses.
+- `extraWays`: ids of non-raceway ways a layout drives (Bedford's airfield service road between two loops), fetched
+  by id into `osm_extra.json`.
+- `cornerLabels`: `[{"name", "node"}]`, names placed at OSM nodes on the main lap, for corners on a long way (a loop
+  way, or numbered turns); they join the way labels in `corners` and `expectedCornerOrder`.
+- `registrationMaxShiftM` (default 6): 0 keeps the OSM line as mapped (flat ground such as an airfield has no road
+  signal in the DTM, so the registration only drifts, differently per layout). `branchOffM` (default 1): how far a
+  layout's fitted line must be from the main one to count as its own branch (unregistered lines on shared ways
+  match exactly but are sampled out of phase, up to 1 m apart).
+- `nodeJoins`: `[[node_a, node_b]]`, OSM nodes under 5 m apart that are one junction on the ground but not joined in
+  OSM (Navarra's Short hook); a way may start at the partner of the previous way's end.
+- `"dtm": "es-mdt05"` (Spain): the IGN MDT05 (5 m, from the PNOA LIDAR, CC BY 4.0) from the IDEE INSPIRE WCS
+  (`servicios.idee.es/wcs-inspire/mdt`, coverage `Elevacion25830_5`, ASCII grids in 1 km tiles) in ETRS89 / UTM
+  30N: the importer then projects WGS84 (taken as ETRS89, under 1 m apart) to UTM 30N with the same transverse
+  Mercator formulae on GRS80, and the local frame uses the UTM scale factor. On a coarser DTM the heights and camber
+  are smoothed more (sigma max(4 m, 2 cells) and max(10 m, 3 cells)). An explicit `slug` may also be the default of
+  the name's last words ("Circuito de Navarra" -> `navarra`).
+- `altLayouts[].joinWithinM`: a branch that runs beside the main road before it merges (Bedford SEN) joins where it
+  first comes within this distance of the main line, instead of overlapping it.
+- `lapLengthTolerancePct` + `lapLengthNote` (main or per layout): a larger gap to the published length than the
+  test's 3 %, only with a note of at least 40 characters explaining it (`test_import_real_track.py`).
+- Lap length: `options.lapLengthKm` is informational for imported tracks and may be up to 7 km (schema); drawn
+  tracks stay at 5 km or less (rule `drawn-lap-length-max`).
 - `seaLevelODN`: no-data (sea) cells become seabed 3 m below it and the spec gets `seaLevelM`; the `coastal`
   environment floods below it.
 - `horizon`: the distant skyline (3-45 km, 32 m DTM overview) for a painted `#horizon` texture (Wales only).
@@ -108,8 +134,8 @@ Recipe extras (Anglesey, `tools/real_tracks/anglesey.json`):
 - Heights are written in mm (cm rounding moved a 2 m step's grade by 0.5 %), and the fitted camber is clamped to
   the 10° imported-bank rule (the report keeps `bankFittedMaxDeg`; Oulton Park's Shell Oils hairpin fits 10.9°).
 
-Environments for real tracks: `parkland` (Cadwell Park, Brands Hatch, Oulton Park), `coastal` (Anglesey), `airfield`
-(Snetterton: flat, open, few trees, arable land beyond; for other airfield circuits too).
+Environments for real tracks: `parkland` (Cadwell Park, Brands Hatch, Oulton Park, Donington Park), `coastal` (Anglesey), `airfield`
+(Snetterton, Bedford Autodrome: flat, open, few trees, arable land beyond), `arid` (Circuito de Navarra).
 
 Every recipe (2026-10-19, after Cadwell Park drove backwards):
 
@@ -135,6 +161,7 @@ Every recipe (2026-10-19, after Cadwell Park drove backwards):
 | Layout (raceway ways), woodland polygons | OpenStreetMap via the Overpass API | ODbL 1.0 | © OpenStreetMap contributors |
 | Heights, camber, terrain (Wales) | Welsh Government / NRW LIDAR composite DTM, 1 m (COG on DataMapWales) | Open Government Licence v3.0 | Contains Natural Resources Wales information © Natural Resources Wales and database right |
 | Heights, camber, terrain | Environment Agency LIDAR Composite DTM, 1 m (bare earth; WCS `environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs`) | Open Government Licence v3.0 | © Environment Agency copyright and/or database right 2022 |
+| Heights, camber, terrain (Spain) | IGN MDT05, 5 m, from the PNOA LIDAR (WCS `servicios.idee.es/wcs-inspire/mdt`, coverage `Elevacion25830_5`, ETRS89 / UTM 30N) | CC BY 4.0 | MDT05 © Instituto Geográfico Nacional de España (IGN), derived from PNOA LIDAR |
 
 The committed sample (`geom/tests/samples/cadwellpark.json`) is derived data (a 2 m centreline, a 6 m grid and
 simplified woods), not the raw downloads. A published mod that uses it should carry the same attribution.
@@ -262,3 +289,138 @@ imported-track direction fix; rebuild after that lands).
 Zip `E:\WreckfestMods\realanglesey.zip` (two events, Anglesey International and Anglesey Coastal; 3,896
 subscenes, 6.97 M vertices with every subscene, within the stock limits). Renders:
 `.local\renders\realanglesey-{oblique,horizon,driver,driver-corkscrew,driver-banking,driver-rocket,driver-school}.png`.
+
+## Donington Park: Grand Prix and National (2026-10-20)
+
+One base scene, two layouts (`doningtonpark_race` = Grand Prix, `doningtonpark_national`; events "Donington Park
+Grand Prix / National"). Recipe `tools/real_tracks/doningtonpark.json` (every source is in it), sample
+`geom/tests/samples/doningtonpark.json`, raw data and report in `.local
+ealtracks\doningtonpark\`, zip
+`E:\WreckfestMods\doningtonpark.zip` (6.7 MB), installed and enabled as "Donington Park". MSV's own
+circuit-layouts page lists exactly these two layouts (Wikipedia and racingcircuits.info: the same pair, 2010 to
+date); the 2010 Tilke GP extension was never built.
+
+| | Grand Prix | National |
+|---|---|---|
+| Source of the layout | MSV GP Circuit map (donington-park.co.uk/about/circuit-layouts): 2.49 mi / 4.02 km, 12 corners | MSV National Circuit map: 1.98 mi / 3.186 km, 10 corners; the Roberts chicane (OSM 27131003, "short cut used on National circuit") in place of the Melbourne Loop |
+| Lap (built) / published | 3,999.7 / 4,020 m (−0.5 %) | 3,183.8 / 3,186 m (−0.1 %; Wikipedia 3,149 m: +1.1 %) |
+| OSM polyline | 4,006 m | 3,180 m |
+| Direction | clockwise: the MSV map's start/finish chevrons point down the Wheatcroft Straight towards Redgate; guides (driver61.com, oversteer48.com) start the lap at Redgate, a right-hander | clockwise (same map and guides) |
+| Start/finish | on the Wheatcroft Straight 197 m from Goddards, beside the middle of the pit lane (driver61.com coordinates 52°49′47.3″N 1°22′46.4″W; MSV maps) | shares the GP line and grid (same chevrons on the MSV National map) |
+| Grid | 24 slots towards Redgate, grade ≤ 2.5 % | the GP grid |
+
+Corners (OSM names, driving order): Wheatcroft Straight, Redgate, Hollywood, Craner Curves, Old Hairpin,
+Starkey's Bridge, Schwantz Curve (unnamed in OSM), McLeans, Coppice, Starkey's Straight (unnamed in OSM), Fogarty
+Esses, Melbourne Hairpin, Goddards; the National leaves after Starkey's Straight through Roberts.
+
+- **Ground:** EA 1 m DTM, heights 63.0–98.9 m (range 36 m), climb 48 m per lap; the Craner Curves drop at −8.1 %
+  over 10 m, McLeans climbs +7.4 %. Camber up to 2.7° (p95 1.6°). Fit: centre RMS 0.014 m, inner edges 0.025 m;
+  registration shifts −2.0…+0.5 m, no corner easing (min radius 15.9 m at the Melbourne Hairpin).
+- **Width:** not published; 11 m (`widthNote`).
+- **Kerbs:** OSM has none; seven corners from the driver61.com guide (Redgate, Craner Curves, Old Hairpin apex +
+  exit, Schwantz Curve, McLeans apex + exit + green concrete, Coppice, Goddards' sausage kerb as an apex kerb), the
+  rest geometric.
+- **Environment:** `parkland` with the 18 OSM woods (Donington Hall's woods along the Craner Curves and Coppice);
+  crowds at Redgate, the Craner Curves, the Old Hairpin and the Melbourne Hairpin; tyre barrier rows on 22 % of a
+  side at most. East Midlands Airport lies about 1 km south, outside the 400 m terrain margin, so it isn't
+  modelled (the horizon is the stock fields vista).
+- **Checks:** builder `check_scene` + `check_export` pass (a divider between the two legs of the Melbourne Loop;
+  24 start points and slot footprints on the road; finish checkpoint on the line in both layouts; route in
+  checkpoint order with `otherway`; minimap `.tcat` per layout matching the compiled route; base 2,705 subscenes,
+  3.4 M vertices with every instance, clutter 5.0 ha, all within the stock limits).
+- **Renders:** `.local
+enders\doningtonpark-{oblique,horizon,driver,driver-craner,driver-melbourne}.png`.
+- **Check in game:** the Craner Curves descent and Old Hairpin, the Melbourne Hairpin divider, the 11 m width.
+
+## Bedford Autodrome: GT, SW, West and SEN (2026-10-20)
+
+One base scene, four layouts (`bedfordautodrome_race` = GT, `_sw`, `_west`, `_sen`; events "Bedford Autodrome GT /
+SW / West / SEN"). Recipe `tools/real_tracks/bedfordautodrome.json`, sample `geom/tests/samples/bedfordautodrome.json`,
+raw data and report in `.local\realtracks\bedfordautodrome\` (MSV and racingcircuits.info maps in `maps\`), zip
+`E:\WreckfestMods\bedfordautodrome.zip` (10.7 MB), installed and enabled as "Bedford Autodrome".
+
+**Layouts.** MSV's own circuit-layouts page (bedfordautodrome.co.uk) lists four: GT, SEN, SW, West; all four are
+built. racingcircuits.info also has the North (1.61 km), South (2.41 km) and East (1.21 km) circuits, which MSV no
+longer lists (PalmerSport driving experiences), so they aren't built (their loops are in the scene where the four
+layouts use them). OSM maps the West, North, South and East circuits as four closed loop ways plus links; each
+layout takes parts of them, and the GT and SEN cross from the North circuit's S-bend to the South circuit's top
+corner over an airfield service road (OSM 449592525, paved between the mapped grass areas).
+
+| | GT | SW | West | SEN |
+|---|---|---|---|---|
+| Source of the layout | MSV GT map (3.8 mi / 6.11 km, 10 left + 8 right corners); racingcircuits.info GT map T1–T18 | MSV SW map (2.8 mi / 4.50 km); racingcircuits.info South West map | MSV West map (1.87 mi / 3 km); OSM's West circuit way, matching the maps turn for turn | MSV SEN map (2.3 mi / 3.70 km); racingcircuits.info SEN map |
+| Lap (built) / published | 5,880.8 / 6,110 m (−3.8 %) | 4,585.3 / 4,500 m (+1.9 %) | 2,798.4 / 3,000 m (−6.7 %) | 3,593.7 / 3,700 m (−2.9 %) |
+| OSM polyline | 5,899 m | 4,592 m | 2,806 m | 3,592 m |
+| Direction | anticlockwise (racingcircuits.info turn numbering; evo.co.uk: the Hangar Hairpin first) | anticlockwise | anticlockwise (lapmeta: counter-clockwise) | anticlockwise |
+| Start/finish | inner (pit) straight before T1, OSM node 305063847, 159 m before the pit lane merges (racingcircuits.info flag, mapped by an affine fit of the West loop) | shares the GT line | shares the GT line | own: the south straight where the South pit lane rejoins, after the small west loop (racingcircuits.info SEN flag) |
+
+**Length gaps.** The OSM routes follow the maps corner for corner (the GT has exactly MSV's 10 left and 8 right
+corners) on the mapped tarmac. The SW, built from the same ways, is 1.9 % over MSV's figure, so OSM isn't
+uniformly short: MSV rounds to 0.1 mi (±80 m), and its West figure (3.0 km) looks like an older layout's
+(racingcircuits.info: 2.98–3.14 km before 2015; lapmeta 2.89 km). The recipe allows 4 % (GT) and 7 % (West) with
+`lapLengthNote`s.
+
+- **Ground:** the flat Thurleigh airfield: road heights 82.8–89.5 m (6.7 m over 2.5 km), grades under 2.1 %, camber
+  under 1.6°. With no road signal in the DTM the OSM line is used as mapped (`registrationMaxShiftM` 0); fit to the
+  DTM: centre RMS 0.015 m.
+- **Width:** not published; 12 m.
+- **Corner names:** Bedford's corners are numbered on MSV's and racingcircuits.info's maps; the labels are the GT's
+  turn numbers ("Turn 2" … "Turn 18", `cornerLabels` at OSM nodes) with Turn 1 named the Hangar Hairpin (evo.co.uk
+  corner guide). The other layouts number their corners differently.
+- **Kerbs:** OSM has none; the Hangar Hairpin's apex kerb from evo.co.uk, the rest geometric.
+- **Environment:** `airfield` (shared with Snetterton): short dry grass round the circuits, few trees (the 8 OSM
+  woods and a light shelter belt), arable land from about 220 m out, a low horizon; tyre barrier rows only where
+  needed (dividers between the parallel straights, the grid, crowds). Crowds at the Hangar Hairpin, Turn 11 (the
+  East tip) and Turn 15 (the North hairpin).
+- **Checks:** builder `check_scene` + `check_export` pass for all four layouts (dividers: 60 probes across gaps
+  under 30 m, one open at 28.5 m; no overlapping road faces; grids on the road; finish checkpoints on the lines;
+  routes in checkpoint order; a minimap `.tcat` per layout; base 2,393 subscenes, 3.8 M vertices with every
+  instance, clutter 4.9 ha, within the stock limits).
+- **Renders:** `.local\renders\bedfordautodrome-{oblique,horizon,driver,driver-hangar,driver-t11,driver-t15}.png`.
+- **Check in game:** the SEN's merge across the paved area after its small west loop, the GT/SEN crossing from the
+  North S-bend to the South top corner, how open the run-off feels (AI resets), the 12 m width.
+
+## Circuito de Navarra: Main Track, Medium and Short (2026-10-20)
+
+One base scene, three layouts (`navarra_race` = Main Track, `navarra_medium`, `navarra_short`; events "Circuito de
+Navarra Main Track / Medium / Short"). Recipe `tools/real_tracks/navarra.json`, sample `geom/tests/samples/navarra.json`,
+raw data and report in `.local\realtracks\navarra\` (MSV and racingcircuits.info maps in `maps\`), zip
+`E:\WreckfestMods\navarra.zip` (7.3 MB), installed and enabled as "Circuito de Navarra". Slug `navarra` (the name's
+last word, now allowed by the importer).
+
+**Layouts.** MSV's own circuit-layouts page (circuitodenavarra.com) lists the 2024 Main Track, Medium and Short;
+Wikipedia and racingcircuits.info have the same three for September 2024 to date (the 650 m extension with the new
+Turns 11-14). racingcircuits.info's "Bike" Long and Medium are bike-only and not built. OSM's
+"Circuito de Velocidad" way is the 2024 lap.
+
+| | Main Track | Medium | Short |
+|---|---|---|---|
+| Source of the layout | MSV Main Track map (2.679 mi / 4.313 km, 6 left + 11 right); racingcircuits.info Speed Circuit Long 2024 (T1-T17) | MSV Medium map (1.673 mi / 2.693 km); the diagonal link (OSM 103746068) from T5 to T14 | MSV Short map (0.864 mi / 1.391 km); the Main Track's T8-T11 and the hook from the T11 hairpin's exit back to the T7-T8 road (OSM 1539678089, joined to the lap by `nodeJoins`: it ends 2.3 m off it) |
+| Lap (built) / published | 4,280.0 / 4,313 m (−0.8 %) | 2,637.4 / 2,693 m (−2.1 %) | 1,347.7 / 1,391 m (−3.1 %; OSM's hook is coarse, `lapLengthNote`) |
+| Direction | clockwise (racingcircuits.info arrows; MSV's 11 right / 6 left fit only clockwise) | clockwise | clockwise |
+| Start/finish | main straight opposite the middle of the pit building, 263 m from T17 (MSV map line; OSM pit building 121-402 m along the straight; racingcircuits.info draws its flag ~160 m further on) | shares the Main Track line | own: the T10-T11 straight 70 m after T10 (racingcircuits.info Short flag on that straight; placed where the 24-car grid stays under 4 %) |
+
+Corner labels are racingcircuits.info's turn numbers ("Turn 1" … "Turn 17", `cornerLabels` at OSM nodes); Navarra's
+corners have no published names. The OSM lap has exactly MSV's 11 right and 6 left corners.
+
+- **Heights:** Spain's IGN MDT05 (5 m, from the PNOA LIDAR, CC BY 4.0, "© Instituto Geográfico Nacional"), from the
+  IDEE INSPIRE WCS in ETRS89 / UTM 30N; the importer now projects to UTM 30N for it (`"dtm": "es-mdt05"`). Road
+  heights 427-447 m (range 20.3 m), climb 45 m per lap, +9.3 % / −13.5 % over 10 m (the back straight between T8
+  and T9 crosses a 3 m hump), camber up to 7.4° (T11 is banked). The 5 m grid is too coarse to register the OSM
+  line to (with 3 m allowed the three layouts' fits drifted apart), so the line is used as mapped; heights and
+  camber are smoothed over 10 m and 15 m. Fit to the DTM: centre RMS 0.13 m (max 0.7 m at the hump).
+- **Width:** not published; 12 m.
+- **Kerbs:** OSM has none and no track guide with kerb detail for the 2024 layout was found: geometric kerbs.
+- **Environment:** the new `arid` preset: the stock sandpit03 palette (sand, pebbles, dry ground, sandpit3 dry-grass
+  clutter, the landscape1 vista), low scrub, rocks and a few pines, bare rolling hills on the far ground; light
+  concrete barrier rows (stock barrier8) only where needed, metal crowd fences; crowds at Turns 3, 11 and 17.
+  No OSM woods inside the terrain box.
+- **Checks:** builder `check_scene` + `check_export` pass for all three layouts (dividers: 43 probes, none open;
+  grids on the road under 4 %; lines and route order; a minimap `.tcat` per layout; base 3,822 subscenes, 8.5 M
+  vertices with every instance (the first build was 10.7 M with barrier7a crowd fences, now metal fences), clutter
+  5.0 ha). The Short first failed in bgeometry ("safe area did not overlap all sectors"): its start line runs
+  nearly east-west, so the route and the narrower safe/race strips disagreed on bgeometry's canonical orientation;
+  the builder now runs the strips on past the line until they agree, and `check_scene` checks it.
+- **Renders:** `.local\renders\navarra-{oblique,horizon,driver,driver-t3,driver-t11}.png`.
+- **Check in game:** the Short's hook inside the T11 hairpin (its road and divider run inside the hairpin), the
+  back-straight hump, the banked T11, how the arid ground and sandpit textures read on tarmac.

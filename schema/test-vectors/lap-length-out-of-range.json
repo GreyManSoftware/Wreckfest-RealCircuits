@@ -1,5 +1,5 @@
 {
-  "description": "Lap length above 5 km.",
+  "description": "Lap length above the schema maximum (7 km).",
   "spec": {
     "meta": {
       "name": "Test Track",
@@ -47,7 +47,7 @@
       }
     },
     "options": {
-      "lapLengthKm": 5.5,
+      "lapLengthKm": 7.5,
       "widthM": 12,
       "surface": "mixed",
       "kerbs": true,

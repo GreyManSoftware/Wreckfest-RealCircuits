@@ -16,7 +16,8 @@
     "flatCrossingMaxStepM": 0.5,
     "importedMaxGradePct": 25,
     "importedMaxBankDeg": 10,
-    "importedGridMaxGradePct": 4
+    "importedGridMaxGradePct": 4,
+    "maxDrawnLapLengthKm": 5
   },
   "rules": [
     {
@@ -31,6 +32,23 @@
         ]
       },
       "effect": { "type": "error", "path": "/sketch/mainLoop", "message": "Draw the main loop first." }
+    },
+    {
+      "id": "drawn-lap-length-max",
+      "title": "Drawn laps up to 5 km",
+      "description": "A drawn track's lap is at most maxDrawnLapLengthKm; only an imported (real) circuit may be longer, up to the schema's 7 km (Bedford Autodrome GT, 5.9 km), still within +/-2000 m (layout-within-bounds).",
+      "evaluatedBy": "engine",
+      "when": {
+        "and": [
+          { "not": { "exists": { "var": "sketch.imported" } } },
+          { ">": [{ "var": "options.lapLengthKm" }, { "var": "constants.maxDrawnLapLengthKm" }] }
+        ]
+      },
+      "effect": {
+        "type": "error",
+        "path": "/options/lapLengthKm",
+        "message": "A drawn lap can be at most {constants.maxDrawnLapLengthKm} km."
+      }
     },
     {
       "id": "imported-no-drawn-routes",
@@ -706,7 +724,7 @@
       "title": "Sand only in sandy presets",
       "description": "Provisional: sand surfaces are only offered in the sandpit and gravel pit presets.",
       "evaluatedBy": "engine",
-      "when": { "in": [{ "var": "options.environment" }, ["farmland", "forest", "industrial", "parkland", "coastal"]] },
+      "when": { "in": [{ "var": "options.environment" }, ["farmland", "forest", "industrial", "parkland", "coastal", "airfield"]] },
       "effect": {
         "type": "disable",
         "option": "surface",

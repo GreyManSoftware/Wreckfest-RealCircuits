@@ -31,7 +31,7 @@ TrackSpec
 │     ├─ woodland[≤500] { points[3–2000] {x, y} } · corners[≤60], viewingSpots[≤20] { name, sM }
 │     ├─ kerbs[≤60] { corner, sM, entry?, apex?, exit?, green?, source }  real-data kerb overrides per corner
 └─ options   all required (the schema has the UI defaults)
-   lapLengthKm 0.8–5 (1.5) · widthM 8–20 (12) · surface tarmac|gravel|mixed|sand (mixed) · kerbs (true)
+   lapLengthKm 0.8–7 (1.5; drawn tracks ≤ 5) · widthM 8–20 (12) · surface tarmac|gravel|mixed|sand (mixed) · kerbs (true)
    walls concrete|tyres|none (tyres) · elevation flat|gentle|hilly|custom|imported (gentle)
    environment gravel_pit|farmland|forest|industrial|sandpit|parkland (gravel_pit) · gridSize 8–24 (16)
    weathers ≥1 unique of sunrise|morning|midday|noon|afternoon|evening|sunset (["midday"])
@@ -205,6 +205,7 @@ Result shape (field case differs per language): `schemaValid`, `valid`, `schemaE
 | Id | By | Effect |
 |---|---|---|
 | `main-loop-required` | engine | error when there is no main loop (and no imported centreline) |
+| `drawn-lap-length-max` | engine | error when a drawn (not imported) lap is over `maxDrawnLapLengthKm` (5 km); real circuits may be up to 7 km |
 | `imported-no-drawn-routes` | engine | error: an imported track has no drawn main loop, start/finish, alt routes, crossings or height markers |
 | `imported-elevation` | engine | disables `elevation` flat/gentle/hilly/custom for an imported track |
 | `elevation-imported-requires-import` | engine | hides `elevation=imported` unless the track is imported |
@@ -239,7 +240,7 @@ Result shape (field case differs per language): `schemaValid`, `valid`, `schemaE
 | `layout-within-bounds` | geometry | `maxAbsCoordinateM ≤ 2000` |
 | `min-corner-radius` | geometry | `minCornerRadiusM ≥ widthM / 2 + minInnerEdgeRadiusM` (6 m; imported: `importedMinInnerEdgeRadiusM`, 2 m) |
 | `sandpit-no-tarmac` | engine | disables `surface=tarmac` in the sandpit (`mixed` is still offered) |
-| `sand-surface-environments` | engine | disables `surface=sand` in farmland, forest, industrial, parkland and coastal (provisional) |
+| `sand-surface-environments` | engine | disables `surface=sand` in farmland, forest, industrial, parkland, coastal and airfield (provisional) |
 | `sand-no-kerbs` | engine | hides `kerbs=true` on sand |
 
 The elevation rules only apply when there are height markers (without them the bridge climb is always the standard

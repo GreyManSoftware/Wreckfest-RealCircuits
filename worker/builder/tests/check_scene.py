@@ -253,12 +253,14 @@ def check_maps(out: str, model: dict, spec: dict, manifest: dict) -> None:
     band = clutter[j, i, 1][(d > 8.0) & (d < 35.0)]
     far = clutter[j, i, 1][d > 100.0]
     fb = float(np.mean(far)) if len(far) else 0.0
-    check(len(band) > 20 and float(np.mean(band)) >= max(20.0, 3.0 * fb),
-          "maps: clutter grass (G) forms a band beside the road and fades out far from it",
-          f"band mean {np.mean(band) if len(band) else 0:.0f}, far {fb:.0f}")
     # the whole mask within the stock clutter budget (more crashed the game: "Out of vertex buffer memory")
     from wfbuild.maps import clutter_density
     ha, local = clutter_density(clutter[:, :, :3] / 255.0, size)
+    # a long lap (a real 4-5 km circuit, several layouts) thins its band to the budget: a lower floor then
+    band_min = 10.0 if ha >= 0.9 * C.CLUTTER_MAX_HA else 20.0
+    check(len(band) > 20 and float(np.mean(band)) >= max(band_min, 3.0 * fb),
+          "maps: clutter grass (G) forms a band beside the road and fades out far from it",
+          f"band mean {np.mean(band) if len(band) else 0:.0f} (min {band_min:.0f}), far {fb:.0f}, {ha:.1f} ha")
     check(ha <= C.CLUTTER_MAX_HA + 0.05 and local <= C.CLUTTER_MAX_LOCAL + 0.005,
           "maps: clutter mask within the stock budget",
           f"{ha:.1f} ha at full density (max {C.CLUTTER_MAX_HA}), 400 m window max {local:.3f} (max {C.CLUTTER_MAX_LOCAL})")
@@ -580,6 +582,10 @@ def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manife
     check(("otherway = true" in cd) == (not canonical),
           f"{name}: otherway = true exactly when the driving-order strip isn't bgeometry's canonical orientation",
           f"{cd!r}, firstR.y {rl[0][1][1]:.1f}, lastL.y {rl[-1][0][1]:.1f}")
+    # bgeometry orients every strip by its own canonical test and the route's otherway: all three must agree
+    # (else "safe area did not overlap all sectors"; Navarra's Short)
+    tests = {(sl := strip_lines(o))[0][1][1] <= sl[-1][0][1] for o in (r, s, c)}
+    check(len(tests) == 1, f"{name}: route, safe and race strips agree on bgeometry's canonical orientation")
     # the racing strip (inside the road) lies on the road surface, across its camber too
     multi = model.get("layouts") or []
     lay_def = next((d for d in multi if d["id"] == ("main" if lay["key"] == "forward" else lay["key"])), None)

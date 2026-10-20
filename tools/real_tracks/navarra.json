@@ -1,0 +1,215 @@
+{
+  "description": "Recipe for tools/import_real_track.py: Circuito de Navarra (Los Arcos, Navarre, Spain), MSV. The 2024 Main Track with the Medium and Short layouts sharing its base: the three on MSV's own circuit-layouts page (circuitodenavarra.com/about/circuit-layouts), matching Wikipedia's and racingcircuits.info's current (September 2024 to date) car layouts. racingcircuits.info's 'Bike' Long and Medium variants are bike-only, so they aren't built. Heights from Spain's IGN MDT05 (5 m, PNOA LIDAR) in ETRS89 / UTM 30N.",
+  "name": "Circuito de Navarra",
+  "slug": "navarra",
+  "trackDescription": "Circuito de Navarra, Main Track (4.30 km), Medium (2.65 km) and Short (1.32 km) layouts from OpenStreetMap, with heights, camber and terrain from the IGN MDT05 (PNOA LIDAR, 5 m). Dry northern-Spain hills of scrub and bare ground beside Los Arcos.",
+  "bbox": [
+    42.545,
+    -2.2,
+    42.585,
+    -2.1
+  ],
+  "dtm": "es-mdt05",
+  "terrainMarginM": 400,
+  "terrainCellM": 10,
+  "registrationMaxShiftM": 0,
+  "branchOffM": 1.5,
+  "registrationNote": "The 5 m MDT05 has two or three cells across the road: too coarse to register the OSM line to (with 3 m allowed the fits of the three layouts drifted apart along their shared road), so the line is used as mapped.",
+  "lap": [
+    103746067
+  ],
+  "mainLayoutName": "Main Track",
+  "layoutSource": "MSV official circuit-layouts page (circuitodenavarra.com/about/circuit-layouts, Main Track map): 2.679 mi / 4.313 km, 17 corners (6 left, 11 right), the September 2024 layout with the 650 m extension (new Turns 11-14, circuitodenavarra.com/circuit); Wikipedia 'Full Circuit 2024-present' 4.313 km; racingcircuits.info 'Speed Circuit Long Sep 2024 to date' map T1-T17. OSM's 'Circuito de Velocidad' way (103746067) is the 2024 lap: 4.30 km, with 6 left and 11 right corners.",
+  "directionSource": "racingcircuits.info Speed Circuit Long 2024 map: arrows along the main straight towards T1 and from T13 to T14 and T15 to T16 (clockwise; T1 at the end of the main straight); MSV corner counts (11 right, 6 left) fit only the clockwise lap.",
+  "startFinish": {
+    "lat": 42.557957,
+    "lon": -2.16739,
+    "note": "On the main straight opposite the middle of the pit building (OSM building 837270939, 281 m along the straight), 263 m from T17."
+  },
+  "startFinishSource": "MSV Main Track map: the start/finish line drawn across the main straight at the middle of the pit building (an affine fit of the OSM lap to the map, 5 points, 3-13 px, puts it 263 m from T17; OSM's pit building spans 121-402 m, middle 261 m); circuitodenavarra.com: the pit building's upper floors overlook the start/finish straight. racingcircuits.info draws its flag about 160 m further towards T1 (still beside the pits).",
+  "altLayouts": [
+    {
+      "id": "medium",
+      "name": "Medium",
+      "lap": [
+        [
+          103746067,
+          1197786147,
+          1197786149
+        ],
+        [
+          103746068,
+          1197786149,
+          1197786147
+        ]
+      ],
+      "layoutSource": "MSV Medium map: 1.673 mi / 2.693 km, 11 corners (5 left, 6 right): the main straight, T1-T5, then the diagonal link (OSM way 103746068 'Connection', mapped the other way) to join the lap at T14, then T15-T17; racingcircuits.info Speed Circuit Medium Sep 2024 map (T1-T10).",
+      "directionSource": "racingcircuits.info Speed Circuit Medium map: arrows along the main straight and up the link towards T6/T7 (clockwise, as the Main Track).",
+      "startFinishSource": "racingcircuits.info Medium map and MSV Medium map: the line at the same place on the main straight as the Main Track's, so the Medium shares its line and grid.",
+      "measuredLapLengthM": 2650,
+      "publishedLapLengthM": 2693
+    },
+    {
+      "id": "short",
+      "name": "Short",
+      "lap": [
+        [
+          103746067,
+          1197786137,
+          14019394727
+        ],
+        [
+          1539678089,
+          1197786140,
+          1197786137
+        ]
+      ],
+      "layoutSource": "MSV Short map: 0.864 mi / 1.391 km, 5 corners (1 left, 4 right); racingcircuits.info Speed Circuit Short Sep 2024 map (T1-T5): the Main Track's T8, T9, T10 and T11 hairpin (the Short's T3, T4, T5, T1), then the hook from the hairpin's exit back onto the T7-T8 road (its T2; OSM 'Connection' 1539678089, joined to the lap by nodeJoins). OSM's other link, the 4-node 1100714824 from the T10-T11 straight, predates the 2024 hairpin and isn't used. MSV: the Short and Medium can run at the same time.",
+      "directionSource": "racingcircuits.info Short map: the arrows run up the long T3-T4 straight (the Main Track's T8-T9) and back along the T5-T1 straight (clockwise, as the Main Track).",
+      "startFinish": {
+        "alongWay": 103746067,
+        "fraction": 0.87,
+        "note": "On the T10-T11 straight, about 70 m after T10 and 240 m before the T11 hairpin (the grid there stays under the 4 % grid rule)."
+      },
+      "startFinishSource": "racingcircuits.info Short map: its own chequered flag on the straight from T5 (the Main Track's T10) towards the T11 hairpin (the Short's T1), drawn a little past half way; here 22 % along it, where the 24-car grid stays under 4 % (further along the straight climbs at 4 %).",
+      "measuredLapLengthM": 1345,
+      "publishedLapLengthM": 1391,
+      "joinWithinM": [
+        null,
+        12
+      ],
+      "joinNote": "The hook meets the T7-T8 road at a shallow angle: the branch's end joins where it first comes within 12 m of the lap (two half-widths), so its road and AI route don't run on top of the main road.",
+      "lapLengthTolerancePct": 3.5,
+      "lapLengthNote": "Short: 1.348 km built against MSV 0.864 mi / 1.391 km (-3.1 %). OSM maps the Short hook (1539678089) coarsely and not joined to the lap (nodeJoins); the Main Track and Medium built from the same lap are within 0.8 % and 2.1 % of their figures."
+    }
+  ],
+  "lapNames": {
+    "103746067": null,
+    "103746068": null,
+    "1539678089": null
+  },
+  "cornerLabels": [
+    {
+      "name": "Turn 1",
+      "node": 2055886021
+    },
+    {
+      "name": "Turn 2",
+      "node": 2055886037
+    },
+    {
+      "name": "Turn 3",
+      "node": 2055886115
+    },
+    {
+      "name": "Turn 4",
+      "node": 2055886036
+    },
+    {
+      "name": "Turn 5",
+      "node": 2055885963
+    },
+    {
+      "name": "Turn 6",
+      "node": 2055886001
+    },
+    {
+      "name": "Turn 7",
+      "node": 2055885929
+    },
+    {
+      "name": "Turn 8",
+      "node": 2055885952
+    },
+    {
+      "name": "Turn 9",
+      "node": 2055885962
+    },
+    {
+      "name": "Turn 10",
+      "node": 2055885927
+    },
+    {
+      "name": "Turn 11",
+      "node": 14019394722
+    },
+    {
+      "name": "Turn 12",
+      "node": 14019394734
+    },
+    {
+      "name": "Turn 13",
+      "node": 14019394746
+    },
+    {
+      "name": "Turn 14",
+      "node": 2055885986
+    },
+    {
+      "name": "Turn 15",
+      "node": 2055886047
+    },
+    {
+      "name": "Turn 16",
+      "node": 2055885958
+    },
+    {
+      "name": "Turn 17",
+      "node": 1197786187
+    }
+  ],
+  "cornerLabelsNote": "Navarra's corners are numbered, not named (MSV, racingcircuits.info, circuitodenavarra.com: Turn 6 re-profiled, the new banked Turn 11 hairpin, the fast Turn 13-14 right-left): labels are racingcircuits.info's Main Track turn numbers at the OSM node where the lap turns most. Rights T1, T2, T3, T7, T8, T9, T10, T12, T13, T15, T17 and lefts T4, T5, T6, T11, T14, T16 give MSV's 11 right and 6 left.",
+  "publishedLapLengthM": 4313,
+  "measuredLapLengthM": 4301,
+  "widthM": 12.0,
+  "widthNote": "Not published; 12 m.",
+  "clockwise": true,
+  "viewingSpots": [
+    "Turn 3",
+    "Turn 11",
+    "Turn 17"
+  ],
+  "expectedCornerOrder": [
+    "Turn 1",
+    "Turn 2",
+    "Turn 3",
+    "Turn 4",
+    "Turn 5",
+    "Turn 6",
+    "Turn 7",
+    "Turn 8",
+    "Turn 9",
+    "Turn 10",
+    "Turn 11",
+    "Turn 12",
+    "Turn 13",
+    "Turn 14",
+    "Turn 15",
+    "Turn 16",
+    "Turn 17"
+  ],
+  "expectedCornerOrderNote": "The 2024 Main Track's turns in racingcircuits.info's numbering, clockwise from the end of the main straight.",
+  "kerbsNote": "OSM has no kerb features here and the 5 m DTM can't resolve kerbs; no track guide with kerb detail was found for the 2024 layout, so every corner gets the geometric apex/exit kerbs.",
+  "environmentNote": "arid: the dry hills of Tierra Estella south of Los Arcos: sand, pebbles and dry ground, scrub and rocks, a few pines, bare hills on the far ground.",
+  "options": {
+    "surface": "tarmac",
+    "kerbs": true,
+    "walls": "concrete",
+    "environment": "arid",
+    "gridSize": 24,
+    "weathers": [
+      "morning",
+      "midday",
+      "afternoon"
+    ],
+    "reverseLayout": false,
+    "defaultLaps": 5
+  },
+  "nodeJoins": [
+    [
+      14019394727,
+      1197786140
+    ]
+  ],
+  "nodeJoinsNote": "The Short's hook (OSM 1539678089) crosses the exit of the 2024 Turn 11 hairpin without a shared node: its node 1197786140 lies 2.3 m from the lap's 14019394727 there. The join makes that one junction: the Short runs round the T11 hairpin (its T1, as racingcircuits.info draws it) and turns off at the exit onto the hook (its T2), instead of a flat crossing, which imported tracks can't have."
+}

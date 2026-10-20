@@ -493,9 +493,9 @@
     },
     "Environment": {
       "title": "Environment",
-      "description": "Environment preset (stock textures and props). parkland: lush grass, deciduous woods and grass banks. coastal: open, windswept coastal grassland with gorse, rocks along the shore, stone walls and the sea. airfield: a flat, open former airfield: short dry grass, few trees, arable fields beyond, a low horizon.",
+      "description": "Environment preset (stock textures and props). parkland: lush grass, deciduous woods and grass banks. coastal: open, windswept coastal grassland with gorse, rocks along the shore, stone walls and the sea. airfield: a flat, open former airfield: short dry grass, few trees, arable fields beyond, a low horizon. arid: dry northern-Spain scrubland, sand and rock, a few pines, bare hills.",
       "type": "string",
-      "enum": ["gravel_pit", "farmland", "forest", "industrial", "sandpit", "parkland", "coastal", "airfield"]
+      "enum": ["gravel_pit", "farmland", "forest", "industrial", "sandpit", "parkland", "coastal", "airfield", "arid"]
     },
     "Weather": {
       "title": "Weather",
@@ -523,10 +523,10 @@
       "properties": {
         "lapLengthKm": {
           "title": "Lap length (km)",
-          "description": "Target lap length; the sketch is scaled to match.",
+          "description": "Target lap length; the sketch is scaled to match. Drawn tracks up to 5 km (rule drawn-lap-length-max); an imported track's is informational (its centreline's length), up to 7 km (Bedford Autodrome GT, 5.9 km).",
           "type": "number",
           "minimum": 0.8,
-          "maximum": 5.0,
+          "maximum": 7.0,
           "default": 1.5
         },
         "widthM": {
