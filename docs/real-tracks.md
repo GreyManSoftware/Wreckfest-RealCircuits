@@ -317,8 +317,8 @@ enders\doningtonpark-{oblique,horizon,driver,driver-craner,driver-melbourne}.png
 
 One base scene, four layouts (`bedfordautodrome_race` = GT, `_sw`, `_west`, `_sen`; events "Bedford Autodrome GT /
 SW / West / SEN"). Recipe `tools/real_tracks/bedfordautodrome.json`, sample `geom/tests/samples/bedfordautodrome.json`,
-raw data and report in `.localealtracksedfordautodrome\` (MSV and racingcircuits.info maps in `maps\`), zip
-`E:\WreckfestModsedfordautodrome.zip` (10.7 MB), installed and enabled as "Bedford Autodrome".
+raw data and report in `.local\realtracks\bedfordautodrome\` (MSV and racingcircuits.info maps in `maps\`), zip
+`E:\WreckfestMods\bedfordautodrome.zip` (10.7 MB), installed and enabled as "Bedford Autodrome".
 
 **Layouts.** MSV's own circuit-layouts page (bedfordautodrome.co.uk) lists four: GT, SEN, SW, West; all four are
 built. racingcircuits.info also has the North (1.61 km), South (2.41 km) and East (1.21 km) circuits, which MSV no
@@ -357,7 +357,7 @@ uniformly short: MSV rounds to 0.1 mi (±80 m), and its West figure (3.0 km) loo
   under 30 m, one open at 28.5 m; no overlapping road faces; grids on the road; finish checkpoints on the lines;
   routes in checkpoint order; a minimap `.tcat` per layout; base 2,393 subscenes, 3.8 M vertices with every
   instance, clutter 4.9 ha, within the stock limits).
-- **Renders:** `.localendersedfordautodrome-{oblique,horizon,driver,driver-hangar,driver-t11,driver-t15}.png`.
+- **Renders:** `.local\renders\bedfordautodrome-{oblique,horizon,driver,driver-hangar,driver-t11,driver-t15}.png`.
 - **Check in game:** the SEN's merge across the paved area after its small west loop, the GT/SEN crossing from the
   North S-bend to the South top corner, how open the run-off feels (AI resets), the 12 m width.
 
