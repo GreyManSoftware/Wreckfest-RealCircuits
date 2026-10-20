@@ -40,6 +40,7 @@ WALL_SETBACK = 12.0           # scenery stays behind this (+2.5 m) from the road
 # Barriers only where needed (geometry.wall_plan); elsewhere open grass run-off.
 DIVIDER_GAP = 30.0            # another section of track within this of the road edge gets a divider mid-gap
 DIVIDER_MIN = 1.5             # ...at least this far from either edge
+DIVIDER_OVERRUN = 2           # ...and on for this many samples (~4 m) past the end of the gap
 DIVIDER_JUNCTION_CLEAR = 40.0 # no divider within this (along the road) of a junction, flat crossing or bridge
 DIVIDER_MERGE_M = 60.0        # imported tracks: no divider where a branch within this of its junction merges into its road
 DIVIDER_BANK_MIN_GAP = 9.0    # drawn tracks: a grass bank under the divider where the gap is at least this...
