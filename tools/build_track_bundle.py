@@ -230,11 +230,12 @@ def map_panel(jpg: bytes):
     im = Image.open(io.BytesIO(jpg)).convert("RGB")
     a = np.asarray(im).astype(int)
     white = a.min(axis=2) > 200
-    white[:, : int(a.shape[1] * 0.4)] = False
+    left = int(a.shape[1] * 0.42)  # the card's text column (images.card: the outline in the right 58 %)
+    white[:, :left] = False
     ys, xs = np.nonzero(white)
     if len(xs) > 500 and not ((a[:, :, 1] > a[:, :, 0] + 12) & (a[:, :, 1] > 60)).mean() > 0.2:
         m = int(0.08 * max(xs.max() - xs.min(), ys.max() - ys.min()))
-        return im.crop((max(0, int(xs.min()) - m), max(0, int(ys.min()) - m),
+        return im.crop((max(left, int(xs.min()) - m), max(0, int(ys.min()) - m),
                         min(a.shape[1], int(xs.max()) + 1 + m), min(a.shape[0], int(ys.max()) + 1 + m)))
     green = (a[:, :, 1] > a[:, :, 0] + 12) & (a[:, :, 1] > 60)
     green[:, : a.shape[1] // 2] = False

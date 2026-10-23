@@ -237,7 +237,7 @@ def card(w: int, h: int, outline: dict, title: str, subtitle: str, text: bool = 
     x = pad * 3 + max(4, w // 150)
     text_w = w - ow - x - 2 * pad
     tf = _text_fit(d, title, text_w, int(h * (0.30 if wide else 0.09)))
-    sf = _font(max(10, int(tf.size * 0.45)))
+    sf = _text_fit(d, subtitle, text_w, max(10, int(tf.size * 0.45)))  # never into the outline's column
     th = tf.getbbox(title)[3]
     y = (h - th - sf.size * 1.6) / 2 if wide else h * 0.38
     d.text((x, y), title, font=tf, fill=WHITE)
