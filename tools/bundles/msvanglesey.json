@@ -3,6 +3,7 @@
   "title": "MSV + Anglesey Tracks",
   "publishedId": 0,
   "visibility": "public",
+  "homepage": "https://git.greymansoftware.com",
   "tracks": ["cadwellpark", "brandshatch", "oultonpark", "snetterton", "doningtonpark", "bedfordautodrome", "navarra", "anglesey"],
   "intro": "[h1]MSV + Anglesey Tracks[/h1]\nThe seven MotorSport Vision circuits plus Anglesey Circuit (Trac Mon), rebuilt from open map and LIDAR data: {circuits} circuits, {layouts} layouts. Each circuit has its current official layouts with the real racing direction and start/finish lines, real elevation and camber, a 24-car grid, AI and the in-race minimap.",
   "lapNote": "Lap lengths are as built in the game.",

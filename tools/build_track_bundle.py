@@ -301,6 +301,8 @@ def description(cfg: dict, members: list[dict]) -> str:
               "[h2]Using it[/h2]", *cfg.get("usage", []), "",
               "[h2]Credits[/h2]", "[list]", *[f"[*]{c}" for c in cfg["credits"]], "[/list]",
               cfg["disclaimer"]]
+    if cfg.get("homepage"):
+        lines += ["", f"Made by GreyManSoftware: [url={cfg['homepage']}]{cfg['homepage']}[/url]"]
     return "\n".join(lines).strip() + "\n"
 
 
@@ -310,6 +312,8 @@ def credits_txt(cfg: dict, members: list[dict]) -> str:
         out.append(f"- {m['name']}: " + ", ".join(f"{l['name']} {km(l['lapM'])}" for l in m["layouts"]))
     out += ["", "Data sources and licences:"] + [f"- {c}" for c in cfg.get("creditsLong", cfg["credits"])]
     out += ["", cfg["disclaimer"], ""]
+    if cfg.get("homepage"):
+        out += [f"Made by GreyManSoftware: {cfg['homepage']}", ""]
     return "\n".join(out)
 
 
