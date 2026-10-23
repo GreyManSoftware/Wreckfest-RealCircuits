@@ -37,6 +37,8 @@
     "842454048": null,
     "841515325": null
   },
+  "sharpWays": [28381201],
+  "sharpWaysNote": "The Fogarty Esses (OSM 28381201 \"Fogarty's\") are the chicane at the end of Starkey's Straight (MSV map, Wikipedia: a left-right before Melbourne); the importer's 5 m smoothing rounded them to a 21 m radius S, so they are kept sharp (tools/import_real_track.py, sharpWays; Oulton Park's Hislop's read as a kink in game, 2026-10-23).",
   "publishedLapLengthM": 4020,
   "measuredLapLengthM": 4006,
   "widthM": 11.0,
