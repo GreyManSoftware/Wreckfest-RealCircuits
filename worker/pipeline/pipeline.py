@@ -228,7 +228,9 @@ def build_mod(spec_path: str, out_dir: str, tcats: dict[str, str] | None = None,
         report["generatedTextures"] = textures
         report["scenery"] = manifest.get("scenery")
         report["builderTimings"] = manifest.get("timings")
-        zip_path, rep = package.package(spec, manifest, _geom.preview_svg, project, sizes, work, out_dir,
+        with open(model_path, encoding="utf-8") as f:
+            model = json.load(f)
+        zip_path, rep = package.package(spec, manifest, model, project, sizes, work, out_dir,
                                         tcats or {}, run, log, report)
         res.update(ok=True, zip=zip_path)
         report = rep

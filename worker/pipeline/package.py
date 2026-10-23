@@ -74,7 +74,7 @@ def _sha(path: str) -> str:
     return h.hexdigest()
 
 
-def package(spec: dict, manifest: dict, preview_svg: str, project: str, sizes: dict, work: str, out_dir: str,
+def package(spec: dict, manifest: dict, model: dict, project: str, sizes: dict, work: str, out_dir: str,
             tcats: dict[str, str], run: Runner, log: BuildLog, report: dict) -> tuple[str, dict]:
     bw = _bagwrite()
     slug = manifest["slug"]
@@ -156,22 +156,41 @@ def package(spec: dict, manifest: dict, preview_svg: str, project: str, sizes: d
     f.modi_file(name=name, preview="preview.jpg", desc=desc, tagbits=8)  # visibility 2 = private; 8 = track
     f.save(p("modinfo.modi"))
 
-    # Images: TGA sources in a staging project (bimage stores the data/... path), .bmap into the mod
-    pv = images.render_svg(preview_svg)
+    # Images: per layout from the TrackModel (images.py), TGA sources in a staging project (bimage stores the
+    # data/... path), .bmap into the mod; PNG copies in <out>/thumbs for review
+    outlines = images.layout_outlines(model, layouts)
+    main_out = outlines[layouts[0]["name"]]
+    env_out = {"lap": main_out["lap"], "extra": main_out["extra"],
+               "others": [o for lay in layouts[1:] for o in [outlines[lay["name"]]["lap"]]] + main_out["others"]}
     sub = f"{opts.get('lapLengthKm', '?')} km  |  {env.replace('_', ' ')}  |  {opts.get('surface', '')}"
     stage = os.path.join(work, "images")
     jobs = []  # (relpath without extension, image, alpha)
     for lay in layouts:
-        lsub = ("Reverse  |  " if lay["reverse"] else "") + sub
+        km = f"{float(lay['lapLengthM']) / 1000:.2f} km" if lay.get("lapLengthM") else f"{opts.get('lapLengthKm', '?')} km"
+        lsub = ("Reverse  |  " if lay["reverse"] else "") + f"{km}  |  {env.replace('_', ' ')}  |  {opts.get('surface', '')}"
         title = layout_title(name, lay)
+        o = outlines[lay["name"]]
         base = f"data/track/{slug}/menu/event_{lay['name']}"
-        jobs.append((f"{base}_loading_1920x1200_raw", images.card(1920, 1200, pv, title, lsub), False))
-        jobs.append((f"{base}_results_812x162_raw", images.card(812, 162, pv, title, lsub), True))
-        jobs.append((f"{base}_small_250x116_raw", images.card(250, 116, pv, title, lsub), True))
-        jobs.append((f"data/menu/textures/event_{lay['name']}_small_250x116_raw",
-                     images.card(250, 116, pv, title, lsub), True))
-    jobs.append((f"data/menu/textures/env_{slug}_large_832x386_raw", images.card(832, 386, pv, name, sub), True))
-    jobs.append((f"data/menu/textures/env_{slug}_small_250x116_raw", images.card(250, 116, pv, name, sub), True))
+        small = images.outline_image(250, 116, o)  # stock style: the outline on a transparent background
+        jobs.append((f"{base}_loading_1920x1200_raw", images.card(1920, 1200, o, title, lsub), False))
+        jobs.append((f"{base}_results_812x162_raw", images.card(812, 162, o, title, lsub), True))
+        jobs.append((f"{base}_small_250x116_raw", small, True))
+        jobs.append((f"data/menu/textures/event_{lay['name']}_small_250x116_raw", small, True))
+    jobs.append((f"data/menu/textures/env_{slug}_large_832x386_raw", images.card(832, 386, env_out, name, sub), True))
+    jobs.append((f"data/menu/textures/env_{slug}_small_250x116_raw", images.card(250, 116, env_out, name, sub, text=False),
+                 True))
+    probs = images.check_menu({rel: img for rel, img, _ in jobs}, [lay["name"] for lay in layouts])
+    if probs:
+        for msg in probs:
+            log.error(f"menu images: {msg}")
+        raise BuildError(f"menu images: {probs[0]}")
+    thumbs = os.path.join(out_dir, "thumbs")
+    os.makedirs(thumbs, exist_ok=True)
+    for rel, img, _alpha in jobs:
+        stem = rel.rsplit("/", 1)[-1].removesuffix("_raw")
+        if rel.startswith("data/menu/textures/event_"):
+            continue  # same image as the track's own small one
+        img.save(os.path.join(thumbs, f"{stem}.png"))
     for rel, img, alpha in jobs:
         tga = images.save_tga(img, os.path.join(stage, *rel.split("/")) + ".tga", alpha)
         out = p(*rel.split("/")) + ".bmap"
@@ -182,8 +201,8 @@ def package(spec: dict, manifest: dict, preview_svg: str, project: str, sizes: d
         if code != 0 or not os.path.isfile(out) or os.path.getsize(out) == 0:
             log.error(f"bimage {rel}: exit {code}, no .bmap")
             raise BuildError(f"bimage failed for {os.path.basename(rel)}")
-    log.line(f"images: {len(jobs)} .bmap files")
-    images.save_preview_jpg(pv, name, sub, p("preview.jpg"))
+    log.line(f"images: {len(jobs)} .bmap files, menu image checks passed")
+    images.save_preview_jpg(env_out, name, sub, p("preview.jpg"))
 
     # Report (inside the zip and beside it)
     files = []

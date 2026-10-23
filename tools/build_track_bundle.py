@@ -223,11 +223,19 @@ def _font(size: int, bold: bool = True):
 
 
 def map_panel(jpg: bytes):
-    """The map panel (green ground with the track outline) of a member's generated preview.jpg."""
+    """The track outline of a member's generated preview.jpg: since 2026-10-24 a bold white outline on the right of
+    a dark card (worker/pipeline/images.py), cropped around its white stroke; older zips' green map panel."""
     import numpy as np
     from PIL import Image
     im = Image.open(io.BytesIO(jpg)).convert("RGB")
     a = np.asarray(im).astype(int)
+    white = a.min(axis=2) > 200
+    white[:, : int(a.shape[1] * 0.4)] = False
+    ys, xs = np.nonzero(white)
+    if len(xs) > 500 and not ((a[:, :, 1] > a[:, :, 0] + 12) & (a[:, :, 1] > 60)).mean() > 0.2:
+        m = int(0.08 * max(xs.max() - xs.min(), ys.max() - ys.min()))
+        return im.crop((max(0, int(xs.min()) - m), max(0, int(ys.min()) - m),
+                        min(a.shape[1], int(xs.max()) + 1 + m), min(a.shape[0], int(ys.max()) + 1 + m)))
     green = (a[:, :, 1] > a[:, :, 0] + 12) & (a[:, :, 1] > 60)
     green[:, : a.shape[1] // 2] = False
     ys, xs = np.nonzero(green)
