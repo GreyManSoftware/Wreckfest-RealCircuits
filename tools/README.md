@@ -64,6 +64,18 @@ with a warning). `-DisplayName 'Name'` sets the name and also renames an entry t
 enabled state. Works in Windows PowerShell 5.1 and pwsh 7. Needs Python 3.11+ (`py` or `python`); the format is described in
 [docs/modlist-format.md](docs/modlist-format.md).
 
+### Bundles (`-Bundle`)
+
+A bundle built by `Build-TrackBundle.ps1` (below) holds several track mods. The same track in two enabled mods
+clashes, so `-Bundle` (game closed) reads the bundle's `bundle.json`, switches every member mod off in the mod list,
+then installs and enables the bundle. `-Uninstall -Bundle` switches the bundle off, removes it and switches the
+installed members back on. Each mod-list write makes its own backup.
+
+```powershell
+.\tools\Install-TrackMod.ps1 -Zip E:\WreckfestMods\msvanglesey.zip -Bundle -Force   # -WhatIf to preview
+.\tools\Install-TrackMod.ps1 -Uninstall -Slug msvanglesey -Bundle
+```
+
 Tests (fake game dir under `.local\fake-game`, never the real D: install):
 
 ```powershell
@@ -71,10 +83,47 @@ pwsh -File tools\tests\Install-TrackMod.Tests.ps1
 powershell -ExecutionPolicy Bypass -File tools\tests\Install-TrackMod.Tests.ps1
 ```
 
+## Build-TrackBundle.ps1
+
+Merges per-circuit mod zips into one Workshop mod. Config: `bundles\<slug>.json` (title, Published Id,
+visibility, member list, description parts, credits). Re-runnable: it rebuilds from the current zips and replaces
+`<OutDir>\<slug>.zip` only when every check passes. The PASS/FAIL lines go to `.local\bundles\<slug>-checks.log`.
+Python 3.11+ with numpy and Pillow (`py`); PS 5.1 and 7.
+
+```powershell
+.\tools\Build-TrackBundle.ps1                    # bundles\msvanglesey.json, zips from E:\WreckfestMods -> E:\WreckfestMods\msvanglesey.zip
+.\tools\Build-TrackBundle.ps1 -KeepFolder        # also leave the unzipped E:\WreckfestMods\msvanglesey\
+.\tools\Build-TrackBundle.ps1 -Slug p -Title 'P' -Zip a.zip, b.zip -OutDir E:\Source\wreckfest\.local\bundles
+```
+
+Every member's `data\` tree is kept as it is. The bundle gets its own root files:
+
+- `modinfo.modi` in BagEdit's Mod Publish format;
+- `preview.jpg`: a 16:9 collage of the members' maps;
+- `CREDITS.txt`;
+- `bundle.json`.
+
+It fails, without writing the zip, on any of these:
+
+- a file path two members share;
+- a duplicate track, environment, event, layout or weather id;
+- a translation key with two texts;
+- a stock-file override;
+- an unresolved event or weather reference;
+- `scne_read` limits on any base scene;
+- check_export's driving-order or `check_track_data` (.tcat) check on any layout;
+- personal data in the shipped text;
+- a Workshop limit.
+
+Publishing steps: [docs/workshop-publishing.md](../docs/workshop-publishing.md).
+
+Tests: `py -m pytest -q tools\tests\test_build_track_bundle.py` (also in CI); the scene checks are check_export's.
+
 ## Later
 
 - Import a recorded `.tcat` back to the site.
-- Workshop publishing (option C) always needs an explicit approval click.
+- Workshop publishing always needs Chris's explicit approval. He publishes himself with BagEdit's Mod Publish
+  (docs/workshop-publishing.md).
 
 ## import_real_track.py
 
