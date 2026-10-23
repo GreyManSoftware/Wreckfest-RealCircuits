@@ -27,7 +27,7 @@ Steps (each can be run on its own):
 5. `render_scene.py render`: replace each material by an approximation (the #blend mix of three albedos by the
    blend map with the colour map as soft light; alpha from `_c5`/slot 6 for decals, foliage, horizon and cards),
    instance the prop library at every `#xref` subscene, Nishita sky and sun, oblique camera over the terrain and a
-   driver-height camera 7 m behind the pole slot (stock: `#startpoint01`); `-DriverAt "name=metres,..."` adds driver views along the main route (`name=route:metres` along another route, e.g. `clubhairpin=club:6`).
+   driver-height camera 7 m behind the pole slot (stock: `#startpoint01`); `-DriverAt "name=metres,..."` adds driver views along the main route (`name=route:metres` along another route, e.g. `clubhairpin=club:6`); `-Intro` adds each layout's start camera (`<name>-intro-<layout>.png`, the view the game shows while the race loads in).
 
 Limits: no clutter grass (the game draws grass blades where the clutter mask is green, so real tracks look greener
 than these renders, stock and generated alike), no game lighting, weather or fog, nested subscenes inside props

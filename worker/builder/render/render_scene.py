@@ -481,6 +481,16 @@ def cameras(stock: bool, man, target: str, objs) -> dict:
             j = max(i - 1, 0)
         a, b = tp([rs[i]["x"], rs[i]["y"], rs[i]["z"]]), tp([rs[j]["x"], rs[j]["y"], rs[j]["z"]])
         out[f"driver-{name.strip()}"] = (tuple(a + np.array([0, 0, 2.2])), tuple(b + np.array([0, 0, 0.8])), 24.0)
+    # RENDER_INTRO=1: each layout's start camera (the view while the race loads in; manifest layouts[].startCamera,
+    # scene coordinates), field of view 58 degrees across a 36 mm sensor; layouts sharing one camera render once
+    if os.environ.get("RENDER_INTRO"):
+        seen = set()
+        for lay in man.get("layouts", []):
+            cam = lay.get("startCamera")
+            if not cam or tuple(cam["position"]) in seen:
+                continue
+            seen.add(tuple(cam["position"]))
+            out[f"intro-{lay['name']}"] = (tuple(cam["position"]), tuple(cam["target"]), 18.0 / math.tan(math.radians(29.0)))
     return out
 
 
