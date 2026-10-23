@@ -237,6 +237,29 @@ Check '-DisplayName with the current name is a no-op' ($r.Ok -and $r.Out -match 
 $r = Invoke-Install @{ Enable = $true; Slug = 'tex_track' }
 Check '-Enable without -DisplayName never renames' ($r.Ok -and $r.Out -match 'nothing to do' -and (Get-Sha $modList) -eq $hashBefore) $r.Out
 
+# Bundles (tools\Build-TrackBundle.ps1): members tex_track and tex_good are installed and enabled; gone_track isn't.
+$bundleJson = '{"format": "trackgen-bundle/1", "slug": "my_pack", "members": [{"slug": "tex_track", "name": "Tex Track"}, {"slug": "tex_good", "name": "Tex Good"}, {"slug": "gone_track", "name": "Gone Track"}]}'
+$pack = New-TestZip 'my_pack' @{ 'my_pack/modinfo.modi' = (New-Modi 'My Pack'); 'my_pack/bundle.json' = $bundleJson
+    'my_pack/data/property/event/tex_track/tex_track_race.evse' = 'x'; 'my_pack/data/property/event/tex_good/tex_good_club.evse' = 'x' }
+$packDir = Join-Path $game 'mods\my_pack'
+$r = Invoke-Install @{ Zip = $good; Bundle = $true; Force = $true }
+Check '-Bundle refuses a zip without bundle.json' (-not $r.Ok -and $r.Out -match 'bundle.json' -and (Get-Sha $modList) -eq $hashBefore) $r.Out
+$r = Invoke-Install @{ Zip = $pack; Bundle = $true; WhatIf = $true }
+Check '-Bundle -WhatIf changes nothing' ($r.Ok -and -not (Test-Path $packDir) -and (Get-Sha $modList) -eq $hashBefore) $r.Out
+$r = Invoke-Install @{ Zip = $pack; Bundle = $true; GameProcessName = (Get-Process -Id $PID).ProcessName }
+Check '-Bundle refuses while the game is running' (-not $r.Ok -and $r.Out -match 'running' -and -not (Test-Path $packDir) -and (Get-Sha $modList) -eq $hashBefore) $r.Out
+$r = Invoke-Install @{ Zip = $pack; Bundle = $true; Server = $true }
+$after = Get-ModList $modList
+$others = @(0..4 | Where-Object { ($before[$_] | ConvertTo-Json) -ne ($after[$_] | ConvertTo-Json) })
+Check '-Bundle disables the members, then installs and enables the bundle' ($r.Ok -and (Test-Path "$packDir\.trackgen") -and @($after).Count -eq 8 -and -not $after[5].enabled -and -not $after[6].enabled -and $after[7].name -eq 'My Pack' -and $after[7].path -eq 'mods/my_pack/' -and $after[7].enabled -and $others.Count -eq 0) $r.Out
+Check '-Bundle -Server lists every member event and circuit' ($r.Out -match '\+ el_add=tex_track_race' -and $r.Out -match '\+ el_add=tex_good_club' -and $r.Out -match "'\^tex_good\(_\|\$\)' = 'Tex Good'" -and $r.Out -match 'Circuits = 36') $r.Out
+$r = Invoke-Install @{ Uninstall = $true; Slug = 'my_pack'; Bundle = $true }
+$after = Get-ModList $modList
+Check '-Uninstall -Bundle removes it and re-enables the installed members' ($r.Ok -and -not (Test-Path $packDir) -and @($after).Count -eq 8 -and $after[5].enabled -and $after[6].enabled -and -not $after[7].enabled -and $r.Out -match 'gone_track is not installed') $r.Out
+$r = Invoke-Install @{ Uninstall = $true; Slug = 'tex_good'; Bundle = $true }
+Check '-Uninstall -Bundle refuses a plain mod' (-not $r.Ok -and $r.Out -match 'not a bundle' -and (Test-Path (Join-Path $game 'mods\tex_good'))) $r.Out
+$hashBefore = Get-Sha $modList
+
 # Default -TempRoot/-ModListBackupDir through -File in this host (Windows PowerShell 5.1 has no $PSScriptRoot in defaults).
 $hostExe = (Get-Process -Id $PID).Path
 $out = & {

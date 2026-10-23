@@ -306,7 +306,8 @@ def check_track_data(scene: str, scne: str, track: str) -> dict | None:
     shows while the race loads in; without one it was under the ground, Chris 2026-10-23): every camera
     CAM_MIN_ABOVE_M..CAM_MAX_ABOVE_M above the exported terrain, looking at the road (its view ray reaches the
     ground within CAM_TARGET_NEAR_ROUTE_M of a compiled AI route) with the pole in view. Needs only the shipped
-    files (layout and base .scne, .tcat). Returns the parsed track data, or None when it doesn't parse."""
+    files (layout and base .scne, .tcat), so tools/build_track_bundle.py runs it on every track of a bundle: put
+    further checks of what a .tcat ships here. Returns the parsed track data, or None when it doesn't parse."""
     path = os.path.join(track, scene + ".tcat")
     if not os.path.isfile(path):
         check(False, f"{scene}: track data {scene}.tcat beside the .scne", "missing")

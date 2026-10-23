@@ -20,10 +20,19 @@
     by older pipeline builds) is replaced by the title-cased slug, with a warning. -DisplayName sets the name
     explicitly and also renames an entry that is already in the list, without changing its enabled state.
 
+    -Bundle installs a bundle built by tools\Build-TrackBundle.ps1 (bundle.json at its root lists the member mods): it
+    switches the member mods off in the mod list first (the same track in two enabled mods clashes), then installs
+    and enables the bundle. -Uninstall -Bundle switches the bundle off, removes it and switches the installed members
+    back on.
+
     Works under Windows PowerShell 5.1 (powershell -File ...) and PowerShell 7 (pwsh -File ...).
 
 .EXAMPLE
     .\tools\Install-TrackMod.ps1 -Zip .\my_oval.zip
+.EXAMPLE
+    .\tools\Install-TrackMod.ps1 -Zip E:\WreckfestMods\msvanglesey.zip -Bundle -Force
+.EXAMPLE
+    .\tools\Install-TrackMod.ps1 -Uninstall -Slug msvanglesey -Bundle
 .EXAMPLE
     .\tools\Install-TrackMod.ps1 -Zip .\my_oval.zip -Force -Server
 .EXAMPLE
@@ -54,6 +63,10 @@ param(
     [string]$GameDir = 'D:\SteamLibrary\steamapps\common\Wreckfest',
     [Parameter(ParameterSetName = 'Zip')][Parameter(ParameterSetName = 'Url')][switch]$Force,
     [Parameter(ParameterSetName = 'Zip')][Parameter(ParameterSetName = 'Url')][switch]$Server,
+    # A bundle (tools\Build-TrackBundle.ps1, bundle.json at its root): install disables its member mods first and
+    # enables the bundle; -Uninstall -Bundle disables and removes it, then re-enables the installed members.
+    [Parameter(ParameterSetName = 'Zip')][Parameter(ParameterSetName = 'Url')][Parameter(ParameterSetName = 'Uninstall')]
+    [switch]$Bundle,
     [string]$ServerDir,
     # Default <repo>\.local\tmp and <repo>\.local\modlist-backups, set in the body: Windows PowerShell 5.1 leaves
     # $PSScriptRoot empty while it binds parameter defaults.
@@ -252,6 +265,22 @@ function Update-ModList([string]$TargetSlug, [bool]$On, [string]$EntryName, [boo
     }
 }
 
+function Read-BundleMembers([string]$Json, [string]$Source) {
+    try { $b = $Json | ConvertFrom-Json } catch { throw "$Source is not valid JSON: $($_.Exception.Message)" }
+    if (-not $b.PSObject.Properties['format'] -or $b.format -ne 'trackgen-bundle/1') { throw "$Source is not a track bundle manifest (format trackgen-bundle/1)." }
+    $members = @($b.members | ForEach-Object { [pscustomobject]@{ Slug = [string]$_.slug; Name = [string]$_.name } })
+    if ($members.Count -eq 0) { throw "$Source lists no member mods." }
+    foreach ($m in $members) { if ($m.Slug -cnotmatch $slugPattern) { throw "${Source}: invalid member slug '$($m.Slug)'." } }
+    $members
+}
+
+function Assert-GameClosed {
+    $running = @(Get-RunningGame)
+    if ($running -and -not $WhatIfPreference) {
+        throw "Wreckfest is running (PID $(($running | ForEach-Object Id) -join ', ')). Close the game first - it rewrites modlist.mods when it exits."
+    }
+}
+
 if ($ListMods) { Show-ModList; return }
 
 if ($PSCmdlet.ParameterSetName -in 'Enable', 'Disable') {
@@ -270,6 +299,23 @@ if ($Uninstall) {
     $target = Join-Path $modsDir $Slug
     if (-not (Test-Path -LiteralPath $target)) { throw "Not installed: $target" }
     if (-not (Test-Marked $target)) { throw "Refusing to remove $target - it has no $markerName marker (not installed by this script)." }
+    if ($Bundle) {
+        $manifest = Join-Path $target 'bundle.json'
+        if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { throw "$target has no bundle.json - not a bundle (drop -Bundle)." }
+        $members = Read-BundleMembers (Get-Content -LiteralPath $manifest -Raw) $manifest
+        Assert-GameClosed
+        Update-ModList $Slug $false $null
+        if ($PSCmdlet.ShouldProcess($target, 'Remove bundle mod')) {
+            Remove-Item -LiteralPath $target -Recurse -Force
+            Write-Host "Removed $target."
+        }
+        foreach ($m in $members) {
+            $dir = Join-Path $modsDir $m.Slug
+            if (Test-Path -LiteralPath $dir -PathType Container) { Update-ModList $m.Slug $true (Get-ModDisplayName $dir $m.Slug) }
+            else { Write-Host "Member $($m.Slug) is not installed in $modsDir - not re-enabled." }
+        }
+        return
+    }
     if ($PSCmdlet.ShouldProcess($target, 'Remove track mod')) {
         Remove-Item -LiteralPath $target -Recurse -Force
         Write-Host "Removed $target. Disable it in the Mods menu (or with -Disable -Slug $Slug) if the game still lists it."
@@ -318,6 +364,14 @@ try {
         $modSlug = @($tops.Keys)[0]
         if ($modSlug -cnotmatch $slugPattern) { throw "Invalid mod folder name '$modSlug' (expected [a-z0-9_]+)." }
         if (-not $hasData) { throw "Zip folder '$modSlug' has no data\ folder." }
+        $members = @()
+        if ($Bundle) {
+            $entry = $archive.GetEntry("$modSlug/bundle.json")
+            if (-not $entry) { throw "Zip folder '$modSlug' has no bundle.json - not a bundle (build it with tools\Build-TrackBundle.ps1, or drop -Bundle)." }
+            $reader = New-Object IO.StreamReader($entry.Open())
+            try { $members = Read-BundleMembers $reader.ReadToEnd() "$modSlug/bundle.json" } finally { $reader.Dispose() }
+            if (@($members | Where-Object { $_.Slug -eq $modSlug }).Count) { throw "Bundle '$modSlug' lists itself as a member." }
+        }
     }
     finally { $archive.Dispose() }
 
@@ -331,9 +385,16 @@ try {
     $staged = Join-Path $extractRoot $modSlug
     Set-Content -LiteralPath (Join-Path $staged $markerName) -Value "Installed by tools/Install-TrackMod.ps1 on $(Get-Date -Format s) from $(Split-Path $Zip -Leaf)" -WhatIf:$false
 
-    $events = @(Get-ChildItem -LiteralPath (Join-Path $staged "data\property\event\$modSlug") -Filter *.evse -File -ErrorAction SilentlyContinue |
+    # every event folder: one per track (a bundle has one per member)
+    $events = @(Get-ChildItem -LiteralPath (Join-Path $staged 'data\property\event') -Recurse -Filter *.evse -File -ErrorAction SilentlyContinue |
         ForEach-Object { $_.BaseName } | Sort-Object)
 
+    if ($Bundle) {
+        $Enable = [switch]$true
+        # The same track in two enabled mods clashes: switch the member mods off before the bundle goes on.
+        Assert-GameClosed
+        foreach ($m in $members) { Update-ModList $m.Slug $false $null }
+    }
     $entryName = if ($Enable) { Get-ModDisplayName $staged $modSlug } else { $null }
     if ($PSCmdlet.ShouldProcess($target, 'Install track mod')) {
         if (-not (Test-Path -LiteralPath $modsDir)) { New-Item -ItemType Directory -Path $modsDir | Out-Null }
@@ -368,8 +429,8 @@ try {
         foreach ($id in $ids) { Write-Host "+ el_add=$id" }
         Write-Host '3) Start-WreckfestServer.ps1'
         Write-Host '   $circuitMap:'
-        $friendly = Get-FriendlyName $modSlug
-        Write-Host ("+     '^{0}(_|$)' = '{1}'" -f $modSlug, $friendly)
+        $circuits = @(if ($Bundle) { $members } else { [pscustomobject]@{ Slug = $modSlug; Name = (Get-FriendlyName $modSlug) } })
+        foreach ($c in $circuits) { Write-Host ("+     '^{0}(_|$)' = '{1}'" -f $c.Slug, $c.Name) }
         $evCount = 86; $cirCount = 33
         $startScript = Join-Path $repoRoot 'Start-WreckfestServer.ps1'
         if (Test-Path -LiteralPath $startScript) {
@@ -378,7 +439,8 @@ try {
         }
         Write-Host '   $expected:'
         Write-Host ("-   `$expected = @{{ Events = {0}; Circuits = {1} }}" -f $evCount, $cirCount)
-        Write-Host ("+   `$expected = @{{ Events = {0}; Circuits = {1} }}" -f ($evCount + $ids.Count), ($cirCount + 1))
+        Write-Host ("+   `$expected = @{{ Events = {0}; Circuits = {1} }}" -f ($evCount + $ids.Count), ($cirCount + $circuits.Count))
+        if ($Bundle) { Write-Host "   If the member mods are on the server too: take them out of mods= and their el_add= lines and circuitMap entries (same events)." }
         Write-Host ''
         Write-Host 'Ask before applying; server voting, laps, bots and existing tracks are untouched.'
     }
