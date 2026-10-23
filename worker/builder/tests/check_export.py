@@ -1,12 +1,14 @@
 """Check exported .bgo3 files and the .scne files bgeometry built from them (plain Python, no Blender).
 
 usage: python check_export.py OUT_DIR PROJECT_ROOT
+       python check_export.py --track-data TRACK_DIR   (the shipped files only: every layout's .tcat)
 
 Reads OUT_DIR/manifest.json and OUT_DIR/model.json, then PROJECT_ROOT/data/track/<slug>/<scene>.bgo3 with
 bgo_read: object names, kinds and CustomData survive the export, subscene references resolve to the base
 scene and to stock props, curves are not exported, materials keep their name#surface and texture paths,
 and every .scne is non-empty; the built base .scne stays within the stock scene limits (scne_read.LIMITS);
-every layout has its minimap track data (<scene>.tcat) and the compiled AI route the minimap draws matches it.
+every layout has its track data (<scene>.tcat: minimap, a start camera above the exported terrain looking at
+the grid) and the compiled AI route the minimap draws matches it.
 Exits non-zero on any failure.
 """
 from __future__ import annotations
@@ -274,23 +276,47 @@ def check_driving_order(scene: str, scne: str) -> None:
           f"checkpoint sectors {secs[:12]}; stored otherway {lay.main_otherway()}")
 
 
-def check_minimap(scene: str, scne: str, track: str, info: dict | None) -> None:
-    """The in-race minimap: Wreckfest 1 draws it from the layout's compiled AI routes, set up from the layout's
-    track data, which the game looks for as <scene dir>/<scene>.tcat (wfbuild/tcat.py). Checks that the .tcat
-    resolves beside the .scne and parses (v20, stock layout), lists every compiled AI route with nothing hidden
-    from the minimap and a non-zero zoom, and that the compiled main route - what the minimap draws, in world
-    x/y seen from above - covers the layout's own road: its bounds within 15 m of the layout's centreline,
-    the same direction of travel (signed area) and the lap length within 5 %."""
+# Stock start cameras (103 of the 112 stock .tcat files with decodable cameras have exactly one), measured
+# against their compiled layouts: 0.7-10 m above the ground beside them in all but a few overviews (45-140 m).
+CAM_MIN_ABOVE_M, CAM_MAX_ABOVE_M = 2.0, 150.0
+CAM_TARGET_NEAR_ROUTE_M = 25.0
+_terrain_cache: dict[str, "Surface | None"] = {}
+
+
+def _exported_terrain(track: str) -> "Surface | None":
+    """The built base scene's terrain (world space: the layouts reference the base at the origin), decoded
+    from the shipped .scne, so the check also works on a zip's files."""
+    slug = os.path.basename(os.path.normpath(track))
+    base = os.path.join(track, f"{slug}_base.scne")
+    if base not in _terrain_cache:
+        tris = []
+        if os.path.isfile(base):
+            for m in scne_read.read(base, geometry="terrain_").meshes:
+                for b in m.batches:
+                    if b.pos is not None and len(b.idx):
+                        tris.append(b.pos[b.idx])
+        _terrain_cache[base] = Surface(np.concatenate(tris)) if tris else None
+    return _terrain_cache[base]
+
+
+def check_track_data(scene: str, scne: str, track: str) -> dict | None:
+    """The layout's shipped track data, which the game looks for as <scene dir>/<scene>.tcat (wfbuild/tcat.py):
+    it resolves beside the .scne and parses (v20, stock layout), lists every compiled AI route with nothing
+    hidden from the minimap and a non-zero zoom, and has a start camera like stock layouts (the view the game
+    shows while the race loads in; without one it was under the ground, Chris 2026-10-23): every camera
+    CAM_MIN_ABOVE_M..CAM_MAX_ABOVE_M above the exported terrain, looking at the road (its view ray reaches the
+    ground within CAM_TARGET_NEAR_ROUTE_M of a compiled AI route) with the pole in view. Needs only the shipped
+    files (layout and base .scne, .tcat). Returns the parsed track data, or None when it doesn't parse."""
     path = os.path.join(track, scene + ".tcat")
     if not os.path.isfile(path):
-        check(False, f"{scene}: minimap track data {scene}.tcat beside the .scne", "missing")
-        return
+        check(False, f"{scene}: track data {scene}.tcat beside the .scne", "missing")
+        return None
     raw = open(path, "rb").read()
     try:
         td = tcat.read(scne_read.unbag(raw))
     except ValueError as e:
-        check(False, f"{scene}: minimap track data parses", str(e))
-        return
+        check(False, f"{scene}: track data parses", str(e))
+        return None
     check(tcat.header(raw) == (1, "tcat", tcat.VERSION) and td["zoomFactor"] > 0 and td["highlightRange"] > 0,
           f"{scene}: minimap track data {scene}.tcat resolves (v{tcat.VERSION}, zoom {td['zoomFactor']}, "
           f"highlight {td['highlightRange']})")
@@ -298,6 +324,63 @@ def check_minimap(scene: str, scne: str, track: str, info: dict | None) -> None:
     check(len(td["routes"]) == len(lay.routes) and all(r["flags"] == 0 for r in td["routes"]),
           f"{scene}: track data lists every AI route, none hidden from the minimap",
           f"{len(td['routes'])} entries, {len(lay.routes)} compiled routes")
+    cams = [c["camera"] for c in td["cameras"]]
+    starts = [c for c in cams if c.flags & tcat.CAM_START]
+    check(len(starts) == 1, f"{scene}: track data has one start camera (as stock layouts)",
+          f"{len(cams)} cameras, {len(starts)} start")
+    ter = _exported_terrain(track)
+    if ter is None:
+        check(not cams, f"{scene}: exported base terrain found for the camera checks")
+        return td
+    route_pts = np.array([p[:2] for r in lay.routes for a, b in r for p in (a, b, ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2))])
+    pole = next((sp for sp in lay.startpoints if sp[0] == "#startpoint01"), None)
+    bad = []
+    for k, c in enumerate(cams):
+        g = ter.height(c.x, c.y)
+        if g is None:
+            bad.append(f"camera {k} at ({c.x:.0f}, {c.y:.0f}) outside the terrain")
+            continue
+        above = c.z - g
+        if not CAM_MIN_ABOVE_M <= above <= CAM_MAX_ABOVE_M:
+            bad.append(f"camera {k} {above:.1f} m above the terrain")
+            continue
+        d = np.array(c.direction())
+        hit = None
+        for t in np.arange(1.0, 400.0, 1.0):  # march the view ray down to the ground
+            q = np.array([c.x, c.y, c.z]) + d * t
+            gz = ter.height(q[0], q[1])
+            if gz is None:
+                break
+            if q[2] <= gz + 0.5:
+                hit = q
+                break
+        if hit is None:
+            bad.append(f"camera {k}'s view doesn't reach the ground within 400 m")
+            continue
+        near = float(np.min(np.hypot(*(route_pts - hit[:2]).T)))
+        if near > CAM_TARGET_NEAR_ROUTE_M:
+            bad.append(f"camera {k} looks at ground {near:.0f} m from the AI routes")
+            continue
+        if c.flags & tcat.CAM_START and pole is not None:
+            to_pole = np.array([pole[1] - c.x, pole[2] - c.y, pole[3] + 1.0 - c.z])
+            ang = math.degrees(math.acos(float(np.clip(d @ to_pole / np.linalg.norm(to_pole), -1, 1))))
+            if ang > c.fov_deg / 2.0:
+                bad.append(f"start camera {k}: the pole is {ang:.0f} deg off the view centre")
+                continue
+    desc = "; ".join(f"({c.x:.0f}, {c.y:.0f}, {c.z:.1f}) pitch {c.pitch_deg:.0f} yaw {c.yaw_deg:.0f}" for c in cams[:2])
+    check(cams and not bad, f"{scene}: cameras {CAM_MIN_ABOVE_M:.0f}-{CAM_MAX_ABOVE_M:.0f} m above the exported "
+          "terrain, looking at the road, the start camera at the grid", "; ".join(bad[:3]) or desc)
+    return td
+
+
+def check_minimap(scene: str, scne: str, track: str, info: dict | None) -> None:
+    """The in-race minimap: Wreckfest 1 draws it from the layout's compiled AI routes, set up from the layout's
+    track data (check_track_data first). Checks that the compiled main route - what the minimap draws, in world
+    x/y seen from above - covers the layout's own road: its bounds within 15 m of the layout's centreline, the
+    same direction of travel (signed area) and the lap length within 5 %."""
+    if check_track_data(scene, scne, track) is None:
+        return
+    lay = scne_read.read_layout(scne)
     if not info or "minimap" not in info:
         check(False, f"{scene}: manifest has the layout's minimap outline")
         return
@@ -316,6 +399,13 @@ def check_minimap(scene: str, scne: str, track: str, info: dict | None) -> None:
 
 
 def main() -> None:
+    if sys.argv[1] == "--track-data":  # shipped files only, e.g. an unpacked zip's data/track/<slug>
+        track = sys.argv[2]
+        for f in sorted(os.listdir(track)):
+            if f.endswith(".scne") and not f.endswith("_base.scne"):
+                check_track_data(f[:-5], os.path.join(track, f), track)
+        print(f"TRACK DATA CHECKS {'FAILED' if failures else 'OK'}: {len(failures)} failures")
+        sys.exit(1 if failures else 0)
     out, root = sys.argv[1], sys.argv[2]
     with open(os.path.join(out, "manifest.json"), encoding="utf-8") as f:
         manifest = json.load(f)

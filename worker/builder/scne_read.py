@@ -103,6 +103,10 @@ class Batch:
     clutter: int = 0  # clutter layers of the material (grass the game scatters over the batch)
     plan_area: float = 0.0  # bounding box area in plan (m2)
     box: tuple = ()  # bounding box min x, y (up), z, max x, y, z (Bugbear Y-up)
+    # with read(..., geometry=prefix), for meshes whose name starts with the prefix: vertex positions (n x 3,
+    # Blender axes x, y, z up, in the model's own space) and triangles (m x 3 vertex indices)
+    pos: object = field(default=None, repr=False, compare=False)
+    idx: object = field(default=None, repr=False, compare=False)
 
 
 @dataclass
@@ -194,14 +198,16 @@ class _P:
             p += 1
 
 
-def _mesh_section(r: _P, role: str) -> list[Mesh]:
+def _mesh_section(r: _P, role: str, geometry: str | None = None) -> list[Mesh]:
     r.i()  # version
     out = []
     for _ in range(r.i()):
         m = Mesh(r.text(), role)
+        want = geometry is not None and m.name.startswith(geometry)
         r.header("btch")
         r.i()
         for _b in range(r.i()):
+            bias = struct.unpack_from("<4f", r.d, r.p)  # x, y_up, z offsets and the scale of the int16 positions
             box = struct.unpack_from("<6f", r.d, r.p + 16)  # after the bias (4f): min x, y_up, z, max x, y_up, z
             r.p += 40
             r.header("mtrl")
@@ -217,10 +223,18 @@ def _mesh_section(r: _P, role: str) -> list[Mesh]:
             vver = r.i()
             nv = r.i()
             stride = 32 if vver > 3 else 16
+            pos = idx = None
+            if want:  # Toolbox's importer: int16 x, y_up, z, w at the start of each vertex, times the bias scale
+                import numpy as np
+                raw = np.frombuffer(r.d, "<i2", count=nv * stride // 2, offset=r.p).reshape(nv, stride // 2)
+                pos = np.stack([raw[:, 0] * bias[3] + bias[0], raw[:, 2] * bias[3] + bias[2],
+                                raw[:, 1] * bias[3] + bias[1]], axis=1).astype(np.float64)
             r.p += nv * stride
             r.header("tria")
             r.i()
             nt = r.i()
+            if want:
+                idx = np.frombuffer(r.d, "<u2", count=nt * 3, offset=r.p).reshape(nt, 3).astype(np.int64)
             r.p += nt * 6
             if mver < 18:
                 r.header("edgm")
@@ -228,25 +242,28 @@ def _mesh_section(r: _P, role: str) -> list[Mesh]:
                 for _e in range(r.i()):
                     for _k in range(4):
                         r.p += r.i()
-            m.batches.append(Batch(mat, nv, nt, vver, stride, clutter, (box[3] - box[0]) * (box[5] - box[2]), box))
+            m.batches.append(Batch(mat, nv, nt, vver, stride, clutter, (box[3] - box[0]) * (box[5] - box[2]), box,
+                                   pos, idx))
         out.append(m)
     return out
 
 
-def _pmsh(r: _P, damage: bool) -> list[Mesh]:
+def _pmsh(r: _P, damage: bool, geometry: str | None = None) -> list[Mesh]:
     r.header("pmsh")
     ver = r.i()
     out = []
     for _ in range(r.i()):
         r.p += 24  # aabb
         if r.header("mesh"):
-            out += _mesh_section(r, "damage" if damage else "main")
+            out += _mesh_section(r, "damage" if damage else "main", None if damage else geometry)
         if ver > 0 and r.header("mesh"):
             out += _mesh_section(r, "damage_shadow" if damage else "shadow")
     return out
 
 
-def read(path: str) -> Scene:
+def read(path: str, geometry: str | None = None) -> Scene:
+    """Statistics of a .scne; ``geometry`` (a mesh name prefix, e.g. "terrain_") also decodes the positions and
+    triangles of the main meshes with that prefix (``Batch.pos``, ``Batch.idx``)."""
     with open(path, "rb") as f:
         raw = f.read()
     d = unbag(raw)
@@ -272,7 +289,7 @@ def read(path: str) -> Scene:
                     r.p += 4
                     r.text()
                 r.p += 64 + 24
-            meshes += _pmsh(r, False)
+            meshes += _pmsh(r, False, geometry)
             meshes += _pmsh(r, True)
     refs: list[str] = []
     q = r.find("ssce")
