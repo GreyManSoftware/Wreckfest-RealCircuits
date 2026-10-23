@@ -274,30 +274,40 @@ def check_driving_order(scene: str, scne: str) -> None:
           f"checkpoint sectors {secs[:12]}; stored otherway {lay.main_otherway()}")
 
 
-def check_minimap(scene: str, scne: str, track: str, info: dict | None) -> None:
-    """The in-race minimap: Wreckfest 1 draws it from the layout's compiled AI routes, set up from the layout's
-    track data, which the game looks for as <scene dir>/<scene>.tcat (wfbuild/tcat.py). Checks that the .tcat
-    resolves beside the .scne and parses (v20, stock layout), lists every compiled AI route with nothing hidden
-    from the minimap and a non-zero zoom, and that the compiled main route - what the minimap draws, in world
-    x/y seen from above - covers the layout's own road: its bounds within 15 m of the layout's centreline,
-    the same direction of travel (signed area) and the lap length within 5 %."""
+def check_track_data(scene: str, scne: str, track: str) -> dict | None:
+    """The layout's track data as shipped: <scene dir>/<scene>.tcat (wfbuild/tcat.py) resolves beside the .scne
+    and parses (v20, stock layout), with a non-zero zoom, and lists every compiled AI route with nothing hidden
+    from the minimap. Needs only the files in the mod, so tools/build_track_bundle.py runs it on every track of a
+    bundle: put further checks of what a .tcat ships (e.g. cameras) here. Returns the parsed data, or None."""
     path = os.path.join(track, scene + ".tcat")
     if not os.path.isfile(path):
         check(False, f"{scene}: minimap track data {scene}.tcat beside the .scne", "missing")
-        return
+        return None
     raw = open(path, "rb").read()
     try:
         td = tcat.read(scne_read.unbag(raw))
     except ValueError as e:
         check(False, f"{scene}: minimap track data parses", str(e))
-        return
+        return None
     check(tcat.header(raw) == (1, "tcat", tcat.VERSION) and td["zoomFactor"] > 0 and td["highlightRange"] > 0,
           f"{scene}: minimap track data {scene}.tcat resolves (v{tcat.VERSION}, zoom {td['zoomFactor']}, "
           f"highlight {td['highlightRange']})")
     lay = scne_read.read_layout(scne)
-    check(len(td["routes"]) == len(lay.routes) and all(r["flags"] == 0 for r in td["routes"]),
+    routes = td.get("routes")
+    check(routes is not None and len(routes) == len(lay.routes) and all(r["flags"] == 0 for r in routes),
           f"{scene}: track data lists every AI route, none hidden from the minimap",
-          f"{len(td['routes'])} entries, {len(lay.routes)} compiled routes")
+          f"{len(routes) if routes is not None else 'unread'} entries, {len(lay.routes)} compiled routes")
+    return td
+
+
+def check_minimap(scene: str, scne: str, track: str, info: dict | None) -> None:
+    """The in-race minimap: Wreckfest 1 draws it from the layout's compiled AI routes, set up from the layout's
+    track data (check_track_data). Then checks that the compiled main route - what the minimap draws, in world
+    x/y seen from above - covers the layout's own road: its bounds within 15 m of the layout's centreline,
+    the same direction of travel (signed area) and the lap length within 5 %."""
+    if check_track_data(scene, scne, track) is None:
+        return
+    lay = scne_read.read_layout(scne)
     if not info or "minimap" not in info:
         check(False, f"{scene}: manifest has the layout's minimap outline")
         return
