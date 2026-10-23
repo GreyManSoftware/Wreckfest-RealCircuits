@@ -62,6 +62,8 @@ jobs:
           cache-dependency-path: geom/pyproject.toml
       - run: python -m pip install -e ".[service,test]" -e ../worker/builder
       - run: python -m pytest
+      - name: tools (bundle builder)
+        run: python -m pytest -q ../tools/tests/test_build_track_bundle.py
 
   compose:
     name: Compose config
