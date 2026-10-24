@@ -385,6 +385,7 @@ class TerrainField:
         self.berm = berm
         self.extent = extent  # min_x, max_x, min_y, max_y of the terrain
         self.banks: list[tuple[np.ndarray, np.ndarray]] = []  # TrackGeometry._divider_banks
+        self.dip = None  # (xy) -> metres the ground sinks there (an imported track's gravel traps; runoff.py)
 
     def road_height(self, p: np.ndarray, j: np.ndarray) -> np.ndarray:
         """Height of the road surface of sample ``j`` extended to the points ``p``: along its grade (within one
@@ -472,6 +473,8 @@ class TerrainField:
                 k = np.argmin(d, axis=1)
                 f = 1.0 - d[np.arange(len(p)), k] / np.maximum(bhw[k], 1e-6)
                 out[a:a + 1024] += C.DIVIDER_BANK_H * smoothstep(f)
+        if self.dip is not None:
+            out -= self.dip(pts[:, :2])
         x0, x1, y0, y1 = self.extent
         edge = np.minimum.reduce([pts[:, 0] - x0, x1 - pts[:, 0], pts[:, 1] - y0, y1 - pts[:, 1]])
         if self.berm:
@@ -579,6 +582,12 @@ class TrackGeometry:
                                     berm=0.0 if self.real_ground else C.BERM_H)
         if not self.real_ground:  # an imported track's DTM already has whatever bank divides close sections
             self.terrain.banks = self._divider_banks()
+        # an imported track's measured run-off (gravel traps, paved aprons, barriers; runoff.py)
+        from .runoff import RunoffPlan
+        self.runoff = RunoffPlan(self)
+        if self.runoff.active:
+            self.runoff.finalise()
+            self.terrain.dip = self.runoff.dip
 
     def _divider_banks(self) -> list[tuple[np.ndarray, np.ndarray]]:
         """Grass banks under the dividers between close sections of a drawn track (where the gap leaves room):
@@ -1130,6 +1139,11 @@ class TrackGeometry:
             seg = r.seg_len()
             for side in (1, -1):
                 kw, gw = plan[(r.index, side)]
+                smats = None
+                if self.runoff.active:  # a paved apron or a gravel trap right at the edge: the shoulder is it too
+                    a = self.runoff.side[(r.index, side)]
+                    smats = np.where(a["surface"] == 2, "terrain_apron",
+                                     np.where((a["surface"] == 1) & (a["g0"] <= kw + gw + C.SHOULDER_W), "terrain_trap", smat))
                 self.kerb_runs[f"{r.id}:{'l' if side > 0 else 'r'}"] = kw
                 edge = r.left if side > 0 else r.right
                 inner = self._side_points(r, side, kw)
@@ -1190,7 +1204,7 @@ class TrackGeometry:
                             g = shoulders.vert(green[k])
                             sv[k] = (g, shoulders.vert(outer[k]) if width[k] > 0 else g)
                     ids = (sv[i][0], sv[i2][0], sv[i2][1], sv[i][1])
-                    shoulders.oriented_face(ids, smat, up)  # world-space UV1, as the terrain
+                    shoulders.oriented_face(ids, smats[i] if smats is not None else smat, up)  # world-space UV1
         if self.options.get("kerbs", False):
             for alt, chains in self.aprons:
                 self._apron_kerb(alt, chains, kerbs, limits)
@@ -1582,7 +1596,9 @@ class TrackGeometry:
                     reach = (b.over.width / 2.0 + C.BRIDGE_STRUCT_EXTRA) / max(math.sin(math.radians(b.angle_deg)), 0.3)
                     near = near | (r.s_dist(r.s, b.s_under) <= reach + 20.0)
             fast = {1: np.zeros(r.n, dtype=bool), -1: np.zeros(r.n, dtype=bool)}
-            for c in self.corner_runs(r, max_radius=C.FAST_CORNER_MAX_RADIUS, min_turn_deg=C.FAST_CORNER_MIN_TURN_DEG):
+            measured = self.runoff.active
+            for c in ([] if measured else  # measured run-off: the real barriers replace the generic ones
+                      self.corner_runs(r, max_radius=C.FAST_CORNER_MAX_RADIUS, min_turn_deg=C.FAST_CORNER_MIN_TURN_DEG)):
                 if c["radius"] < C.FAST_CORNER_RADIUS:
                     continue
                 s_in, s_ap, s_out = (float(r.s[c[k]]) for k in ("i_in", "i_apex", "i_out"))
@@ -1594,6 +1610,11 @@ class TrackGeometry:
                 edge = r.left if side > 0 else r.right
                 g = gaps[(r.index, side)]
                 reasons: list[tuple[np.ndarray, np.ndarray]] = []  # (mask, offset per sample)
+                kinds: list[str] = []  # what each reason's barrier is (measured run-off: by type)
+                if measured:
+                    btype, boff, bfence = self.runoff.barrier(r.index, side)
+                    hard = np.isin(btype, ("armco", "tyres", "concrete")) & np.isfinite(boff)
+                    default = str(self.runoff.default_type)
                 div = np.isfinite(g["gap"]) & g["owner"]
                 half = np.maximum(g["gap"] / 2.0, C.DIVIDER_MIN)
                 # a divider runs DIVIDER_OVERRUN samples past the last probe that saw the other road, so a road
@@ -1612,26 +1633,57 @@ class TrackGeometry:
                         grown |= src
                 div = grown
                 reasons.append((div, half_g))
+                kinds.append("divider")
                 reasons.append((near & self.svalid[r.index], np.full(r.n, C.WALL_OFFSET)))
+                kinds.append("grid")
                 crowd = np.zeros(r.n, dtype=bool)
                 for sr, i, sside, length in spots:
                     if sr is r and sside == side:
                         crowd |= r.s_dist(r.s, r.s[i]) <= length / 2.0 + C.CROWD_WALL_EXTEND
-                reasons.append((crowd, np.full(r.n, C.CROWD_WALL)))
-                reasons.append((fast[side], np.full(r.n, C.FAST_CORNER_WALL)))
-                probe = edge.copy()
-                probe[:, :2] += r.nl * side * C.DROP_PROBE
-                drop = (edge[:, 2] - self.terrain(probe)) > C.DROP_H
-                drop &= ~np.isfinite(g["gap"])  # a lower road beside this one is a divider's job
-                reasons.append((drop, np.full(r.n, C.WALL_OFFSET)))
+                if measured:
+                    # crowds stand behind the real barrier where there is one (else a spectator barrier in front)
+                    reasons.append((crowd & ~hard, np.full(r.n, C.CROWD_WALL)))
+                    kinds.append("crowd")
+                    # the measured barriers, each at its own offset; where offsets step between zones the line
+                    # angles across (MEASURED_WALL_SLOPE metres out per metre along)
+                    reasons.append((hard, np.where(hard, boff, np.inf)))
+                    kinds.append("measured")
+                else:
+                    reasons.append((crowd, np.full(r.n, C.CROWD_WALL)))
+                    kinds.append("crowd")
+                    reasons.append((fast[side], np.full(r.n, C.FAST_CORNER_WALL)))
+                    kinds.append("fast")
+                    probe = edge.copy()
+                    probe[:, :2] += r.nl * side * C.DROP_PROBE
+                    drop = (edge[:, 2] - self.terrain(probe)) > C.DROP_H
+                    drop &= ~np.isfinite(g["gap"])  # a lower road beside this one is a divider's job
+                    reasons.append((drop, np.full(r.n, C.WALL_OFFSET)))
+                    kinds.append("drop")
                 offset = np.full(r.n, np.inf)
                 has = np.zeros(r.n, dtype=bool)
-                for mask, off in reasons:
+                which = np.full(r.n, -1, dtype=np.int32)
+                for q, (mask, off) in enumerate(reasons):
                     mask = mask & self.svalid[r.index]
                     if not mask.any():
                         continue
+                    slope = C.MEASURED_WALL_SLOPE if kinds[q] == "measured" else C.WALL_RAMP_SLOPE
+                    cone = self._cone(r, mask, off, slope)
+                    if kinds[q] == "measured":
+                        # a measured barrier only where the data has one (plus short angled joins between zones)
+                        reach = mask | self._near_mask(r, mask, C.MEASURED_JOIN_M) & self._between(r, mask)
+                        cone = np.where(reach, cone, np.inf)
+                        mask = reach
                     has |= mask
-                    offset = np.minimum(offset, self._cone(r, mask, off, C.WALL_RAMP_SLOPE))
+                    which = np.where(cone < offset, q, which)
+                    offset = np.minimum(offset, cone)
+                if measured:
+                    # never in a measured gravel trap or on an apron: the angled joins between zones and the
+                    # spectator barriers stop at the run-off's outer edge (dividers and the pit wall excepted)
+                    a = self.runoff.side[(r.index, side)]
+                    end = np.maximum(np.where(a["surface"] == 1, a["g1"], 0.0), a["tarmac"])
+                    kind_of = np.array([kinds[q] if q >= 0 else "" for q in which])
+                    push = (end > 0) & ~np.isin(kind_of, ("divider", "grid"))
+                    offset = np.where(push, np.maximum(offset, end + C.TRAP_BARRIER_GAP), offset)
                 offset = np.where(np.isfinite(offset), offset, C.CROWD_WALL)
                 line = self._side_points(r, side, offset)
                 ok = has & self._edge_ok(r, line, 0.5)
@@ -1646,7 +1698,20 @@ class TrackGeometry:
                 margin = np.full(r.n, runoff)
                 margin = np.where(ok, np.minimum(margin, offset - 0.8), margin)
                 margin = np.minimum(margin, g["gap"] / 2.0 - 0.5)
+                # the barrier type along the line: drawn tracks use options.walls everywhere; measured run-off
+                # follows the data (dividers and spectator barriers take the nearest measured type, else the
+                # circuit's default; the grid sector's pit wall is concrete)
+                if measured:
+                    kind_of = np.array([kinds[q] if q >= 0 else "" for q in which])
+                    types = np.where(self._near_mask(r, hard, 60.0), self._fill_nearest(r, hard, btype), default)
+                    types = np.where(kind_of == "grid", "concrete", types)
+                    fence = np.where(hard | (kind_of == "measured"), self._fill_nearest(r, hard, bfence), False).astype(bool)
+                    ok &= types != "none"
+                else:
+                    types = np.full(r.n, self.walls, dtype=object)
+                    fence = np.zeros(r.n, dtype=bool)
                 plan[(r.index, side)] = {"route": r, "side": side, "offset": offset, "line": line,
+                                         "type": np.asarray(types, dtype=object), "fence": fence & ok,
                                          "out": r.nl * side, "ok": ok, "divider": div & ok,
                                          "ai_margin": np.maximum(self._cone(r, np.ones(r.n, bool), margin, 0.5), 0.5)}
         self._wall_plan = plan
@@ -1719,30 +1784,84 @@ class TrackGeometry:
             out[a:a + 256] = (v[None, :] + slope * r.s_dist(r.s[a:a + 256, None], r.s[idx][None, :])).min(1)
         return out
 
+    def _near_mask(self, r: Route, mask: np.ndarray, reach: float) -> np.ndarray:
+        """Samples within ``reach`` metres (along the route) of a sample in ``mask``."""
+        return self._near_s(r, mask) <= reach
+
+    def _between(self, r: Route, mask: np.ndarray) -> np.ndarray:
+        """Samples with a masked sample on both sides within MEASURED_JOIN_M (gaps between two barrier zones)."""
+        idx = np.nonzero(mask)[0]
+        out = np.zeros(r.n, dtype=bool)
+        if not len(idx):
+            return out
+        for a in range(0, r.n, 256):
+            d = r.signed_s(r.s[idx][None, :], 0.0) - r.signed_s(r.s[a:a + 256, None], 0.0)
+            if r.closed:
+                d = (d + r.length / 2.0) % r.length - r.length / 2.0
+            ahead = ((d > 0) & (d <= C.MEASURED_JOIN_M)).any(1)
+            behind = ((d < 0) & (d >= -C.MEASURED_JOIN_M)).any(1)
+            out[a:a + 256] = ahead & behind
+        return out
+
+    def _fill_nearest(self, r: Route, mask: np.ndarray, values: np.ndarray) -> np.ndarray:
+        """``values`` where ``mask``, elsewhere the value of the nearest masked sample along the route."""
+        values = np.asarray(values, dtype=object)
+        idx = np.nonzero(mask)[0]
+        if not len(idx):
+            return values.copy()
+        out = values.copy()
+        for a in range(0, r.n, 256):
+            d = r.s_dist(r.s[a:a + 256, None], r.s[idx][None, :])
+            out[a:a + 256] = values[idx[np.argmin(d, axis=1)]]
+        return np.where(mask, values, out)
+
+    def _typed_runs(self, p: dict) -> list[tuple[str, list[int], bool]]:
+        """A wall plan side's continuous runs, split where the barrier type changes: (type, samples, closed).
+        Consecutive runs of different types share their end sample, so the line stays unbroken."""
+        r = p["route"]
+        out = []
+        for run in self._runs(p["ok"], r.closed):
+            closed = r.closed and len(run) == r.n
+            t = [str(p["type"][i]) for i in run]
+            if len(set(t)) == 1:
+                out.append((t[0], run, closed))
+                continue
+            if closed:  # start the run where the type changes
+                k0 = next(k for k in range(len(run)) if t[k] != t[k - 1])
+                run, t = run[k0:] + run[:k0], t[k0:] + t[:k0]
+            a = 0
+            for k in range(1, len(run) + 1):
+                if k == len(run) or t[k] != t[a]:
+                    seg = run[a:min(k + 1, len(run))] if k < len(run) else run[a:]
+                    if closed and k == len(run):
+                        seg = seg + [run[0]]
+                    if len(seg) >= 2:
+                        out.append((t[a], seg, False))
+                    a = k
+        return out
+
     def wall_runs(self) -> list[dict]:
-        """The wall line as continuous runs: route id, side, points (N, 3; z = terrain), outward unit normals,
-        s and offsets. Empty when options.walls is none."""
+        """The wall line as continuous runs of one barrier type: route id, side, type, points (N, 3; z =
+        terrain), outward unit normals, s, offsets and debris-fence flags. Empty when options.walls is none."""
         if self.walls == "none":
             return []
         out = []
         for (_ri, side), p in sorted(self.wall_plan().items(), key=lambda kv: kv[0]):
             r = p["route"]
-            for run in self._runs(p["ok"], r.closed):
+            for typ, run, closed in self._typed_runs(p):
                 idx = np.array(run)
-                out.append({"route": r.id, "side": side, "closed": r.closed and len(run) == r.n,
+                out.append({"route": r.id, "side": side, "type": typ, "closed": closed,
                             "points": p["line"][idx], "out": p["out"][idx], "s": r.s[idx],
-                            "offset": p["offset"][idx]})
+                            "offset": p["offset"][idx], "fence": p["fence"][idx]})
         return out
 
     def build_walls(self) -> list[Mesh]:
         """Invisible collision walls (CustomData ``vis = false | col = true``, like stock bases' wall_col meshes)
-        along the wall plan; the visible barrier is a row of stock props on the same line (dressing.py)."""
+        along the wall plan, with the barrier type's surface (concrete, tyres, Armco); the visible barrier is a row
+        of stock props on the same line (dressing.py) or, for an imported track's measured barriers, our own
+        meshes with stock textures (build_barriers)."""
         if self.walls == "none":
             return []
-        mat = C.WALL_MATERIAL[self.walls]
-        height = C.WALL_HEIGHT[self.walls]
-        h = C.WALL_HALF[self.walls]
-        profile = [(-h, 0.0), (-h, 1.0), (h, 1.0), (h, 0.0)]
         meshes = []
         for (ri, side), p in sorted(self.wall_plan().items(), key=lambda kv: kv[0]):
             r = p["route"]
@@ -1750,13 +1869,117 @@ class TrackGeometry:
             line = p["line"]
             tz = line[:, 2]
             base = tz - C.WALL_SINK
-            top = np.maximum(tz, (r.left[:, 2] if side > 0 else r.right[:, 2])) + height
-            for run in self._runs(p["ok"], r.closed):
+            for typ, run, closed in self._typed_runs(p):
                 idx = np.array(run)
-                closed = r.closed and len(run) == r.n
-                self._extrude(mesh, line[idx], p["out"][idx], base[idx], top[idx], profile, mat, closed, r.s[idx])
+                h = C.WALL_HALF[typ]
+                profile = [(-h, 0.0), (-h, 1.0), (h, 1.0), (h, 0.0)]
+                top = np.maximum(tz, (r.left[:, 2] if side > 0 else r.right[:, 2])) + C.WALL_HEIGHT[typ]
+                self._extrude(mesh, line[idx], p["out"][idx], base[idx], top[idx], profile, C.WALL_MATERIAL[typ],
+                              closed, r.s[idx])
             if not mesh.empty:
                 meshes.append(mesh)
+        return meshes
+
+    # ------------------------------------------------------------------------- visible measured barriers
+    def _sweep(self, mesh: Mesh, line: np.ndarray, out2: np.ndarray, z0: np.ndarray, s: np.ndarray,
+               strips: list[tuple[tuple[float, float], tuple[float, float], str, tuple[float, float]]], mat: str,
+               tile_u: float) -> None:
+        """Strips along ``line``: each ((off_a, h_a), (off_b, h_b), facing, (v_a, v_b)) runs between two profile
+        points (offset outwards from the line, height above z0) and faces ``road`` (-out), ``back`` (+out) or
+        ``up``; u runs along the line every ``tile_u`` metres."""
+        n = len(line)
+        if n < 2:
+            return
+        for (oa, ha), (ob, hb), facing, (va, vb) in strips:
+            A = [mesh.vert((line[i, 0] + out2[i, 0] * oa, line[i, 1] + out2[i, 1] * oa, z0[i] + ha)) for i in range(n)]
+            B = [mesh.vert((line[i, 0] + out2[i, 0] * ob, line[i, 1] + out2[i, 1] * ob, z0[i] + hb)) for i in range(n)]
+            for i in range(n - 1):
+                u0, u1 = s[i] / tile_u, s[i + 1] / tile_u
+                o = out2[i]
+                outward = (np.array([-o[0], -o[1], 0.0]) if facing == "road" else
+                           np.array([o[0], o[1], 0.0]) if facing == "back" else np.array([0.0, 0.0, 1.0]))
+                mesh.oriented_face((A[i], A[i + 1], B[i + 1], B[i]), mat, outward,
+                                   [(u0, va), (u1, va), (u1, vb), (u0, vb)])
+
+    def _box_at(self, mesh: Mesh, c: np.ndarray, t: np.ndarray, o: np.ndarray, size: tuple[float, float],
+                z0: float, z1: float, mat: str) -> None:
+        """A small upright box (post) centred at c: ``size`` along t and o; four sides and the top."""
+        a, b = size[0] / 2.0, size[1] / 2.0
+        corners = [c - t * a - o * b, c + t * a - o * b, c + t * a + o * b, c - t * a + o * b]
+        lo = [mesh.vert((q[0], q[1], z0)) for q in corners]
+        hi = [mesh.vert((q[0], q[1], z1)) for q in corners]
+        for k in range(4):
+            k2 = (k + 1) % 4
+            mid = (corners[k] + corners[k2]) / 2.0 - c
+            mesh.oriented_face((lo[k], lo[k2], hi[k2], hi[k]), mat, np.array([mid[0], mid[1], 0.0]),
+                               [(0.0, 0.0), (0.25, 0.0), (0.25, 1.0), (0.0, 1.0)])
+        mesh.oriented_face(tuple(hi), mat, np.array([0.0, 0.0, 1.0]), [(0, 0), (0.1, 0), (0.1, 0.1), (0, 0.1)])
+
+    def build_barriers(self) -> list[Mesh]:
+        """The visible measured barriers of an imported track (runoff.py), as stock bases build theirs: meshes on
+        the wall line with stock textures, no collision of their own (the collision wall under them has the
+        type's surface). Armco: two galvanised W-beams (prop_guardrail01) on posts every 2 m; tyres: a tyre wall
+        faced with plain black conveyor belting (prop_tirerubberbarrier); concrete: a grey wall (a_concrete2);
+        a debris fence (chain-link, prop_chainlinkfence04_small) on top where the zone has one. Split into
+        objects of at most BARRIER_CHUNK samples so no draw batch nears the vertex limit."""
+        if not self.runoff.active or self.walls == "none":
+            return []
+        meshes: list[Mesh] = []
+        counter = 0
+        for run in self.wall_runs():
+            typ = run["type"]
+            if typ not in C.BARRIER_MESH:
+                continue
+            P, O, S = run["points"], run["out"], run["s"]
+            if run["closed"]:
+                P, O, S = np.vstack([P, P[:1]]), np.vstack([O, O[:1]]), np.append(S, S[-1] + float(np.hypot(*(P[0, :2] - P[-1, :2]))))
+            S = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(P[:, :2], axis=0).T))])
+            F = np.asarray(run["fence"], dtype=bool)
+            if run["closed"]:
+                F = np.append(F, F[:1])
+            h = C.WALL_HALF[typ]
+            front = P[:, :2] - O * h          # the collision wall's road face
+            z0 = P[:, 2]
+            spec = C.BARRIER_MESH[typ]
+            for a in range(0, len(P) - 1, C.BARRIER_CHUNK):
+                b = min(a + C.BARRIER_CHUNK + 1, len(P))
+                m = Mesh(f"barrier_{typ}_{counter:03d}", "", kind="barrier")
+                counter += 1
+                L, Oa, Za, Sa = front[a:b], O[a:b], z0[a:b], S[a:b]
+                if typ == "armco":
+                    for lo_, hi_ in C.ARMCO_BEAMS:
+                        self._sweep(m, L, Oa, Za, Sa, [((0.0, lo_), (0.0, hi_), "road", (0.0, 1.0)),
+                                                       ((0.0, hi_), (0.12, hi_), "up", (0.95, 1.0)),
+                                                       ((0.12, lo_), (0.12, hi_), "back", (0.0, 1.0))],
+                                    spec["mat"], spec["tileU"])
+                    # posts every ARMCO_POST_M behind the beams
+                    seg = np.hypot(*np.diff(L, axis=0).T)
+                    cum = np.concatenate([[0.0], np.cumsum(seg)])
+                    for d in np.arange(0.5, cum[-1], C.ARMCO_POST_M):
+                        k = int(np.clip(np.searchsorted(cum, d) - 1, 0, len(L) - 2))
+                        f = (d - cum[k]) / max(seg[k], 1e-9)
+                        c = L[k] + (L[k + 1] - L[k]) * f
+                        t = (L[k + 1] - L[k]) / max(seg[k], 1e-9)
+                        zc = Za[k] + (Za[k + 1] - Za[k]) * f
+                        self._box_at(m, c + Oa[k] * 0.2, t, Oa[k], (0.12, 0.12), zc - 0.3, zc + C.ARMCO_BEAMS[-1][1] - 0.02,
+                                     spec["mat"])
+                else:
+                    H, D = spec["height"], spec["depth"]
+                    self._sweep(m, L, Oa, Za, Sa, [((0.0, -0.3), (0.0, H), "road", (0.0, 1.0)),
+                                                   ((0.0, H), (D, H), "up", (0.0, 0.25)),
+                                                   ((D, H), (D, -0.3), "back", (1.0, 0.0))],
+                                spec["mat"], spec["tileU"])
+                # debris fence on the barrier where the zone has one
+                Fa = F[a:b]
+                for fr in self._runs(Fa, False):
+                    idx = np.array(fr)
+                    top = C.ARMCO_BEAMS[-1][1] if typ == "armco" else spec["height"]
+                    self._sweep(m, L[idx] + Oa[idx] * 0.15, Oa[idx], Za[idx], Sa[idx],
+                                [((0.0, top), (0.0, top + C.FENCE_HEIGHT), "road", C.FENCE_V),
+                                 ((0.0, top), (0.0, top + C.FENCE_HEIGHT), "back", C.FENCE_V)],
+                                "barrier_fence", C.FENCE_TILE_U)
+                if not m.empty:
+                    meshes.append(m)
         return meshes
 
     # -------------------------------------------------------------------------------------- bridges
@@ -1879,6 +2102,12 @@ class TrackGeometry:
         pts = np.stack([gx.ravel(), gy.ravel(), np.zeros(gx.size)], axis=1)
         z = self.terrain(pts).reshape(gx.shape)
         mat = "terrain"
+        # measured run-off: faces whose centre lies in a gravel trap or on a paved apron get those materials
+        face_mat = None
+        if self.runoff.active:
+            cxg, cyg = np.meshgrid((xs[:-1] + xs[1:]) / 2.0, (ys[:-1] + ys[1:]) / 2.0, indexing="ij")
+            code = self.runoff.at(np.stack([cxg.ravel(), cyg.ravel()], axis=1)).reshape(cxg.shape)
+            face_mat = np.array(["terrain", "terrain_trap", "terrain_apron"])[code]
         T = C.TERRAIN_TILE_CELLS
         tile = C.TEX_TILE["ground"]
         meshes = []
@@ -1892,7 +2121,7 @@ class TrackGeometry:
                 for i in range(tx, min(tx + T, nx)):
                     for j in range(ty, min(ty + T, ny)):
                         q = (ids[i, j], ids[i + 1, j], ids[i + 1, j + 1], ids[i, j + 1])
-                        mesh.face(q, mat, [(xs[a] / tile, ys[b] / tile) for a, b in
+                        mesh.face(q, mat if face_mat is None else str(face_mat[i, j]), [(xs[a] / tile, ys[b] / tile) for a, b in
                                            ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1))])
                 meshes.append(mesh)
         self.terrain_grid = (xs, ys, z)
@@ -1904,6 +2133,7 @@ class TrackGeometry:
         meshes += [m for m in (kerbs, limits, shoulders, self.build_edge_decals(), self.build_transition_decals())
                    if not m.empty]
         meshes += self.build_walls()
+        meshes += self.build_barriers()
         meshes += self.build_bridges()
         meshes += self.build_terrain()
         return meshes

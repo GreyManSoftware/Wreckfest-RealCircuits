@@ -27,6 +27,10 @@ from .geometry import dist_to_polyline
 from .noise import Noise2D, seed_for
 from .woods import WoodMask
 
+# categories that may stand inside measured run-off (the gantry spans the road; flags, staff and the start grandstand
+# belong to the grid sector)
+RUNOFF_EXEMPT = ("gantry", "flags", "staff", "grandstand", "barriers", "shore", "brakeBoards")
+
 FORMAT = "trackgen-scenery/1"
 
 # ---- braking boards (stock gameplay_distanceboard{150,100,50}: breakable 2 x 1 m panels, numbers on local +X)
@@ -346,6 +350,16 @@ class Planner:
                  if self.e.get("lake") else [])
         self.lakes = WoodMask(lakes, self.frame, soft=3.0) if lakes else None
         self.main = geo.main
+        # an imported track's measured run-off and vegetation (runoff.py; sketch.imported.trees / woodland cover):
+        # nothing stands in a gravel trap, on an apron or between a road edge and its barrier, and only the real
+        # trees are planted (no seeded scatter, no single park trees, no edge belt)
+        self.runoff = getattr(geo, "runoff", None)
+        self.measured = bool(self.runoff is not None and self.runoff.active)
+        self.real_trees = [(float(t["x"]), float(t["y"]), float(t["h"])) for t in (imp.get("trees") or [])]
+        covers = [w.get("cover") for w in (imp.get("woodland") or [])]
+        self.measured_veg = bool(self.real_trees) or any(c is not None for c in covers)
+        self.wood_cover_mask = (WoodMask(polys, self.frame, soft=1.0, weights=[c if c is not None else 1.0 for c in covers])
+                                if polys and self.measured_veg else None)
         self._nogo()
 
     def dry(self, x: float, y: float, above: float = 0.8) -> bool:
@@ -450,10 +464,22 @@ class Planner:
             return False
         if category != "shore" and not self.dry(x, y):
             return False
+        if self.measured and category not in RUNOFF_EXEMPT and self.in_runoff(np.array([[x, y]]), rr)[0]:
+            return False
         if occupy:
             self.occ.add(x, y, rr)
         self.sc.placements.append(Placement(asset, category, float(x), float(y), 0.0, float(yaw), scale))
         return True
+
+    def in_runoff(self, xy: np.ndarray, r: float = 0.0) -> np.ndarray:
+        """Inside a measured gravel trap or apron, or between a road edge and its barrier (the centre and four
+        points ``r`` away)."""
+        xy = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
+        out = np.zeros(len(xy), dtype=bool)
+        for dx, dy in ((0, 0), (r, 0), (-r, 0), (0, r), (0, -r)) if r > 0 else ((0, 0),):
+            q = xy + np.array([dx, dy])
+            out |= (self.runoff.at(q) > 0) | self.runoff.at(q, "band")
+        return out
 
     def face_yaw(self, asset: str, toward_road, tangent) -> float:
         f = envs.asset_info(asset).get("face", "+y")
@@ -596,6 +622,12 @@ class Planner:
         fence = self.e["crowdFence"]
         fw = float(envs.asset_info(fence).get("width", 4.0))
         off_f = self.edge_min + 5.0
+        if self.measured:  # behind the real barrier (or the end of the run-off) where it is further out
+            a = self.runoff.side[(r.index, side)]
+            reach = np.where(np.isfinite(a["offset"]), a["offset"], self.runoff.run_off_end(r.index, side))
+            off_f = max(off_f, float(np.max(reach[self.walk(r, i, length + 6.0, 2.0)])) + 3.0)
+            if off_f > C.MEASURED_CROWD_MAX_M:
+                return 0
         for k in self.walk(r, i, length + 6.0, fw):
             q, tw, tg = self.side_point(r, k, side, off_f)
             self.try_place(fence, "crowdFence", q[0], q[1], self.face_yaw(fence, tw, tg), off_f - 1.0, r=fw / 2.0)
@@ -888,6 +920,8 @@ class Planner:
         self.sc.info["sponsorCleared"] = len(removed)
 
     def corner_markers(self, corners) -> None:
+        if self.measured:
+            return
         r = self.main
         markers = self.e["cornerMarkers"]
         off = self.marker_off
@@ -973,6 +1007,9 @@ class Planner:
                     if self.in_nogo(ends, 0.5, False).any():
                         skip("noGo", dist)
                         continue
+                    if self.measured and (self.runoff.at(ends) == 1).any():  # never in a measured gravel trap
+                        skip("gravelTrap", dist)
+                        continue
                     if not self.inside(q[0], q[1], 2.0) or not self.dry(q[0], q[1]):
                         skip("terrain", dist)
                         continue
@@ -996,6 +1033,12 @@ class Planner:
         """The visible containment: a row of the environment's stock barrier props (concrete blocks, muddy
         barriers, tyre walls; environments.json "barriers") along the wall line of the geometry's wall plan. Each
         prop's road-facing side sits on the invisible collision wall's face; local +Y points away from the road."""
+        if self.measured:
+            for run in self.geo.wall_runs():
+                P = np.asarray(run["points"], dtype=np.float64)[:, :2]
+                for k in range(0, len(P), 1):
+                    self.occ.add(float(P[k, 0]), float(P[k, 1]), 1.2)
+            return
         row = envs.barrier_row(self.env_name, self.geo.walls)
         if not row:
             return
@@ -1055,7 +1098,57 @@ class Planner:
                 n += 1
         return n
 
+    def measured_foliage(self) -> None:
+        """Real trees only (sketch.imported woodland with cover + trees, measured from the canopy height model):
+        the woods' tree spots kept with their measured cover, every single tree at its place and height, nearest
+        the road first within the environment's cap (far woods thin out first; the backdrop cards stand behind
+        them). No seeded clusters, park trees or edge belt."""
+        e = self.e
+        trees = e.get("trees", [])
+        fol = self.fol
+        cap = int(fol["treeCap"])
+        min_tree = max(float(fol["minTreeM"]) * 0.5, C.MEASURED_TREE_MIN_M, self.edge_min + 0.5)
+        cand = []  # (priority distance, x, y, asset or None, scale)
+        if self.wood_cover_mask is not None and trees:
+            pts = self._grid(float(fol["treeSpacing"]))
+            inside = self.woods.at(pts) > 0.45
+            cov = self.wood_cover_mask.at(pts)
+            keep = inside & (self.rng.random(len(pts)) < np.clip(cov / np.maximum(self.woods.at(pts), 1e-6), 0.0, 1.0))
+            pts = pts[keep]
+            d = self.field.dist(pts) if len(pts) else np.zeros(0)
+            cand += [(float(dd), float(x), float(y), None, None) for (x, y), dd in zip(pts, d)]
+        if self.real_trees and trees:
+            P = np.array([t[:2] for t in self.real_trees])
+            H = np.array([t[2] for t in self.real_trees])
+            d = self.field.dist(P)
+            ins = self.woods.at(P) > 0.45 if self.woods is not None else np.zeros(len(P), dtype=bool)
+            for (x, y), h, dd, w in zip(P, H, d, ins):
+                if w:
+                    continue
+                a = self.pick(trees)
+                sc = float(np.clip(h / max(envs.asset_info(a)["h"], 1.0), 0.45, 1.3))
+                cand.append((float(dd), float(x), float(y), a, sc))
+        cand.sort(key=lambda c: c[0])
+        n = 0
+        for dd, x, y, a, sc in cand:
+            if n >= cap:
+                break
+            if dd < min_tree:
+                continue
+            if a is None:
+                a = self.pick(trees)
+                sc = float(1.0 + self.rng.uniform(-0.15, 0.15))
+            r = envs.asset_info(a)["r"] * 0.7
+            if self.try_place(a, "trees", x, y, float(self.rng.uniform(0, 2 * math.pi)), min_tree, r=r, scale=sc,
+                              margin=0.0):
+                n += 1
+        self.sc.info["measuredTrees"] = {"placed": n, "candidates": len(cand), "cap": cap}
+
     def foliage(self) -> None:
+        if self.measured_veg:
+            self.measured_foliage()
+            self.other_foliage()
+            return
         e = self.e
         name = self.env_name
         trees = e.get("trees", [])
@@ -1087,6 +1180,14 @@ class Planner:
             depth = 14.0 + 26.0 * Noise2D(seed_for(self.slug, "belt"), self.frame, 120.0, 2).at(pts)
             sel = (edge < depth) & (self.rng.random(len(pts)) < 0.8)
             self._scatter(pts[sel], trees, "trees", min_tree, belt)
+        self.other_foliage()
+
+    def other_foliage(self) -> None:
+        """Bushes at wood edges, stock foliage groups, saplings and ground props (seeded; around measured woods
+        on imported tracks)."""
+        e = self.e
+        fol = self.fol
+        min_tree = max(float(fol["minTreeM"]), self.edge_min + 4.0)
         # bushes: along the edge of the open ground and in small clusters
         bushes = e.get("bushes", [])
         pts = self._grid(14.0)

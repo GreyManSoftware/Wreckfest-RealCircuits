@@ -194,6 +194,8 @@
   "expectedCornerOrderNote": "The 2024 Main Track's turns in racingcircuits.info's numbering, clockwise from the end of the main straight.",
   "kerbsNote": "OSM has no kerb features here and the 5 m DTM can't resolve kerbs; no track guide with kerb detail was found for the 2024 layout, so every corner gets the geometric apex/exit kerbs.",
   "environmentNote": "arid: the dry hills of Tierra Estella south of Los Arcos: sand, pebbles and dry ground, scrub and rocks, a few pines, bare hills on the far ground.",
+  "runoff": "measured",
+  "runoffNote": "Run-off surfaces, barriers (type, offset, debris fences) and trees measured from open LIDAR and OSM plus published sources: tools/real_tracks/runoff|vegetation/<slug>.json (tools/real_tracks_data/measure_runoff.py, runoff_evidence.json); docs/real-tracks.md, Run-off and foliage.",
   "options": {
     "surface": "tarmac",
     "kerbs": true,

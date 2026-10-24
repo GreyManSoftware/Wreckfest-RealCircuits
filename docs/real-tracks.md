@@ -43,7 +43,8 @@ layouts; lengths from Wikipedia unless noted, to verify per circuit under the st
    importer and `geom/tests/test_import_real_track.py` fail a recipe without them, and `check_scene` /
    `check_export` check the line, the grid facing and the driving order in every layout.
 3. As before: correct direction (`otherway`, route vs checkpoint order), road flush with the grass, a 24-car grid
-   on tarmac per layout, dividers between close sections, selective barriers with grass run-off, kerbs (and green
+   on tarmac per layout, dividers between close sections, the measured run-off and barrier types (since 2026-10-24,
+   "Run-off, barriers and foliage"; red/white only with a source), kerbs (and green
    strips on fast exits), a minimap `.tcat` per layout, within the stock scene limits.
 
 ## Importer
@@ -389,6 +390,104 @@ tracks, and reports `gridWidthM`, the narrowest road along any grid, which the `
 route/safe/race strips, dividers between close sections, the flush terrain, the minimap route); its road UVs, edge
 decals, apron links and checkpoint-on-road test now use the local width too.
 
+## Run-off, barriers and foliage (2026-10-24)
+
+Chris: run-off and foliage must match reality (Donington has far fewer trees in the circuit area and almost all
+gravel run-off), and barriers must be the real types: Armco, plain black tyre walls, concrete, debris fencing or
+open banks; **red/white only where a source confirms it** (none does yet, so no real circuit shows any). Until now
+every circuit had grass run-off, generic barriers (stock red/white tyre heaps `prop_tirebarrier02/04`, or grey
+concrete blocks) on about a quarter of each side at fast corners and crowds, and OSM woods plus seeded park trees and
+an edge belt. Per-circuit findings and evidence tables: `real-tracks/<slug>.md`, "Run-off, barriers and trees".
+
+**Data** (open only; no Google, Bing or Esri). Tools in `tools/real_tracks_data/` (widths venv on E:, at most 8
+processes):
+
+```powershell
+python tools\real_tracks_data\fetch_pointcloud.py <slug> --corridor 450   # the LAZ tiles under the whole terrain box
+py tools\real_tracks_data\fetch_osm_runoff.py <slug>                      # OSM woods, scrub, trees, sand/shingle, barriers
+python tools\real_tracks_data\lidar_raster.py <slug>                      # 1 m rasters: DTM, DSM, canopy, objects, intensity
+python tools\real_tracks_data\measure_runoff.py <slug> --plots            # runoff/<slug>.json, vegetation/<slug>.json, overlays
+py tools\real_tracks_data\apply_runoff.py <slug>                          # into the committed sample (the importer does it too)
+```
+
+- **Rasters** (`lidar_raster.py`, `.local\realtracks\<slug>\runoff\raster.npz`): the EA point clouds (Navarre: the
+  2024 flight with RGBI) over the routes' box ± 450 m at 1 m: ground (class 2; Navarre also 11, its road class),
+  surface, canopy (DSM − DTM), the share of returns in the vegetation classes over 2 m and of non-ground returns
+  0.3-2.5 m up (barriers, tyre walls, fences), and the ground's last-return intensity divided by each flight line's
+  median. Wales: the DataMapWales DTM and DSM COGs (range reads); no intensity.
+- **Surfaces**: the intensity has three clear modes on every English circuit: asphalt dark (0.2 of the grass
+  level), gravel mid-grey (0.5-0.7), grass bright (1.0-1.4). Thresholds per circuit from its road level and the
+  80th percentile 12-45 m out (`calibration` in the run-off file): asphalt below road + 22 % of the range, gravel
+  below road + 62 %. Bedford's mid-grey is the airfield's concrete (no gravel traps there: evo, racingcircuits.info).
+  Navarre: the 2024 colour (run-off asphalt is paler than the track's: threshold 130 of 255) and OSM's
+  `natural=sand raceway=gravel trap` polygons. OSM `natural=shingle|sand`, `surface=gravel|sand` areas are gravel
+  everywhere (Donington maps its traps as shingle), `area:highway` and paved areas are tarmac.
+- **Profiles**: every 4 m along every route, each side, 0.5 m bins from the measured road edge out to 60 m, cut
+  half way to another road. Per profile: tarmac contiguous from the edge (an apron), the first gravel run of 3 m or
+  more starting within 15 m (a trap), the first narrow raised object no deeper than 4 m (a barrier; OSM
+  `barrier=guard_rail|tyres|wall|jersey_barrier` crossing the profile give its type when within 4 m, an OSM fence
+  there adds a debris fence), an earth bank where the ground rises 1.2 m within 12 m first. Sections are
+  mode-filtered (7) and merged into zones of at least 16 m.
+- **Barrier types** the LIDAR can't tell (it sees a raised line, not its material): `runoff_evidence.json`, per
+  circuit a default (`barrier`, `trapBarrier` behind a gravel trap) and corner overrides, each with its source
+  (oversteer48, driver61, MSV and circuit news, Geobrugg's Navarra project, Wikipedia, crash reports). A research
+  pass found no published barrier colour for any circuit.
+- **Vegetation**: canopy over 3 m (and vegetation classes over 2 m where the cloud has them), opened once to drop
+  wires and fences; woods = 5 m cells at least half covered, traced (simplified 3 m, at least 400 m²) with their
+  mean cover; single trees = canopy peaks over 4 m outside the woods, at least 6 m apart, with their height. OSM
+  `natural=tree` nodes are counted against them (Donington: 120 of 385 within 8 m).
+- **Spec**: `sketch.imported.runoff` (zones: route, side, fromS/toS, surface, tarmacM, startM/depthM, barrier,
+  offsetM, fence, colour, confidence, source), `sketch.imported.trees` and `woodland[].cover` (schema
+  `RunoffZone`, `ImportedTree`). `apply_runoff.py` re-projects every zone by its ends' grid positions, so a
+  re-imported sample keeps its zones; recipes opt in with `"runoff": "measured"` (all eight).
+
+| Circuit | Data | Gravel / tarmac / grass (main lap, both sides) | Barriers (share of the sides) | Woods / single trees (450 m box) |
+|---|---|---|---|---|
+| Cadwell Park | EA 2019 | 3 / 0 / 97 % | Armco 56, none 36, bank 8 | 5.0 ha / 1,844 |
+| Brands Hatch | EA 2018 | 16 / 1 / 84 % | Armco 72, tyres 15, none 9, bank 3, concrete 1; debris fence 53 % (OSM) | 64.8 ha / 3,203 |
+| Oulton Park | EA 2021 | 5 / 1 / 94 % | Armco 70, none 26, concrete 2, bank 2 | 83.0 ha / 1,145 |
+| Snetterton | EA 2018/2021 | 9 / 0 / 91 % | none 51, Armco 29, concrete 11, tyres 8 | 19.3 ha / 729 |
+| Donington Park | EA 2022 | 22 / 1 / 77 % | Armco 45, tyres 26, concrete 15, none 15; fence 18 % | 31.8 ha / 1,257 |
+| Bedford Autodrome | EA 2023 | 0 / 39 / 61 % (concrete) | none 100 (dividers keep black tyre walls) | 27.2 ha / 1,297 |
+| Circuito de Navarra | Navarre 2024 RGBI | 12 / 21 / 67 % | Armco 84, none 15; fence 7 % | 0.2 ha / 458 |
+| Anglesey | Wales DSM/DTM + OSM | 0 / 0 / 100 % (unmeasured) | Armco 52, none 45, concrete 3 | 0.9 ha / 91 |
+
+**Builder** (`worker/builder/wfbuild/runoff.py`, used by geometry, maps and dressing):
+
+- **Gravel traps**: terrain faces whose centre lies in a trap take `terrain_trap_<env>#slowdown#blend`, the
+  terrain's own maps with the R layer swapped for stock gravel (`sandpit:ground_pebbles_03_c`) and no clutter group;
+  the blend map is red there (softened one pixel into the grass), the clutter mask and colour tint are cleared. The
+  surface is the stock `#slowdown` the sandpit sand banks use (surfacelist: the slowdown tyre model, twice gravel's
+  rolling resistance); `#slowdownsand` is in the surface list but bgeometry has no settings for it. The ground dips
+  15 cm inside a trap (eased over 2 m). A trap never starts under a kerb or green strip (0.3 m beyond them).
+- **Tarmac run-off**: `terrain_apron_<env>#asphalt#blend` with an older, cracked tarmac (`ground_tarmac08f_fields`;
+  arid `road_sandpit_tarmac03`) from the edge out to the measured depth; the shoulder takes it too. The AI safe and
+  race strips stay on the road; the AI route covers the run-off up to the barrier as before.
+- **Barriers**: the wall plan takes each zone's barrier at its measured offset (behind every trap and apron, steps
+  between zones eased over 24 m and joined at 45°), plus dividers between close sections and the grid sector's pit
+  wall (concrete; pit lanes and paddocks are another agent's); the generic fast-corner and drop-off barriers are off.
+  Collision walls (invisible, as before) take the type's surface (`#metal_barrier` Armco, `#global_barrier` tyres,
+  `#concrete_barrier`). The visible barrier is our own mesh with stock textures, as stock bases build theirs
+  (fields08/forest05 guardrail, forest04 tyre walls), no collision of its own: **Armco** two W-beams
+  (`prop_guardrail01_c`) on posts every 2 m; **tyre wall** 1.05 m faced with plain black conveyor belting
+  (`prop_tirerubberbarrier_c`); **concrete** (`a_concrete2_c`); **debris fence** 3 m of chain-link
+  (`prop_chainlinkfence04_small_c5`, alpha) on the barrier. Split into objects of at most 100 line samples. No
+  barrier props and no corner-marker tyre stacks on measured circuits.
+- **Placement**: nothing but the grid-sector dressing (gantry, flags, staff, start grandstand) stands in a trap,
+  on an apron or between a road edge and its barrier; crowds stand 3 m behind the real barrier (at most 75 m out).
+- **Trees**: only the measured ones: the woods' tree spots kept with their cover, every single tree at its place
+  scaled to its height, nearest the road first up to the environment's cap; no seeded clusters, park trees or edge
+  belt (bushes at wood edges, foliage groups, saplings and rocks stay). The terrain reaches 60 m beyond the roads'
+  box, so trees further out aren't placed (the backdrop cards stand there).
+
+**Checks**: `check_scene` (`check_runoff`): the built ground under every zone has its surface (ray cast on the
+terrain and shoulders), traps use `#slowdown`, the barrier along every zone is its type and stands behind its trap,
+every built type has its visible mesh (no collision), no red/white barrier without a source, no kerb in a trap,
+nothing in the run-off, trees only on measured canopy (≥ 98 %) and density near the track (15-150 m: ≥ 60 % of the
+wooded 20 m cells have a tree, ≤ 3 % of the open ones); `check_export`: the traps exported with `#slowdown`, the
+barrier materials with their stock textures, and the stock scene limits; `geom/tests/test_import_real_track.py`:
+every recipe's zones on their routes, both sides covered, traps ≥ 3 m deep and in front of their barrier.
+
 ## Data sources and attribution
 
 | Data | Source | Licence | Attribution (in the spec's `sketch.imported.source`) |
@@ -400,6 +499,7 @@ decals, apron links and checkpoint-on-road test now use the local width too.
 | Heights, camber, terrain (Navarre) | Gobierno de Navarra MDT 2 m, 2024 LIDAR (IDENA WCS, coverage `IDENA.WCS__ELEVAC_Ras_MDT_2M`, ETRS89 / UTM 30N) | CC BY 4.0 | Servicio proporcionado por el Gobierno de Navarra (IDENA) |
 | Widths (England) | Environment Agency National LIDAR Programme point cloud (LAZ, 5 km tiles; DEFRA survey catalogue) | Open Government Licence v3.0 | Contains Environment Agency information (c) Environment Agency and/or database right |
 | Widths (Navarre) | Gobierno de Navarra LiDAR 2024 point cloud with RGBI (LAZ, 1 km tiles, filescartografia.navarra.es) | CC BY 4.0 | Servicio proporcionado por el Gobierno de Navarra (IDENA), LiDAR 2024 |
+| Run-off, barriers, trees | The same EA / Navarre point clouds; Wales: Welsh Government / NRW LIDAR DSM and DTM 1 m (DataMapWales COGs); OSM run-off, barrier and woodland features; barrier types from published guides (`runoff_evidence.json`) | OGL v3.0 / CC BY 4.0 / ODbL 1.0 | appended to `sketch.imported.source` by `apply_runoff.py` |
 
 The committed sample (`geom/tests/samples/cadwellpark.json`) is derived data (a 2 m centreline, a 6 m grid and
 simplified woods), not the raw downloads. A published mod that uses it should carry the same attribution.

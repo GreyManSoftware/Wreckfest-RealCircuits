@@ -176,3 +176,57 @@ Lap lengths after (all three re-imported with the straightening fix, `docs/real-
 **Brittens** has the same shape in OSM: the old straight from Brittens' entry (450023909, 37 m) to where the Island
 Hairpin joins it (then 820427876, which the Island drives). MSV's maps draw no tarmac there besides Brittens and the
 Island Hairpin, so the 37 m stub isn't built.
+
+## Run-off, barriers and trees (2026-10-24)
+
+Measured from open data (method: `docs/real-tracks.md`, "Run-off, barriers and foliage"): EA National LIDAR Programme point cloud (intensity, classes, heights);
+OSM run-off, barrier and woodland features; barrier types from `tools/real_tracks_data/runoff_evidence.json`.
+Data `tools/real_tracks/runoff/oultonpark.json`, `tools/real_tracks/vegetation/oultonpark.json`; overlays
+`.local\audit\oultonpark\runoff-*.png`, `vegetation-overview.png`.
+
+| | Before (builder until 2026-10-24) | Now (measured) |
+|---|---|---|
+| Run-off | grass everywhere (no traps or aprons); 391 stock barrier props (tyres: red/white tyre heaps prop_tirebarrier02/04) on 24 % / 20 % of the main lap's left / right sides | gravel 5 %, tarmac 1 %, grass 94 % of the main lap's sides; barriers armco 70 %, none 26 %, concrete 2 %, bank 2 %; debris fence on 1 %; built barrier line on 90 % / 68 % (left / right) |
+| Trees | 2731 trees: OSM woods plus seeded park trees and an edge belt | 52 measured woods (83.0 ha in the 450 m box), 1145 single trees, canopy 19.4 % of the box; 2239 trees placed (5063 candidates inside the terrain, cap 2600) |
+| Look | grass verges and red/white tyre heaps; OSM woods plus seeded park trees | mostly grass run-off to Armco (the parkland circuit's default; Druids' Armco behind its 2007 gravel trap), small traps at Cascades/Island and Druids, paved aprons at Old Hall and Lodge where the 2021 LIDAR shows them |
+
+Evidence per corner (main lap; the zone that holds the corner label; offsets from the road edge):
+
+| Corner (sM) | Side | Run-off | Barrier | Source |
+|---|---|---|---|---|
+| Old Hall Corner (290) | left | grass | armco at 12 m | LIDAR, circuit default |
+| Old Hall Corner (290) | right | grass | armco at 10 m | LIDAR, circuit default |
+| The Avenue (476) | left | grass | armco at 16 m | LIDAR, circuit default |
+| The Avenue (476) | right | grass | armco at 6 m | LIDAR, circuit default |
+| Dentons (628) | left | grass | armco at 18 m | LIDAR, circuit default |
+| Dentons (628) | right | grass | armco at 6 m | LIDAR, circuit default |
+| Cascades (790) | left | grass | armco at 10 m | LIDAR, circuit default |
+| Cascades (790) | right | gravel trap 2-41 m | armco at 42 m | LIDAR, circuit default |
+| Lakeside (1093) | left | grass | armco at 38 m | LIDAR, circuit default |
+| Lakeside (1093) | right | grass | none | LIDAR |
+| Island Bend (1415) | left | grass | armco at 20 m | LIDAR, circuit default |
+| Island Bend (1415) | right | grass | none | LIDAR |
+| Shell Oils Corner (1681) | left | grass | armco at 14 m | LIDAR, circuit default |
+| Shell Oils Corner (1681) | right | grass | armco at 14 m | LIDAR, circuit default |
+| Brittens (2111) | left | grass | armco at 29 m | LIDAR, circuit default |
+| Brittens (2111) | right | grass | none | LIDAR |
+| Hilltop (2385) | left | grass | armco at 10 m | LIDAR, circuit default |
+| Hilltop (2385) | right | grass | none | LIDAR, circuit default |
+| Hislops (2694) | left | grass | armco at 42 m | LIDAR, circuit default |
+| Hislops (2694) | right | grass | armco at 13 m | LIDAR, circuit default |
+| Knickerbrook (2832) | left | gravel trap 5-27 m | armco at 41 m | LIDAR, guide: en.wikipedia.org/wiki/Oulton_Park |
+| Knickerbrook (2832) | right | grass | armco at 19 m | LIDAR, circuit default |
+| Clay Hill (3066) | left | grass | armco at 50 m | LIDAR, circuit default |
+| Clay Hill (3066) | right | grass | armco at 3 m | LIDAR, circuit default |
+| Water Tower (3280) | left | grass | armco at 14 m | LIDAR, circuit default |
+| Water Tower (3280) | right | grass | none | LIDAR, circuit default |
+| Druids Corner (3484) | left | gravel trap 0-27 m | armco at 38 m | LIDAR, guide: MCN Feb 2007 |
+| Druids Corner (3484) | right | grass | armco at 24 m | LIDAR, circuit default |
+| Warwick Bridge (3678) | left | grass | armco at 5 m | LIDAR, circuit default |
+| Warwick Bridge (3678) | right | grass | armco at 12 m | LIDAR, circuit default |
+| Lodge Corner (4012) | left | gravel trap 0-6 m | armco at 24 m | LIDAR, circuit default |
+| Lodge Corner (4012) | right | grass | armco at 10 m | LIDAR, circuit default |
+| Deer Leap (4210) | left | grass | armco at 4 m | LIDAR, circuit default |
+| Deer Leap (4210) | right | tarmac 8 m | armco at 12 m | OSM, LIDAR, circuit default |
+
+Uncertain: Old Hall and Lodge got concrete run-off in 2020, before the 2021 flight, but the LIDAR reads only short aprons there; barrier types other than Armco are untested against photos.

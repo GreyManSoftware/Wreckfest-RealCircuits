@@ -89,3 +89,51 @@ Source: EA National LIDAR Programme point cloud, tiles TL9585 (2018-11) and TM00
 | 200 / 100 links | 9.7-10.9 m / 10.1-10.6 m |
 | Line | moved by up to 2.8 m (mean 0.9 m); lap 4,785.8 m (published 4,779 m, +0.1 %) |
 | Spec | `options.widthM` 10.7 |
+
+## Run-off, barriers and trees (2026-10-24)
+
+Measured from open data (method: `docs/real-tracks.md`, "Run-off, barriers and foliage"): EA National LIDAR Programme point cloud (intensity, classes, heights);
+OSM run-off, barrier and woodland features; barrier types from `tools/real_tracks_data/runoff_evidence.json`.
+Data `tools/real_tracks/runoff/snetterton.json`, `tools/real_tracks/vegetation/snetterton.json`; overlays
+`.local\audit\snetterton\runoff-*.png`, `vegetation-overview.png`.
+
+| | Before (builder until 2026-10-24) | Now (measured) |
+|---|---|---|
+| Run-off | grass everywhere (no traps or aprons); 495 stock barrier props (tyres: red/white tyre heaps prop_tirebarrier02/04) on 30 % / 19 % of the main lap's left / right sides | gravel 9 %, tarmac 0 %, grass 91 % of the main lap's sides; barriers none 51 %, armco 29 %, concrete 11 %, tyres 8 %, bank 2 %; debris fence on 0 %; built barrier line on 45 % / 73 % (left / right) |
+| Trees | 260 trees: OSM woods plus seeded park trees and an edge belt | 14 measured woods (19.3 ha in the 450 m box), 729 single trees, canopy 7.2 % of the box; 62 trees placed (729 candidates inside the terrain, cap 1200) |
+| Look | grass verges, red/white tyre heaps at fast corners and crowds | open grass run-off on the airfield with Armco where the LIDAR finds a barrier (half the lap has none within 60 m), black tyre walls at Coram, a few gravel patches |
+
+Evidence per corner (main lap; the zone that holds the corner label; offsets from the road edge):
+
+| Corner (sM) | Side | Run-off | Barrier | Source |
+|---|---|---|---|---|
+| Riches (436) | left | grass | armco at 14 m | LIDAR, circuit default |
+| Riches (436) | right | grass | armco at 13 m | OSM, guide: driver61.com/circuit-guide/snetterton-300/ |
+| Wilson (821) | left | gravel trap 3-9 m | none | LIDAR |
+| Wilson (821) | right | grass | none | OSM, LIDAR, circuit default |
+| Palmer (1165) | left | grass | none | LIDAR |
+| Palmer (1165) | right | grass | none | LIDAR |
+| Agostini (1714) | left | grass | none | LIDAR |
+| Agostini (1714) | right | grass | armco at 6 m | LIDAR, circuit default |
+| Hamilton (2028) | left | grass | none | LIDAR |
+| Hamilton (2028) | right | grass | none | LIDAR |
+| Oggies (2290) | left | gravel trap 0-6 m | none | LIDAR |
+| Oggies (2290) | right | grass | none | LIDAR |
+| Williams (2504) | left | grass | none | LIDAR, circuit default |
+| Williams (2504) | right | grass | none | LIDAR |
+| Bentley Straight (2951) | left | grass | none | LIDAR, circuit default |
+| Bentley Straight (2951) | right | grass | armco at 5 m | LIDAR, circuit default |
+| Brundle (3383) | left | grass | bank at 7 m | LIDAR, circuit default |
+| Brundle (3383) | right | grass | armco at 12 m | LIDAR, circuit default |
+| Nelson (3487) | left | grass | bank at 8 m | LIDAR, circuit default |
+| Nelson (3487) | right | grass | none | LIDAR |
+| Bomb Hole (3727) | left | grass | armco at 26 m | LIDAR, circuit default |
+| Bomb Hole (3727) | right | grass | armco at 54 m | LIDAR, circuit default |
+| Coram (4060) | left | grass | tyres at 34 m | LIDAR, guide: snetterton.co.uk/news/2026/mar/5 |
+| Coram (4060) | right | grass | none | LIDAR |
+| Murrays (4308) | left | grass | none | LIDAR, guide: snetterton.co.uk/news/2026/mar/5 |
+| Murrays (4308) | right | gravel trap 0-4 m | tyres at 22 m | LIDAR, circuit default |
+| Senna Straight (4734) | left | grass | none | LIDAR, circuit default |
+| Senna Straight (4734) | right | grass | concrete at 1 m | OSM, LIDAR, circuit default |
+
+Uncertain: the 2018/2021 flights predate the 2026 works (new tyre walls at Coram, tarmac behind the kerbs at Nelson and Murrays); Agostini's tarmac run-off (Autosport guide) isn't contiguous with the edge in the LIDAR and reads as grass.

@@ -49,6 +49,14 @@ def build(env_name: str | None, slug: str, maps: dict, n_cards: int, generated: 
                     "slots": terrain_slots},
         "shoulder": {"name": f"verge_{name}#gravel#blend", "slots": terrain_slots},
     }
+    # an imported track's measured run-off (runoff.py): the terrain's own layers and maps with the R layer (where
+    # the blend map is red) swapped for gravel or old tarmac, so the trap or apron fades into the grass through
+    # the shared blend map; gravel traps take the stock #slowdown surface and no grass clutter
+    ro = e.get("runoff") or {}
+    for key, surface in (("trap", "slowdown"), ("apron", "asphalt")):
+        if key in ro:
+            slots = _layers([ro[key]] + ground[1:], C.TEX_TILE["ground"]) + terrain_slots[6:]
+            specs[f"terrain_{key}"] = {"name": f"terrain_{key}_{name}#{surface}#blend", "slots": slots}
     for surface, physics in (("tarmac", "asphalt"), ("gravel", "gravel"), ("sand", "gravel")):
         layers = list(e["roads"][surface])
         if surface == "tarmac":

@@ -136,6 +136,16 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
         b = smooth01((n_mid - 0.58) / 0.1) * smooth01((d - 15.0) / 10.0)
     elif env_name == "industrial":
         b = np.maximum(smooth01((n_mid - 0.6) / 0.1), zones) * smooth01((d - 10.0) / 6.0)
+    # an imported track's measured gravel traps and paved aprons (runoff.py): their faces carry the trap / apron
+    # materials, whose R layer is gravel / old tarmac, so the blend map is R there, softened over one pixel
+    runoff = np.zeros_like(d)
+    if getattr(geo, "runoff", None) is not None and geo.runoff.active:
+        code = geo.runoff.grid(n, fr)
+        hard = (code > 0).astype(np.float64)
+        pad = np.pad(hard, 1, mode="edge")
+        runoff = np.clip(sum(pad[1 + dy:1 + dy + n, 1 + dx:1 + dx + n] for dy in (-1, 0, 1) for dx in (-1, 0, 1)) / 9.0
+                         * 1.5, 0.0, 1.0) * np.maximum(hard, 0.5)
+        r = np.maximum(r, runoff)
     b = b * (1 - r)
     g = np.clip(1.0 - r - b, 0.0, 1.0)
     s = np.maximum(r + g + b, 1e-6)
@@ -192,7 +202,7 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
         stripes = 0.5 + 0.5 * np.sin(planner.parcels.local(pts)[0].reshape(n, n) * planner.parcels.w / 3.0)
         fc = tints[t_id] + (stripes[:, :, None] - 0.5) * 18.0
         col = col * (1 - b[:, :, None]) + fc * b[:, :, None]
-    color_terrain = col
+    color_terrain = col * (1.0 - runoff)[:, :, None] + 128.0 * runoff[:, :, None]  # gravel and tarmac untinted
 
     # ---- road colour: grey, darker racing line in the middle, dusty edges
     cr = 126.0 + (n_mid - 0.5) * 16.0 + (n_fine - 0.5) * 8.0
@@ -219,7 +229,7 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
             grass = grass * (1 - b)
             bushes = bushes * (1 - b) * 0.6
             flowers = flowers * (1 - b) * 0.5
-        return np.stack([bushes, grass, flowers], axis=2)
+        return np.stack([bushes, grass, flowers], axis=2) * (1.0 - runoff)[:, :, None]  # no grass in traps or on aprons
 
     clutter = clutter_mask(hi)
     ha, local = clutter_density(clutter, size)

@@ -196,6 +196,7 @@
     "G": {"c": "fields:ground_grass08_fields13_c", "tile": [16, 16]},
     "B": {"c": "fields:ground_farmfield_01_c", "tile": [12, 12]}
    },
+   "runoff": {"_comment": "measured run-off of imported tracks: the gravel trap and paved apron R layers (materials.py)", "trap": {"c": "sandpit:ground_pebbles_03_c", "tile": [6, 6]}, "apron": {"c": "fields:ground_tarmac08f_fields_c", "tile": [8, 8]}},
    "macro": "fields:macro_fields13_ns",
    "roads": {
     "tarmac": [{"c": "fields:ground_fields13_tarmac01_c", "tile": [8, 16]}, {"c": "fields:ground_tarmac05_fields_c", "tile": [16, 8]},
@@ -236,6 +237,7 @@
     "G": {"c": "fields:ground_grass08_fields13_c", "tile": [16, 16]},
     "B": {"c": "forest:ground_forestfloor4_c", "tile": [12, 12]}
    },
+   "runoff": {"_comment": "measured run-off of imported tracks: the gravel trap and paved apron R layers (materials.py)", "trap": {"c": "sandpit:ground_pebbles_03_c", "tile": [6, 6]}, "apron": {"c": "fields:ground_tarmac08f_fields_c", "tile": [8, 8]}},
    "macro": "fields:macro_fields13_ns",
    "roads": {
     "tarmac": [{"c": "fields:ground_fields13_tarmac01_c", "tile": [8, 16]}, {"c": "fields:ground_tarmac05_fields_c", "tile": [16, 8]},
@@ -283,6 +285,7 @@
     "G": {"c": "fields:ground_grass08_fields13_c", "tile": [16, 16]},
     "B": {"c": "fields:ground_cliff_fields09_c", "tile": [14, 14]}
    },
+   "runoff": {"_comment": "measured run-off of imported tracks: the gravel trap and paved apron R layers (materials.py)", "trap": {"c": "sandpit:ground_pebbles_03_c", "tile": [6, 6]}, "apron": {"c": "fields:ground_tarmac08f_fields_c", "tile": [8, 8]}},
    "macro": "fields:macro_fields13_ns",
    "roads": {
     "tarmac": [{"c": "fields:ground_fields13_tarmac01_c", "tile": [8, 16]}, {"c": "fields:ground_tarmac05_fields_c", "tile": [16, 8]},
@@ -332,6 +335,7 @@
     "G": {"c": "fields:ground_grass08_fields13_c", "tile": [16, 16]},
     "B": {"c": "fields:ground_farmfield_01_c", "tile": [12, 12]}
    },
+   "runoff": {"_comment": "measured run-off of imported tracks: the gravel trap and paved apron R layers (materials.py)", "trap": {"c": "sandpit:ground_pebbles_03_c", "tile": [6, 6]}, "apron": {"c": "fields:ground_tarmac08f_fields_c", "tile": [8, 8]}},
    "macro": "fields:macro_fields13_ns",
    "roads": {
     "tarmac": [{"c": "fields:ground_fields13_tarmac01_c", "tile": [8, 16]}, {"c": "fields:ground_tarmac05_fields_c", "tile": [16, 8]},
@@ -375,6 +379,7 @@
     "G": {"c": "sandpit:ground_forestfloor6_c", "tile": [12, 12]},
     "B": {"c": "sandpit:ground_sandbank_large_04_c", "tile": [24, 12]}
    },
+   "runoff": {"_comment": "measured run-off of imported tracks: the gravel trap and paved apron R layers (materials.py)", "trap": {"c": "sandpit:ground_pebbles_03_c", "tile": [6, 6]}, "apron": {"c": "sandpit:road_sandpit_tarmac03_c", "tile": [8, 8]}},
    "macro": "sandpit:sandpit3_macro_ns",
    "roads": {
     "tarmac": [{"c": "sandpit:road_sandpit_tarmac02_c", "tile": [16, 8]}, {"c": "sandpit:road_sandpit_tarmac01_c", "tile": [16, 8]},

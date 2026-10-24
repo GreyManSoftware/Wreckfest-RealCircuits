@@ -83,6 +83,11 @@ The same slug always gives the same file (seeded by the slug).
   stacks and bales, at least 3 m out, in front of the near barrier) and the braking boards (breakable, 2-6 m out). `info.nearRoadM` lists these exceptions as
   `{category: [min, max]}` metres from the road edge (`max` null = unbounded); readers checking clearance should
   use it rather than `edgeMinM` alone.
+- An imported track with measured run-off (`sketch.imported.runoff`): no `barriers` or `cornerMarkers` placements
+  (its barriers are meshes in the base scene), and nothing but the gantry, flags, staff and start grandstand inside
+  a gravel trap, on a paved apron or between a road edge and its barrier; with measured vegetation (`trees`,
+  woodland `cover`) the `trees` are the measured ones only and `info.measuredTrees` reports `{placed, candidates,
+  cap}`.
 - No-go discs: bridge decks and ramps (+25 m), jump take-off to landing + 40 m, and the grid sector (line - 25 m to
   the back row + 15 m), where only the gantry, flags, staff and the start grandstand may stand. The barrier row is
   exempt (containment runs past jumps and the grid).

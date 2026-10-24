@@ -114,7 +114,7 @@ def material(key: str) -> bpy.types.Material:
         node.image = img
         node.location = (-400, 200)
         mat.node_tree.links.new(node.outputs["Color"], bsdf.inputs["Base Color"])
-        if key in C.GHOST_MATERIALS:
+        if key in C.GHOST_MATERIALS or key in C.ALPHA_MATERIALS:
             # Toolbox maps the Principled "Alpha" input to texture slot 6 (opacity), as the stock ghost material
             mat.node_tree.links.new(node.outputs["Color"], bsdf.inputs["Alpha"])
     return mat

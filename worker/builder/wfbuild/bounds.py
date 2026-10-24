@@ -146,16 +146,44 @@ class Bounds:
     def allowed(self, layout) -> np.ndarray:
         """Cells (nx x ny) a car of this layout may be on: within RESET_GAP (plus the cell's half diagonal, so no
         point of a disallowed cell is nearer than RESET_GAP) of the layout's blue AI route strips, of an
-        ALLOWED_KINDS base mesh or of an imported extra road (_shared_road_quads)."""
+        ALLOWED_KINDS base mesh or of an imported extra road (_shared_road_quads), and the run-off out to the barrier
+        or the end of a measured trap beside the road it drives (_behind_route)."""
         reach = RESET_GAP + self.cell * math.sqrt(0.5)
         mask = np.zeros((self.nx, self.ny), dtype=bool)
         for m in layout.meshes:
             if m.kind == "ai" and m.name.startswith("#ai_route_"):
                 for f in m.faces:
                     self._stamp(mask, np.array([m.verts[i][:2] for i in f]), reach)
+        driven = mask.copy()
         for poly in self.extra:
             self._stamp(mask, poly, reach)
+        for poly in self._behind_route(driven):
+            self._stamp(mask, poly, reach)
         return mask
+
+    def _behind_route(self, driven: np.ndarray) -> list[np.ndarray]:
+        """Plan quads from the road edge out to the barrier (wall plan) and to the end of the measured run-off
+        (gravel trap or apron), along the route sides this layout drives (edge inside ``driven``): the blue route
+        stops at AI_ROUTE_MARGIN, but a car in a deep trap or on the grass in front of a barrier further out is
+        still on legitimate run-off, so the reset stands beyond those."""
+        geo = self.geo
+        ro = getattr(geo, "runoff", None)
+        out = []
+        for (ri, side), p in geo.wall_plan().items():
+            r = p["route"]
+            reach = np.where(p["ok"], np.nan_to_num(p["offset"]), 0.0)
+            if ro is not None and ro.active:
+                reach = np.maximum(reach, ro.run_off_end(ri, side))
+            edge = r.left if side > 0 else r.right
+            i = np.clip(np.searchsorted(self.xs, edge[:, 0]) - 1, 0, self.nx - 1)
+            j = np.clip(np.searchsorted(self.ys, edge[:, 1]) - 1, 0, self.ny - 1)
+            use = driven[i, j] & geo.svalid[r.index] & (reach > C.AI_ROUTE_MARGIN["walls"])
+            far = edge[:, :2] + p["out"] * reach[:, None]
+            for a in range(r.segs):
+                b = (a + 1) % r.n
+                if use[a] and use[b]:
+                    out.append(np.array([edge[a, :2], edge[b, :2], far[b], far[a]]))
+        return out
 
     def regions(self, layout) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """(allowed, outside, band): the allowed cells, the cells reachable from the terrain edge without

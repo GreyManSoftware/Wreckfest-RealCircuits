@@ -60,3 +60,48 @@ had been. Causes and fixes (shared code, `docs/real-tracks.md`, "Straights, junc
 - **Holes:** the ground between the two sections took the lower road's height up to the higher one's edge (a trench
   up to 1.06 m deep along the start straight); it now slopes across the gap (`ground_dips` 73 edge samples → 0).
 - Renders: `.local\renders\cadwellpark-divider-{before,after}-driver-{startstraight,mountain}.png`.
+
+## Run-off, barriers and trees (2026-10-24)
+
+Measured from open data (method: `docs/real-tracks.md`, "Run-off, barriers and foliage"): EA National LIDAR Programme point cloud (intensity, classes, heights);
+OSM run-off, barrier and woodland features; barrier types from `tools/real_tracks_data/runoff_evidence.json`.
+Data `tools/real_tracks/runoff/cadwellpark.json`, `tools/real_tracks/vegetation/cadwellpark.json`; overlays
+`.local\audit\cadwellpark\runoff-*.png`, `vegetation-overview.png`.
+
+| | Before (builder until 2026-10-24) | Now (measured) |
+|---|---|---|
+| Run-off | grass everywhere (no traps or aprons); 381 stock barrier props (tyres: red/white tyre heaps prop_tirebarrier02/04) on 29 % / 23 % of the main lap's left / right sides | gravel 3 %, tarmac 0 %, grass 97 % of the main lap's sides; barriers armco 56 %, none 36 %, bank 8 %; debris fence on 16 %; built barrier line on 83 % / 41 % (left / right) |
+| Trees | 1542 trees: OSM woods plus seeded park trees and an edge belt | 29 measured woods (5.0 ha in the 450 m box), 1844 single trees, canopy 3.9 % of the box; 747 trees placed (2217 candidates inside the terrain, cap 2600) |
+| Look | grass verges, red/white tyre heaps on a third of each side; OSM woods plus seeded park trees | narrow grass run-off with Armco close on most of the lap (no traps but a few short gravel patches), earth banks where the LIDAR shows the ground rising first, open sides through the farmland; measured trees and woods only |
+
+Evidence per corner (main lap; the zone that holds the corner label; offsets from the road edge):
+
+| Corner (sM) | Side | Run-off | Barrier | Source |
+|---|---|---|---|---|
+| Start/finish straight (70) | right | grass | armco at 11 m + debris fence | LIDAR, circuit default |
+| Coppice (387) | left | grass | armco at 5 m + debris fence | LIDAR, circuit default |
+| Coppice (387) | right | grass | bank at 2 m | LIDAR |
+| Charlies (646) | left | grass | armco at 24 m | LIDAR, circuit default |
+| Charlies (646) | right | grass | none | LIDAR, circuit default |
+| Park Straight (1097) | left | grass | armco at 18 m | LIDAR, circuit default |
+| Park Straight (1097) | right | grass | armco at 4 m + debris fence | LIDAR, circuit default |
+| Park (1444) | left | grass | armco at 29 m | LIDAR, circuit default |
+| Park (1444) | right | grass | none | LIDAR |
+| Chris Curve (1636) | left | grass | armco at 40 m | LIDAR, circuit default |
+| Chris Curve (1636) | right | grass | none | LIDAR |
+| The Gooseneck (1911) | left | grass | none | LIDAR, circuit default |
+| The Gooseneck (1911) | right | grass | none | LIDAR |
+| Mansfield (2142) | left | grass | none | LIDAR, circuit default |
+| Mansfield (2142) | right | grass | none | LIDAR |
+| Woodland (2390) | left | grass | armco at 3 m + debris fence | LIDAR, circuit default |
+| Woodland (2390) | right | grass | none | LIDAR, circuit default |
+| The Mountain (2681) | left | grass | armco at 8 m | LIDAR, circuit default |
+| The Mountain (2681) | right | grass | armco at 53 m | LIDAR, circuit default |
+| Hall Bends (2924) | left | grass | armco at 4 m | LIDAR, guide: classicbikehub.uk |
+| Hall Bends (2924) | right | grass | armco at 18 m + debris fence | LIDAR, guide: classicbikehub.uk |
+| The Hairpin (3080) | left | gravel trap 0-8 m | armco at 12 m | LIDAR, circuit default |
+| The Hairpin (3080) | right | grass | armco at 8 m | LIDAR, circuit default |
+| Barn (3231) | left | grass | armco at 8 m | LIDAR, circuit default |
+| Barn (3231) | right | grass | armco at 7 m | LIDAR, circuit default |
+
+Uncertain: Cadwell's barrier details (Armco vs tyre walls at the Hairpin and Barn) aren't published; the 2019 flight predates nothing major.

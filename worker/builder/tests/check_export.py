@@ -628,8 +628,24 @@ def main() -> None:
                   str([(t.slot, t.path) for t in ghost.textures]) if ghost else "missing")
             col = [o.name for o in b.objects if o.kind == "OBJM" and o.name != "#static_cube_map"
                    and o.name not in ("track_edges", "track_transitions") and not o.name.startswith("backdrop_")
-                   and "col = true" not in o.custom_data]
+                   and not o.name.startswith("barrier_") and "col = true" not in o.custom_data]
             check(not col, f"{scene}: collision CustomData exported", ", ".join(col[:5]))
+            ro = manifest.get("runoff") or {}
+            if ro:
+                # measured run-off: the gravel traps' terrain material carries the stock #slowdown surface, the
+                # visible barriers their stock textures (Armco guardrail, black belted tyre wall, concrete)
+                mats = {m.name: m for m in b.materials}
+                traps = [n for n in mats if n.startswith("terrain_trap")]
+                want_trap = any(v.get("gravel", 0) > 0 for v in ro.values())
+                check((not want_trap) or (traps and all("#slowdown" in n for n in traps)),
+                      f"{scene}: gravel traps exported with the #slowdown surface", ", ".join(traps))
+                tex = {"barrier_armco": "prop_guardrail01_c", "barrier_tyres": "prop_tirerubberbarrier_c",
+                       "barrier_concrete": "a_concrete2_c"}
+                badb = [n for n in mats for k, t in tex.items() if n.startswith(k + "#")
+                        and not any(t in tt.path for tt in mats[n].textures)]
+                built = sorted(k for k in tex if any(n.startswith(k + "#") for n in mats))
+                check(built and not badb, f"{scene}: measured barriers exported with their stock textures",
+                      f"{built}; bad {badb}")
         else:
             base = [o for o in xrefs if o.name == f"{slug}_base#xref"]
             check(len(base) == 1 and base[0].xref == f"data/track/{slug}/{slug}_base.scn"
