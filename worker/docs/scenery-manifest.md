@@ -57,9 +57,10 @@ The same slug always gives the same file (seeded by the slug).
   Also additive (2026-10-24): `brakeBoards`, the stock breakable distance boards `gameplay_distanceboard150/100/50`
   (`face: "+x"`: the numbered face is local +X, turned towards the oncoming cars; `width` 0.06 m along local X,
   `depth` 2 m along local Y, i.e. across the road). `info.brakeBoards` records the plan: per braking zone the
-  layout, `turnInS` (along that layout's route), `side` (left/right of the route's s direction), `radiusM`,
+  layout, `turnInS` (along that layout's route), `side` (the corner's outside, left/right of the route's s
+  direction; the set itself stands on `boardSide`, see Rules), `radiusM`,
   `approachM`, `dropKmh`, `boards` (`m`, `placement` index, `s`, `shared` when another layout's board is reused)
-  and `skipped` (`{m: reason}`, reasons `approach`, `otherRoad`, `wall`, `noGo`, `terrain`, `occupied`).
+  and, since 2026-10-25, `dropped` instead of the per-board `skipped` (complete sets only; see Rules).
   Also additive (2026-10-24): `sponsorBoards`, our own sponsor boards (`sponsor_fence<k>`, `sponsor_billboard<k>`
   for colourway k; `face: "-y"`, `width` along local X). They are not stock objects: their `assets` entry has
   `"path": null` and `"mesh": true`, and the builder builds them as the base mesh `sponsor_boards` rather than
@@ -101,16 +102,26 @@ The same slug always gives the same file (seeded by the slug).
   exempt (containment runs past jumps and the grid).
 - Everything inside the terrain extent; footprints don't overlap (spatial hash).
 - Standing spectators face the nearest road with local +Y.
-- Braking boards (`dressing.brake_boards`, `brake_zones`): for every layout's lap (an imported track's
-  `layouts`, each its composite route; a drawn track forward and, with `reverse`, backwards) a braking corner is a
-  corner (`geometry.corner_runs`) with an apex radius up to 90 m, turning at least 30°, into which a rough
-  lap-speed estimate (cornering limit, acceleration and braking passes) drops by at least 50 km/h, at least 150 m
-  after the previous corner's exit. Its boards stand 150, 100 and 50 m before the turn-in (the corner's first
-  sample in driving order), measured along the route in the layout's driving direction, on the outside of the
-  corner (left before a right-hander), their near end 2 m beyond the road edge, kerb or green strip, numbered face
-  to the oncoming cars. A board is left out when it would stand within 10 m of the previous corner's exit, near
-  another road (a divider), across a wall line, in a no-go disc, off the terrain or on another placement. Layouts
-  sharing a road share a board (same distance, within 6 m, same facing).
+- Braking boards (`dressing.brake_boards`, `brake_zones`; revised 2026-10-25 after lone 150 m boards and a
+  Redgate set without its 50): for every layout's lap (an imported track's `layouts`, each its composite route; a
+  drawn track forward and, with `reverse`, backwards) a heavy-braking corner is a corner (`geometry.corner_runs`)
+  with an apex radius up to 80 m, turning at least 30°, after at least 175 m of straight-ish road (no corner
+  tighter than the 110 m kerb radius back to the previous corner's exit), into which a rough lap-speed estimate
+  (cornering limit, acceleration and braking passes) drops by at least 80 km/h. An imported track's recipe can
+  correct the rule by corner name (`brakeBoards: {add, remove}`, carried as `sketch.imported.brakeBoards`; an added
+  corner is the named run with the longest approach; it applies to every layout driving the corner). Each zone gets
+  the **complete** 150/100/50 m set or nothing: the boards stand before the turn-in (the corner's first sample in
+  driving order), measured along the route in the layout's driving direction, on the outside of the corner (left
+  before a right-hander) or, when the outside has no complete set, the inside; near end 2 m beyond the road edge,
+  kerb or green strip, numbered face to the oncoming cars. A board that would stand within 5 m of the previous
+  corner's exit, near another road (a divider), across a wall line, in a bridge / jump / pit-building no-go disc
+  (the grid sector is allowed, like flags), in a measured gravel trap, on the pit lane, off the terrain or on
+  another placement first moves up to 5 m further out and / or up to 10 m back or forward; if one of the three
+  still has no spot on either side, the zone has no boards. Layouts sharing a road share a board (same distance,
+  within 6 m, same facing). `info.brakeBoards.zones[]` adds `why` (`rule` / `add`), `turnDeg`, `corner`,
+  `boardSide` (where the set stands), `blocked` (why the outside failed), `dropped` (`{outside, inside}`:
+  `"<m>:<reason>"` when the zone has no set; reasons as above plus `gravelTrap`, `pits`) and a board's `shift`
+  `[back, out]` metres; `info.brakeBoards.dropped` counts dropped zones by reason (it replaces `skipped`).
 - Sponsor guarantee (`dressing.sponsor_guarantee`, `layout_starts`, `sponsor.visible`): every layout has at least
   one handle board (billboard, mini billboard or fence panel) in clear view of its start: from one of the driver's
   eye points (1.2 m above its grid slots, or the road from 150 m before its line to 220 m past its front row), in

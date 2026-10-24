@@ -1927,6 +1927,12 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     }
     if recipe.get("kerbs"):
         imported["kerbs"] = kerb_overrides(recipe["kerbs"], corners)
+    if recipe.get("brakeBoards"):  # corrections to the builder's braking-zone rule, by corner name
+        bb = {k: list(recipe["brakeBoards"].get(k) or []) for k in ("add", "remove")}
+        unknown = sorted(set(bb["add"] + bb["remove"]) - {c["name"] for c in corners})
+        if unknown:
+            raise SystemExit(f"recipe brakeBoards names unknown corners: {unknown}")
+        imported["brakeBoards"] = {k: v for k, v in bb.items() if v}
     if alt_specs:
         imported["mainLayoutName"] = recipe.get("mainLayoutName", "Main")
         imported["altLayouts"] = alt_specs
