@@ -10,7 +10,9 @@ Data (downloaded once and cached under E:\\Source\\wreckfest\\.local\\<slug>\\, 
   its WCS, in British National Grid (EPSG:27700); or, with ``"dtm": "wales"``, the Welsh Government / NRW
   LIDAR composite DTM 1 m (OGL v3) read from its national Cloud Optimised GeoTIFF by range requests
   (``tools/real_tracks_data/cog.py``); or, with ``"dtm": "es-mdt05"`` (Spain), the IGN MDT05 5 m (PNOA LIDAR, CC BY
-  4.0) from the IDEE WCS in ETRS89 / UTM 30N (EPSG:25830), the OSM line projected to UTM 30N instead.
+  4.0) from the IDEE WCS in ETRS89 / UTM 30N (EPSG:25830), the OSM line projected to UTM 30N instead (served as whole
+  metres: check the report's ``dtmWholeMetreFraction``); or, with ``"dtm": "es-navarra"``, the Gobierno de Navarra's
+  2 m DTM from the 2024 LIDAR (IDENA WCS, CC BY 4.0), also in UTM 30N.
 
 Multi-layout recipes (``altLayouts``: each with its own ``lap`` of ways; ``[way, from_node, to_node]`` takes part
 of a way) fit every lap the same way and keep, per alternative layout, the branch that leaves the main lap, with
@@ -161,7 +163,7 @@ _GRID = {"name": "bng"}
 
 
 def set_projection(recipe: dict) -> None:
-    _GRID["name"] = "utm30" if recipe.get("dtm") == "es-mdt05" else "bng"
+    _GRID["name"] = "utm30" if recipe.get("dtm") in ("es-mdt05", "es-navarra") else "bng"
 
 
 def to_grid(lat_deg: float, lon_deg: float) -> tuple[float, float]:
@@ -440,9 +442,83 @@ def fetch_dtm_es(e0: float, n0: float, e1: float, n1: float, cache: Path, tile: 
     return Dtm(e0, n1, cs, full)
 
 
+# Navarre's own LIDAR DTM (Gobierno de Navarra, IDENA): 2 m, from the 2024 flight (5 points/m2), centimetre heights,
+# CC BY 4.0. Preferred to the IGN MDT05 there (2026-10-24 audit): the IDEE WCS serves the MDT05 as whole metres
+# (16-bit integers, resampled), so its gentle slopes are 1 m terraces 40-50 m apart (Navarra's wavy straights), and
+# its older flights predate the 2024 extension (Turns 11-14).
+NAVARRA_WCS = "https://idena.navarra.es/ogc/wcs"
+NAVARRA_COVERAGE = "IDENA.WCS__ELEVAC_Ras_MDT_2M"
+
+
+def parse_geoserver_grid(text: str) -> tuple[float, float, float, np.ndarray]:
+    """A GeoServer WCS ``text/plain`` coverage whose affine is the whole coverage's (IDENA): (x of the west edge, y
+    of the north edge, cell size, z[row, col] with row 0 at the north edge), from its "Grid bounds" line."""
+    head, _, body = text.partition("Band 0:")
+    b = re.search(r"GeneralBounds\[\(([-0-9.eE]+), ([-0-9.eE]+)\), \(([-0-9.eE]+), ([-0-9.eE]+)\)\]", head)
+    m = {k: float(v) for k, v in re.findall(r'PARAMETER\["(elt_\d_\d)", ([-0-9.eE]+)\]', head)}
+    if b is None or m.get("elt_0_0") is None or m.get("elt_1_1") != -m["elt_0_0"]:
+        raise RuntimeError("unexpected DTM grid header")
+    z = np.array([r.split() for r in body.strip().splitlines() if r.strip()], dtype=np.float64)
+    z[(z < -100) | (z > 5000)] = np.nan  # no-data (3.4e38)
+    return float(b.group(1)), float(b.group(4)), m["elt_0_0"], z
+
+
+def fetch_dtm_navarra(e0: float, n0: float, e1: float, n1: float, cache: Path, tile: int = 1000) -> Dtm:
+    """Gobierno de Navarra's 2 m LIDAR DTM (2024) over [e0, e1] x [n0, n1] (ETRS89 / UTM 30N metres), from the IDENA
+    WCS in 1 km tiles, cached. Its grid is offset from whole metres (cell edges at x .375, y .625)."""
+    e0, n0 = math.floor(e0 / tile) * tile, math.floor(n0 / tile) * tile
+    e1, n1 = math.ceil(e1 / tile) * tile, math.ceil(n1 / tile) * tile
+    nx, ny = int((e1 - e0) / tile), int((n1 - n0) / tile)
+    cs, m = 2.0, tile // 2
+    full = np.full((ny * m, nx * m), np.nan)
+    tdir = cache / "dtm"
+    tdir.mkdir(parents=True, exist_ok=True)
+    org = None
+    for ty in range(ny):
+        for tx in range(nx):
+            te, tn = e0 + tx * tile, n0 + ty * tile
+            path = tdir / f"idena2m_{te:.0f}_{tn:.0f}_{tile}.npz"
+            if not path.exists():
+                params = [("service", "WCS"), ("version", "2.0.1"), ("request", "GetCoverage"),
+                          ("CoverageId", NAVARRA_COVERAGE), ("format", "text/plain"),
+                          ("subset", f"E({te},{te + tile})"), ("subset", f"N({tn},{tn + tile})")]
+                url = NAVARRA_WCS + "?" + urllib.parse.urlencode(params)
+                for attempt in range(3):
+                    try:
+                        raw = _get(url, timeout=300)
+                        break
+                    except Exception:
+                        if attempt == 2:
+                            raise
+                        time.sleep(5)
+                x0, y1, c, z = parse_geoserver_grid(raw.decode("ascii", "replace"))
+                if abs(c - cs) > 1e-9 or z.shape != (m, m) or abs(x0 - te) > cs or abs(y1 - tn - tile) > cs:
+                    raise RuntimeError(f"IDENA tile {te},{tn}: got origin {x0},{y1} cell {c} shape {z.shape}")
+                np.savez_compressed(path, z=z.astype(np.float32), dx=x0 - te, dy=y1 - tn - tile)
+            d = np.load(path)
+            off = (float(d["dx"]), float(d["dy"]))
+            if org is None:
+                org = off
+            elif max(abs(off[0] - org[0]), abs(off[1] - org[1])) > 1e-6:
+                raise RuntimeError(f"IDENA tile {te},{tn}: grid offset {off} != {org}")
+            r0 = int(round((n1 - (tn + tile)) / cs))
+            c0 = int(round((te - e0) / cs))
+            full[r0:r0 + m, c0:c0 + m] = d["z"].astype(np.float64)
+    return Dtm(e0 + org[0], n1 + org[1], cs, full)
+
+
+def dtm_quantised_fraction(dtm: Dtm) -> float:
+    """The fraction of the DTM's cells at a whole metre (to 1 mm). Near 0.01 for a LIDAR DTM in cm; the IDEE WCS's
+    MDT05, served as whole metres and resampled, has 20-45 % (terraces 1 m high)."""
+    v = dtm.z[np.isfinite(dtm.z)]
+    return float(np.mean(np.abs(v - np.round(v)) < 1e-3)) if v.size else 0.0
+
+
 def load_dtm(recipe: dict, e0: float, n0: float, e1: float, n1: float, cache: Path) -> Dtm:
-    """The recipe's DTM (``"dtm": "ea"`` England, the default, ``"wales"`` or ``"es-mdt05"`` Spain, IGN MDT05 in
-    UTM 30N)."""
+    """The recipe's DTM (``"dtm": "ea"`` England, the default, ``"wales"``, ``"es-mdt05"`` Spain, IGN MDT05 in
+    UTM 30N, or ``"es-navarra"``, Navarre's 2024 2 m LIDAR DTM in UTM 30N)."""
+    if recipe.get("dtm") == "es-navarra":
+        return fetch_dtm_navarra(e0, n0, e1, n1, cache)
     if recipe.get("dtm") == "es-mdt05":
         return fetch_dtm_es(e0, n0, e1, n1, cache)
     if recipe.get("dtm", "ea") == "wales":
@@ -452,6 +528,8 @@ def load_dtm(recipe: dict, e0: float, n0: float, e1: float, n1: float, cache: Pa
 
 ATTRIBUTION_ES = ("Layout and woodland (c) OpenStreetMap contributors, ODbL 1.0. Heights: MDT05 (c) Instituto "
                   "Geografico Nacional de Espana (IGN), derived from PNOA LIDAR, CC BY 4.0 (scne.es).")
+ATTRIBUTION_NAVARRA = ("Layout and woodland (c) OpenStreetMap contributors, ODbL 1.0. Heights: MDT 2 m 2024 from the "
+                       "LiDAR de Navarra 2024, Servicio proporcionado por el Gobierno de Navarra (IDENA), CC BY 4.0.")
 ATTRIBUTION_WALES = ("Layout (c) OpenStreetMap contributors, ODbL 1.0. Heights: Welsh Government / Natural Resources "
                      "Wales LIDAR composite DTM 1 m, contains Natural Resources Wales information (c) Natural "
                      "Resources Wales and database right, Open Government Licence v3.0.")
@@ -805,6 +883,26 @@ def _hold_through(v: np.ndarray, zone: np.ndarray) -> np.ndarray:
     return out
 
 
+JOIN_BLEND_MIN_M = 30.0       # a branch end's height/camber mismatch with the main road fades out over at least this
+JOIN_BLEND_MAX_GRADE = 0.015  # ... and long enough that it adds at most this to the grade
+
+
+def join_blend(s: np.ndarray, z: np.ndarray, bank: np.ndarray, z_main: tuple[float, float],
+               bank_main: tuple[float, float]) -> tuple[np.ndarray, np.ndarray]:
+    """An open branch's heights and camber (degrees) with its ends set to the main road's at the joins, the
+    mismatch faded out linearly over JOIN_BLEND_MIN_M, or longer for a large height mismatch (at most
+    JOIN_BLEND_MAX_GRADE added), never past the branch's middle."""
+    z, bank = z.astype(np.float64).copy(), bank.astype(np.float64).copy()
+    half = 0.5 * float(s[-1])
+    for end, dist in ((0, s), (-1, s[-1] - s)):
+        dz, db = float(z_main[end] - z[end]), float(bank_main[end] - bank[end])
+        L = min(max(JOIN_BLEND_MIN_M, abs(dz) / JOIN_BLEND_MAX_GRADE), half)
+        w = np.clip(1.0 - dist / L, 0.0, 1.0)
+        z += dz * w
+        bank += db * np.clip(1.0 - dist / min(JOIN_BLEND_MIN_M, half), 0.0, 1.0)
+    return z, bank
+
+
 def fit_loop(bng: np.ndarray, dtm: Dtm, width: float, step: float,
              max_shift: float = 6.0, sharp: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, float]:
     """Smooth the OSM polyline (it has corners at its nodes), register it to the road in the DTM and ease
@@ -1010,6 +1108,117 @@ def recipe_slug(recipe: dict) -> str:
     return slug
 
 
+# Profile artefact checks (2026-10-24 accuracy audit). A real road's straights are straight, their grade changes
+# smoothly (vertical curves of hundreds of metres) and their camber keeps its sign; DTM artefacts (whole-metre
+# terraces, tile seams, trees, bridges) and OSM tracing wobble break that. ``profile_series`` gives the per-sample
+# series the audit plots and ``profile_artefacts`` the summary that the importer reports and
+# geom/tests/test_import_real_track.py checks on every committed sample.
+STRAIGHT_MAX_CURVATURE = 1.0 / 400.0  # a straight: |curvature| (smoothed over 10 m) under this ...
+STRAIGHT_MIN_LENGTH_M = 100.0         # ... for at least this far; its first and last 20 m are left out
+
+
+def _periodic_interp(s: np.ndarray, v: np.ndarray, t: np.ndarray, length: float, closed: bool) -> np.ndarray:
+    if closed:
+        return np.interp(t % length, np.concatenate([s, [length]]), np.concatenate([v, v[:1]]))
+    return np.interp(np.clip(t, s[0], s[-1]), s, v)
+
+
+def profile_series(xy: np.ndarray, z: np.ndarray, bank: np.ndarray, closed: bool = True) -> dict:
+    """Per-sample series of a centreline (local metres, heights, camber in degrees): arc length ``s``, signed
+    curvature ``k`` (1/m, left positive, smoothed over 4 m), grades over 10 and 50 m (centred, fractions), the
+    vertical curvature ``kv`` (change of the 10 m grade per metre over 10 m), the grade ripple on straights (10 m
+    grade minus its 15 m smoothing), the lateral wobble (offset from the line's 15 m smoothing, about its median per
+    straight), the camber rate (degrees per metre, over 4 m) and the ``straight`` mask (interiors of straights)."""
+    xy = np.asarray(xy, dtype=np.float64)
+    z, bank = np.asarray(z, dtype=np.float64), np.asarray(bank, dtype=np.float64)
+    n = len(xy)
+    seg = np.hypot(*np.diff(np.vstack([xy, xy[:1]]) if closed else xy, axis=0).T)
+    s = np.concatenate([[0.0], np.cumsum(seg)])[:n]
+    length = float(seg.sum()) if closed else float(s[-1])
+    ds = length / max(len(seg), 1)
+    sm = (lambda v, sig: gauss_closed(v, sig / ds)) if closed else (lambda v, sig: gauss_open(v, sig / ds))
+    if closed:
+        tng = np.roll(xy, -1, axis=0) - np.roll(xy, 1, axis=0)
+    else:
+        tng = np.gradient(xy, axis=0)
+    head = np.unwrap(np.arctan2(tng[:, 1], tng[:, 0]))
+    if closed:
+        dh = (np.roll(head, -1) - np.roll(head, 1) + math.pi) % (2 * math.pi) - math.pi
+        k = dh / (2 * ds)
+    else:
+        k = np.gradient(head) / ds
+    k = sm(k, 4.0)
+    zi = lambda t: _periodic_interp(s, z, t, length, closed)  # noqa: E731
+    g10 = (zi(s + 5.0) - zi(s - 5.0)) / 10.0
+    g50 = (zi(s + 25.0) - zi(s - 25.0)) / 50.0
+    gi = lambda t: _periodic_interp(s, g10, t, length, closed)  # noqa: E731
+    kv = (gi(s + 5.0) - gi(s - 5.0)) / 10.0
+    bi = lambda t: _periodic_interp(s, bank, t, length, closed)  # noqa: E731
+    brate = (bi(s + 2.0) - bi(s - 2.0)) / 4.0
+    # straights: low smoothed curvature over a long enough run, less 20 m at each end
+    low = np.abs(sm(k, 10.0)) < STRAIGHT_MAX_CURVATURE
+    straight = np.zeros(n, dtype=bool)
+    # runs of low curvature as (first index, count), scanned from a curved sample so no run wraps
+    runs = []
+    if low.all():
+        runs = [(0, n)]
+    elif low.any():
+        i0 = int(np.flatnonzero(~low)[0]) if closed else 0
+        cur = None
+        for t_ in range(n + 1):
+            i = (i0 + t_) % n if closed else t_
+            if t_ < n and low[i]:
+                cur = (i, 1) if cur is None else (cur[0], cur[1] + 1)
+            elif cur is not None:
+                runs.append(cur)
+                cur = None
+    trim = int(round(20.0 / ds))
+    wob = np.zeros(n)
+    nl = normals(xy)[1] if closed else normals_open(xy)
+    smooth_xy = np.column_stack([sm(xy[:, 0], 15.0), sm(xy[:, 1], 15.0)])
+    off = np.einsum("ij,ij->i", xy - smooth_xy, nl)
+    straights = []
+    for a, cnt in runs:
+        if cnt * ds < STRAIGHT_MIN_LENGTH_M or cnt <= 2 * trim:
+            continue
+        idx = (a + np.arange(trim, cnt - trim)) % n
+        straight[idx] = True
+        wob[idx] = off[idx] - np.median(off[idx])
+        straights.append((float(s[idx[0]]), float(s[idx[-1]])))
+    ripple = np.where(straight, g10 - sm(g10, 15.0), 0.0)
+    return {"s": s, "k": k, "g10": g10, "g50": g50, "kv": kv, "ripple": ripple, "wobble": wob, "bankRate": brate,
+            "bank": bank, "z": z, "straight": straight, "straights": straights, "ds": ds}
+
+
+def profile_artefacts(xy: np.ndarray, z: np.ndarray, bank: np.ndarray, closed: bool = True) -> dict:
+    """Summary of ``profile_series``: on straights the largest lateral wobble (m), grade ripple (%) and camber sign
+    flips (|camber| over 0.75 degrees either side within 60 m); anywhere the tightest crest and dip (vertical radius,
+    m, from the 10 m grade's change over 10 m), the largest 10 m grade and the fastest camber change (degrees/m)."""
+    p = profile_series(xy, z, bank, closed)
+    st, b = p["straight"], p["bank"]
+    flips = 0
+    if st.any():
+        sgn = np.where(b > 0.75, 1, np.where(b < -0.75, -1, 0))
+        win = int(round(60.0 / p["ds"]))
+        idx = np.flatnonzero(st & (sgn != 0))
+        for i, j in zip(idx, idx[1:]):
+            if sgn[i] != sgn[j] and j - i <= win and st[i:j + 1].all():
+                flips += 1
+    kv = p["kv"]
+    return {
+        "straightsM": round(float(st.sum() * p["ds"]), 1),
+        "straightWobbleMaxM": round(float(np.abs(p["wobble"]).max()), 3),
+        "straightGradeRipplePct": round(float(np.abs(p["ripple"]).max()) * 100, 2),
+        "straightGradeRippleRmsPct": round(float(np.sqrt(np.mean(p["ripple"][st] ** 2))) * 100 if st.any() else 0.0, 3),
+        "straightWobbleRmsM": round(float(np.sqrt(np.mean(p["wobble"][st] ** 2))) if st.any() else 0.0, 3),
+        "straightCamberFlips": int(flips),
+        "minCrestRadiusM": round(float(1.0 / max(-kv.min(), 1e-9)), 0),
+        "minDipRadiusM": round(float(1.0 / max(kv.max(), 1e-9)), 0),
+        "maxAbsGradePct10m": round(float(np.abs(p["g10"]).max()) * 100, 2),
+        "maxCamberRateDegPerM": round(float(np.abs(p["bankRate"]).max()), 3),
+    }
+
+
 def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = None, log=print) -> tuple[dict, dict]:
     """The TrackSpec and a report dict (lengths, heights, grades, camber, data checks)."""
     set_projection(recipe)
@@ -1100,6 +1309,12 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         zb = gauss_open(ab, z_sig / step)
         bank_b = np.clip(np.degrees(np.arctan(gauss_open(bb, b_sig / step))), -IMPORTED_MAX_BANK_DEG, IMPORTED_MAX_BANK_DEG)
         loc_b = (br - centre) / k_scale
+        # the branch's ends take the main road's height and camber where they join, the difference faded out
+        # along the branch (geom only blends heights over 20 m): a shallow merge's end lies beside the main road
+        # (Navarra Short's hook, 12 m off: 1 m lower, a 14 % grade spike and a camber step at the join)
+        j0 = int(np.argmin(np.hypot(*(loc - loc_b[0]).T)))
+        j1 = int(np.argmin(np.hypot(*(loc - loc_b[-1]).T)))
+        zb, bank_b = join_blend(arc(loc_b), zb, bank_b, (z[j0], z[j1]), (bank[j0], bank[j1]))
         alt_specs.append({"id": alt["id"], "name": alt["name"],
                           "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), Z_DECIMALS),
                                           "bankDeg": round(float(bk), 2)} for (x, y), zv, bk in zip(loc_b, zb, bank_b)]})
@@ -1133,6 +1348,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
             "branchCrossResidualM": round(float(res_b.mean()), 3),
             "lapEasingMaxM": round(eased_a, 2), "registrationShiftM": [round(float(shift_a.min()), 2), round(float(shift_a.max()), 2)],
             "maxStepGradePct": round(float(np.abs(g_lap).max()) * 100, 1),
+            "artefacts": profile_artefacts(loc_b, zb, bank_b, closed=False),
         })
 
     # 5. Terrain: block means of the DTM onto a coarser grid (nodes), in the local frame. Sea (no-data) cells
@@ -1219,7 +1435,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     span = loc.max(0) - loc.min(0)
     W, H = float(math.ceil(span[0] + 2 * canvas_margin)), float(math.ceil(span[1] + 2 * canvas_margin))
     imported = {
-        "source": {"wales": ATTRIBUTION_WALES, "es-mdt05": ATTRIBUTION_ES}.get(recipe.get("dtm"), ATTRIBUTION),
+        "source": {"wales": ATTRIBUTION_WALES, "es-mdt05": ATTRIBUTION_ES, "es-navarra": ATTRIBUTION_NAVARRA}.get(recipe.get("dtm"), ATTRIBUTION),
         "datumM": datum,
         "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), Z_DECIMALS),
                         "bankDeg": round(float(bk), 2)} for (x, y), zv, bk in zip(loc, z, bank)],
@@ -1278,6 +1494,8 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         "lakes": [{"name": lk_["name"], "areaM2": round(lk_["areaM2"]), "levelM": round(lk_["level"], 2),
                    "carvedNodes": lk_["carvedNodes"]} for lk_ in lake_list],
         "corners": corners,
+        "artefacts": profile_artefacts(loc, z, bank),
+        "dtmCellM": dtm.cell, "dtmWholeMetreFraction": round(dtm_quantised_fraction(dtm), 3),
     }
     if alt_reports:
         report["mainLayoutName"] = recipe.get("mainLayoutName", "Main")

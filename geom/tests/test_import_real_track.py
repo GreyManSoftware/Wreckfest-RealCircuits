@@ -298,3 +298,45 @@ def test_imported_sample_drives_the_recipes_corner_order_in_every_layout(recipe_
         if len(secs) > 1:  # an alternative layout skips part of the lap: only the corners it passes count
             expected = [n for n in expected if n in names]
         assert irt.corner_order_problem(names, expected) is None, (secs, names)
+
+
+# Profile artefact limits for every committed real-track sample (2026-10-24 accuracy audit). The worst real values
+# when they were set: grade ripple RMS 0.31 % (Cadwell Park's hilly straights), wobble 0.34 m (Brands Hatch),
+# camber rate 0.27 deg/m (Cadwell Park), tightest crest/dip 93 m (Navarra Short's ramp onto the T7-T8 road).
+# Navarra's whole-metre MDT05 terraces read 0.53 % ripple RMS.
+ARTEFACT_LIMITS = {"straightGradeRippleRmsPct": 0.4, "straightWobbleMaxM": 0.5, "maxCamberRateDegPerM": 0.35}
+MIN_VERTICAL_RADIUS_M = 75.0
+
+
+def test_profile_artefacts_flag_terraces_wobble_and_camber_flips() -> None:
+    # a 1 km straight with a 2 % climb: smooth, then as a DTM with 1 m terraces (smoothed 10 m like the importer)
+    s = np.arange(0.0, 1000.0, 2.0)
+    xy = np.column_stack([s, np.zeros_like(s)])
+    smooth = 0.02 * s
+    terraced = irt.gauss_open(np.floor(smooth + 0.5), 5.0)
+    bank = np.full_like(s, 1.0)
+    good = irt.profile_artefacts(xy, smooth, bank, closed=False)
+    bad = irt.profile_artefacts(xy, terraced, bank, closed=False)
+    assert good["straightsM"] > 800 and good["straightGradeRippleRmsPct"] < 0.05 and good["straightCamberFlips"] == 0
+    assert bad["straightGradeRippleRmsPct"] > ARTEFACT_LIMITS["straightGradeRippleRmsPct"]
+    # a 0.8 m lateral wobble (20 m wavelength, OSM-node jitter) on the straight, and camber flipping sign along it
+    wob = irt.profile_artefacts(np.column_stack([s, 0.8 * np.sin(2 * np.pi * s / 20.0)]), smooth, bank, closed=False)
+    assert wob["straightWobbleMaxM"] > ARTEFACT_LIMITS["straightWobbleMaxM"]
+    flip = irt.profile_artefacts(xy, smooth, 1.5 * np.sign(np.sin(2 * np.pi * s / 100.0)), closed=False)
+    assert flip["straightCamberFlips"] >= 10 and flip["maxCamberRateDegPerM"] > ARTEFACT_LIMITS["maxCamberRateDegPerM"]
+
+
+@pytest.mark.parametrize("recipe_path", _RECIPES, ids=[p.stem for p in _RECIPES])
+def test_imported_sample_has_no_profile_artefacts(recipe_path: Path) -> None:
+    """Every layout line of the committed sample: straights straight, no grade ripple (DTM terraces, tile seams),
+    no camber flicking, no crest or dip tighter than 75 m (DTM spikes, bridges)."""
+    recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+    im = json.loads((_ROOT / "geom" / "tests" / "samples" / f"{irt.recipe_slug(recipe)}.json")
+                    .read_text(encoding="utf-8"))["sketch"]["imported"]
+    lines = [("main", im["centreline"], True)] + [(a["id"], a["centreline"], False) for a in im.get("altLayouts", [])]
+    for name, cl, closed in lines:
+        c = np.array([[p["x"], p["y"], p["z"], p["bankDeg"]] for p in cl])
+        m = irt.profile_artefacts(c[:, :2], c[:, 2], c[:, 3], closed)
+        for k, lim in ARTEFACT_LIMITS.items():
+            assert m[k] <= lim, (name, k, m)
+        assert min(m["minCrestRadiusM"], m["minDipRadiusM"]) >= MIN_VERTICAL_RADIUS_M, (name, m)
