@@ -24,14 +24,15 @@ import weather
 from common import GAME_DIR, BuildError, BuildLog, Runner
 
 TOOLBOX = os.path.join(os.environ.get("BLENDER_SYSTEM_SCRIPTS", "/opt/blender-scripts"), "addons", "wreckfest_toolbox")
-EVENT_STATE_FINAL = 2
+EVENT_STATE_FINAL, EVENT_STATE_MOD = 2, 4
 GAMEMODE_RACING = 1
 
 UNVERIFIED = [
     "Bag files (.envi, .evse, .weli, modinfo.modi) are written by Toolbox's bagwrite with format dword "
     "01 00 00 00 (uncompressed); stock files use 04 00 00 00 (lz4).",
     "defaultLaps is not written: bagwrite's .evse has no laps field, so the game's default lap count applies.",
-    "Event state Final (2) and gamemode Racing (1) in each .evse; one event per layout, id = layout scene name.",
+    "Event state Final (2) for the main layout and Mod (4) for the others (the order the game lists them in), "
+    "gamemode Racing (1) in each .evse; one event per layout, id = layout scene name.",
     "Weathers reference stock .weat files of other tracks through the .weli (no .weat is copied).",
     "Menu images: names and power-of-two canvases (content top-left at the named size) copied from the "
     "example mod; bimage -auto chose the format.",
@@ -141,14 +142,19 @@ def package(spec: dict, manifest: dict, model: dict, project: str, sizes: dict, 
     f.envi_file(title=name, desc=desc, location="")
     f.save(p("data", "property", "event", slug, f"{slug}.envi"))
     events = []
-    for lay in layouts:
+    for k, lay in enumerate(layouts):
         title = layout_title(name, lay)
         scne = f"data/track/{slug}/{lay['name']}.scne"
         f = bw.BagWrite()
-        f.evse_file(title=title, desc=desc, state=EVENT_STATE_FINAL, gamemode=GAMEMODE_RACING, scne=scne,
+        # The game sorts events by state (Final, then Developer, then Mod), environment, an optional global
+        # order list (data/property/event/order.evol, none in stock) and last the event id (the file name), so
+        # alternatives sorted before the main layout (anglesey_club < anglesey_race). Final for the main layout
+        # (layouts[0]) and Mod, as many Workshop events use, for the others put it first with the ids unchanged.
+        state = EVENT_STATE_FINAL if k == 0 else EVENT_STATE_MOD
+        f.evse_file(title=title, desc=desc, state=state, gamemode=GAMEMODE_RACING, scne=scne,
                     weli=weli_rel)
         f.save(p("data", "property", "event", slug, f"{lay['name']}.evse"))
-        events.append({"event": lay["name"], "title": title, "scne": scne, "reverse": lay["reverse"],
+        events.append({"event": lay["name"], "title": title, "scne": scne, "reverse": lay["reverse"], "state": state,
                        "scneBytes": sizes.get(lay["name"]),
                        "tcat": f"uploaded ({tcat_report[lay['name']]})" if lay["name"] in tcat_report else "generated"})
 
