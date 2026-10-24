@@ -120,11 +120,13 @@ def test_branch_of_cuts_the_part_that_leaves_the_main_lap() -> None:
         irt.branch_of(main + 500.0, main, 2.0)
 
 
-def _road_dtm(offset: float, bank: float) -> irt.Dtm:
-    """A hillside (5 % across x) with a flat 10 m road strip along y at x = offset, cambered by ``bank``."""
+def _road_dtm(offset: float, bank: float, drift: float = 0.0) -> irt.Dtm:
+    """A hillside (5 % across x) with a flat 10 m road strip along y at x = offset (+ drift * y), cambered by
+    ``bank``."""
     xs = np.arange(-60, 60) + 0.5
     ys = np.arange(-200, 200)[::-1] + 0.5
-    gx, _ = np.meshgrid(xs, ys)
+    gx, gy = np.meshgrid(xs, ys)
+    offset = offset + drift * gy
     z = 0.05 * gx
     road = np.abs(gx - offset) <= 5.0
     z = np.where(road, 0.05 * offset + math.tan(math.radians(bank)) * -(gx - offset), z)
@@ -143,6 +145,14 @@ def test_registration_finds_the_road_and_the_fit_its_camber() -> None:
     _, b, res = irt.cross_fit(dtm, q, nl, np.arange(-3.8, 3.81, 0.5))
     assert math.degrees(math.atan(np.median(b))) == pytest.approx(3.0, abs=0.2)  # left (-x) edge higher
     assert np.median(res) < 0.02
+    # an OSM line drawn skew to the road (2 m over 300 m): the shift follows it smoothly. It used to step in
+    # 0.5 m increments smoothed over 5 m, a sideways jink every few tens of metres on a straight (2026-10-24 audit:
+    # Cadwell's Park Straight wandered 1 m over 20 m)
+    dtm = _road_dtm(2.5, 0.0, drift=2.0 / 300.0)
+    shift = irt.register(dtm, p, nl, 9.5, 2.0)
+    inner = slice(40, -40)  # away from the ends of the open test line (the smoothing wraps round a loop)
+    assert np.abs(shift[inner] + (2.5 + 2.0 / 300.0 * p[inner, 1])).max() < 0.8  # the road is 0.5 m wider than the fit
+    assert np.abs(np.diff(shift[inner])).max() < 0.04  # per 2 m sample: no steps
 
 
 def test_lakes_take_the_lidar_water_level_and_keep_clear_of_the_road() -> None:
