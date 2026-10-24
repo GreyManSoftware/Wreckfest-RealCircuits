@@ -46,3 +46,57 @@ Source: Gobierno de Navarra LiDAR 2024 point cloud with RGBI, tiles 568-4712 and
 
 **Published:** 12 m, 15 m on the main straight (2010 opening). Measured: 12.0 m median, 14-15 m on the main straight:
 both agree.
+
+## Run-off, barriers and trees (2026-10-24)
+
+Measured from open data (method: `docs/real-tracks.md`, "Run-off, barriers and foliage"): Gobierno de Navarra LiDAR 2024 (RGBI colour, classes, heights);
+OSM run-off, barrier and woodland features; barrier types from `tools/real_tracks_data/runoff_evidence.json`.
+Data `tools/real_tracks/runoff/navarra.json`, `tools/real_tracks/vegetation/navarra.json`; overlays
+`.local\audit\navarra\runoff-*.png`, `vegetation-overview.png`.
+
+| | Before (builder until 2026-10-24) | Now (measured) |
+|---|---|---|
+| Run-off | grass everywhere (no traps or aprons); 612 stock barrier props (concrete: grey concrete blocks) on 28 % / 17 % of the main lap's left / right sides | gravel 12 %, tarmac 21 %, grass 67 % of the main lap's sides; barriers armco 84 %, none 15 %, bank 1 %, tyres 1 %; debris fence on 7 %; built barrier line on 95 % / 81 % (left / right) |
+| Trees | 542 trees: OSM woods plus seeded park trees and an edge belt | 2 measured woods (0.2 ha in the 450 m box), 458 single trees, canopy 0.6 % of the box; 12 trees placed (458 candidates inside the terrain, cap 400) |
+| Look | grey concrete barrier blocks (barrier8) at fast corners and crowds | Armco round almost the whole lap (OSM maps 63 guard-rail ways), tarmac run-off at the big corners (pale older asphalt in the 2024 colour), gravel beds from OSM's gravel-trap polygons, debris fences at Turns 6, 11-13 and 15 (Geobrugg project notes) |
+
+Evidence per corner (main lap; the zone that holds the corner label; offsets from the road edge):
+
+| Corner (sM) | Side | Run-off | Barrier | Source |
+|---|---|---|---|---|
+| Turn 1 (563) | left | gravel trap 11-20 m | armco at 22 m | OSM, LIDAR, circuit default |
+| Turn 1 (563) | right | grass | armco at 12 m | OSM, LIDAR, circuit default |
+| Turn 2 (750) | left | grass | none | LIDAR |
+| Turn 2 (750) | right | grass | armco at 31 m | OSM |
+| Turn 3 (854) | left | gravel trap 16-32 m | armco at 32 m | OSM, LIDAR |
+| Turn 3 (854) | right | tarmac 21 m | none | LIDAR |
+| Turn 4 (1034) | left | grass | armco at 22 m | OSM, LIDAR, circuit default |
+| Turn 4 (1034) | right | gravel trap 6-14 m | armco at 17 m | OSM, LIDAR |
+| Turn 5 (1355) | left | grass | armco at 5 m | OSM, LIDAR, circuit default |
+| Turn 5 (1355) | right | grass | armco at 18 m | OSM, LIDAR |
+| Turn 6 (1559) | left | grass | armco at 7 m | OSM, LIDAR, circuit default |
+| Turn 6 (1559) | right | gravel trap 15-60 m | none | LIDAR, guide: circuitodenavarra.com 2024 works |
+| Turn 7 (1702) | left | gravel trap 7-22 m | armco at 28 m | OSM, LIDAR, circuit default |
+| Turn 7 (1702) | right | grass | none | LIDAR |
+| Turn 8 (1886) | left | grass | armco at 39 m | OSM, LIDAR |
+| Turn 8 (1886) | right | grass | armco at 50 m | OSM, LIDAR, circuit default |
+| Turn 9 (2433) | left | grass | armco at 6 m | OSM, LIDAR, circuit default |
+| Turn 9 (2433) | right | grass | armco at 43 m | OSM |
+| Turn 10 (2592) | left | gravel trap 10-22 m | armco at 23 m | OSM, LIDAR, circuit default |
+| Turn 10 (2592) | right | grass | armco at 34 m | OSM |
+| Turn 11 (2964) | left | grass | armco at 16 m | LIDAR, circuit default |
+| Turn 11 (2964) | right | tarmac 21 m | armco at 22 m + debris fence | LIDAR, guide: geobrugg.com/project_ja,,145638.html |
+| Turn 12 (3085) | left | tarmac 7 m | armco at 7 m | LIDAR, circuit default |
+| Turn 12 (3085) | right | tarmac 4 m | armco at 4 m + debris fence | OSM, LIDAR, guide: geobrugg.com/project_ja,,145638.html |
+| Turn 13 (3207) | left | tarmac 3 m | armco at 3 m | LIDAR, circuit default |
+| Turn 13 (3207) | right | grass | armco at 31 m + debris fence | LIDAR, guide: geobrugg.com/project_ja,,145638.html |
+| Turn 14 (3287) | left | grass | armco at 24 m | OSM, LIDAR, circuit default |
+| Turn 14 (3287) | right | grass | armco at 35 m + debris fence | OSM, LIDAR, guide: geobrugg.com/project_ja,,145638.html |
+| Turn 15 (3546) | left | grass | armco at 10 m + debris fence | OSM, LIDAR, guide: geobrugg.com project 145638 |
+| Turn 15 (3546) | right | grass | none | OSM, LIDAR |
+| Turn 16 (3814) | left | grass | armco at 22 m | OSM, LIDAR, circuit default |
+| Turn 16 (3814) | right | grass | armco at 18 m | OSM, LIDAR, circuit default |
+| Turn 17 (3997) | left | grass | armco at 49 m | OSM, LIDAR |
+| Turn 17 (3997) | right | grass | none | LIDAR, circuit default |
+
+Uncertain: tyre walls in front of the Armco at corners (Geobrugg: 'guardrail plus tyre barrier') aren't located in any source, so the Armco is shown bare; the T1 run-off reads as tarmac and gravel.
