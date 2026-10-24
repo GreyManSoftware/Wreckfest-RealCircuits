@@ -106,6 +106,10 @@ MATERIALS: dict[str, tuple[str, str, str]] = {
     "wall_tyres": ("wall_col_tyres#global_barrier", _T + "tmp_ghost_c1.tga", "wall"),
     "bridge_concrete": ("bridge_concrete#concrete", _T + "prop_forest5_concretebridge01_c.tga", "wall"),
     "cube_map": ("ghost", _T + "tmp_ghost_c1.tga", "wall"),  # as every stock base; see GHOST_MATERIALS
+    # out of bounds (bounds.py): invisible reset walls/lids/kill floor/water (stock "resetwall" meshes) and the
+    # far ground's collision
+    "bounds_reset": ("bounds_reset#resetplayer", _T + "tmp_ghost_c1.tga", "wall"),
+    "bounds_far": ("bounds_far_ground#offroadfoliage", _T + "tmp_ghost_c1.tga", "wall"),
 }
 
 # options.surface -> road material keys (materials.py). "mixed" alternates asphalt and gravel by checkpoint
@@ -164,4 +168,4 @@ CUBE_MAP_SIZE = 0.3           # stock bases and the example: a 0.3 m cube...
 CUBE_MAP_HEIGHT = 3.5         # ...2-4 m above the ground near the track
 # Materials whose texture also goes into the opacity slot (6), so the object is invisible in game. The example's
 # "ghost" material has ghost_c1 in slots 1 and 6; stock bases use data/art/textures/tmp_ghost_c1 the same way.
-GHOST_MATERIALS = ("cube_map", "wall_concrete", "wall_tyres")
+GHOST_MATERIALS = ("cube_map", "wall_concrete", "wall_tyres", "bounds_reset", "bounds_far")

@@ -24,6 +24,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import bgo_read
 import scne_read
+sys.path.insert(0, HERE)
+import check_bounds
 import numpy as np
 from wfbuild import config as C
 from wfbuild import tcat
@@ -516,6 +518,7 @@ def main() -> None:
         for f in sorted(os.listdir(track)):
             if f.endswith(".scne") and not f.endswith("_base.scne"):
                 check_track_data(f[:-5], os.path.join(track, f), track)
+        check_bounds.export(check, track)
         print(f"TRACK DATA CHECKS {'FAILED' if failures else 'OK'}: {len(failures)} failures")
         sys.exit(1 if failures else 0)
     out, root = sys.argv[1], sys.argv[2]
@@ -632,6 +635,7 @@ def main() -> None:
             ai = [o for o in b.objects if o.name.startswith("#ai_")]
             check(all(o.kind == "OBJM" and o.tri_count > 0 for o in ai) and len(ai) >= 3,
                   f"{scene}: AI routes exported as meshes", f"{len(ai)}")
+    check_bounds.export(check, track)  # out of bounds on the built scenes: resets, kill floor, ground coverage
     print(f"EXPORT CHECKS {'FAILED' if failures else 'OK'}: {len(failures)} failures")
     sys.exit(1 if failures else 0)
 

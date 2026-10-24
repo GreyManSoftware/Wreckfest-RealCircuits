@@ -116,12 +116,14 @@ This mirrors the example mod: `exampletrack_base` holds the world, and each layo
 | base | `terrain` | `terrain_XX_YY`: 128 m tiles of 4 m cells |
 | base | `backdrop` | `backdrop_ground#lofi`, `backdrop_horizon#lofi`, `backdrop_cards_NN` (no collision) |
 | base | `helpers` | `#static_cube_map` |
+| base | `bounds` | `bounds_far_ground`, `bounds_kill_floor`, `bounds_water` (imported lakes / sea): invisible, see "Out of bounds" |
 | base | `props` | `#xref ob/<prop>.scne` empties |
 | layout | `base` | `#xref <slug>_base.scne` with `xdir = data/track/<slug>` |
 | layout | `airoutes` | `#ai_route_main`, `#ai_safe_main`, `#ai_race_main`, `#ai_*_altN` |
 | layout | `checkpoints` | `#checkpointNN[_split][_altN]` |
 | layout | `startpoints` | `#startpoint01…NN`, `#startpointcarchange` |
 | layout | `jumps` | `jump_<id>` (layout-only jumps) |
+| layout | `bounds` | `bounds_reset`: the layout's `#resetplayer` reset wall and lid (invisible) |
 | layout | `editing#exclude` | `ai_path`, `ai_path_altN` curves (Toolbox skips `#exclude` collections and curves) |
 
 Every base mesh except `#static_cube_map`, `track_edges` and the `backdrop_*` meshes has the String custom property `CustomData = "col = true"`. Coordinates are the TrackModel's (metres, Z up), except for the placement transform below.
@@ -190,7 +192,29 @@ bgeometry logs `Surface Settings does not exists: decal ()` and `... noshadow ()
   - coastal: gorse clumps (stock bushes, scaled down), stone field walls along a seeded parcel grid, a few farmsteads, rocks and cliff faces along the shore, nothing on ground under the sea, no tree cards;
   - only assets listed for the environment; no-go zones: the road and run-off (nothing but the gantry within wall offset + 1 m of an edge), the grid sector, bridge decks and ramps, jump landings;
   - about 1,000-4,000 subscenes per track (stock bases have 900-6,000).
-- **Backdrop** (`wfbuild/backdrop.py`): a far-ground ring from the terrain edge to past the horizon with gentle hills (at most ~15 m, like stock), a `#horizon` cylinder 900 m beyond the terrain edge (closer where the ±2000 m limit leaves less room; computed after the placement shift) and `#xtree` card strips (two layers for forest). No collision. With an imported `seaLevelM` (coastal) a flat `backdrop_sea#lofi` plane with a generated sea texture covers the terrain and far ground at sea level and the far ground stays seabed beyond the real ground; with an imported `horizon` profile the `#horizon` ring is centred on the drivers' eye and carries a generated skyline texture (`<slug>_horizon_c5`, one repeat, u = azimuth).
+- **Backdrop** (`wfbuild/backdrop.py`): a far-ground ring from the terrain edge to past the horizon with gentle hills (at most ~15 m, like stock), a `#horizon` cylinder 900 m beyond the terrain edge (closer where the ±2000 m limit leaves less room; computed after the placement shift) and `#xtree` card strips (two layers for forest). No collision (the invisible `bounds_far_ground` gives the near part of the far ground collision; see "Out of bounds"). With an imported `seaLevelM` (coastal) a flat `backdrop_sea#lofi` plane with a generated sea texture covers the terrain and far ground at sea level and the far ground stays seabed beyond the real ground; with an imported `horizon` profile the `#horizon` ring is centred on the drivers' eye and carries a generated skyline texture (`<slug>_horizon_c5`, one repeat, u = azimuth).
+- **Out of bounds** (`wfbuild/bounds.py`; stock findings in `docs/visual-assets.md` "Out of bounds"). Stock tracks
+  reset a car that leaves the track with invisible collision whose surface is **`#resetplayer`** (stock
+  `resetwall` meshes: a low wall just outside the blue AI route, foot underground, and a lid 1-4 m above the
+  ground reaching further out), whatever the race's reset setting, and their ground collision runs on for hundreds
+  of metres. Until 2026-10-24 ours had no reset and the ground collision ended at the terrain edge (48 m past the
+  blue route at the nearest), so a car that drove on fell through the world. Now, all invisible
+  (`vis = false | col = true`, stock ghost texture):
+  - `bounds_reset` per layout (`bounds_reset#resetplayer`): on the 4 m terrain grid, the cells within 4 m
+    (`RESET_GAP`) of the layout's `#ai_route_*` strips (and of any base mesh of kind `pit`, `ALLOWED_KINDS`) are
+    allowed; round the outside of them (the cells reachable from the terrain edge; the infield isn't reset, as
+    stock fields05) a wall from 4 m under to 2 m over the terrain, facing the track, and a 16 m lid 2 m above the
+    terrain. Roads of other layouts beyond it are reset (stock forest11_2). ~3-7k faces per layout. A pit lane
+    or any other drivable area off the AI routes must be a base mesh of kind `pit` (or an AI route) or it is
+    walled off.
+  - `bounds_far_ground` (`#offroadfoliage`): collision on the backdrop's far ground, from under the terrain
+    edge to ~230 m beyond it (`FAR_COLLISION_T`), the heights the far ground draws.
+  - `bounds_water` (`#resetplayer`): flat sheets 0.3 m under an imported lake's level (within the lake planes'
+    reach) or the sea, over terrain cells below that; shallow edges stay drivable, deeper water resets.
+  - `bounds_kill_floor` (`#resetplayer`): one plane 25 m below the lowest collision, 600 m beyond the terrain
+    (within ±2 km after the placement), so anything that still falls is reset.
+  The manifest has `bounds` (kill floor z, water cells, far-collision reach) and per layout `bounds` (allowed
+  area, lid cells, faces).
 - **Imported multi-layout tracks:** the TrackModel's `layouts` (e.g. Anglesey International and Coastal) each become a layout scene (`<slug>_race` for the main one, `<slug>_<id>`) sharing the base: the main one drives the main route only, an alternative one a closed route made of its TrackModel `sections` (branch and main, from its start/finish line: `layout.composite_route`), with its own evenly spaced checkpoints. A layout with its own line (`startFinish`, e.g. Cadwell Park Club, Anglesey National and Club) gets its own start points from its own `grid`; the others share the main line and grid. The events are titled with the track and layout names ("Cadwell Park Club"). `check_scene` and `check_export` check per layout that the finish checkpoint sits on the layout's line and the start points sit ahead of it facing the first checkpoint.
 - **Imported U-turn links (aprons):** a branch that turns back between two adjacent sections of road a few metres apart (Cadwell Park's Club Hairpin from the run to the Mountain onto the start straight, the Woodlands hairpin at the Coppice end) has no cross-section clear of the other road, so no junction mouth. The builder paves the gap between the two sections where the turn crosses it instead (`TrackGeometry._apron`: one polygon of the two facing edges' vertices, shared with their road quads, listed under `junctions` with `kind: apron`); the branch keeps its AI route and checkpoints but no road, kerbs or walls of its own, and the dividers stop there. On imported tracks a branch still merging into its road within 60 m of its junction (`DIVIDER_MERGE_M`) needs no divider either, and two junctions on the same edge never share an edge segment (Anglesey's Bus Stop, where the Coastal joins one node before the National leaves).
 - **Reverse layout:** the same geometry driven backwards. The grid uses the forward first-sector stretch facing the other way: the forward back row becomes the pole row, the line moves 4 m behind the new back row, and checkpoint 01 is 10 m past the pole. The other checkpoints run in reverse order.
@@ -247,6 +271,15 @@ bgeometry logs `Surface Settings does not exists: decal ()` and `... noshadow ()
   - layout-only jumps.
 - **Export and build:** the generated maps are converted with `bimage -auto`, Toolbox exports every scene, and bgeometry builds base first, then the layouts. Any non-empty `.scne` with an error, warning, assert or `Error.log` entry fails, except the known `otherway`/`crossstart` and `decal`/`noshadow` notices.
 - **`check_export.py`** reads the `.bgo3` back with `bgo_read`. It checks that every mesh and empty was exported with its CustomData, that the xref paths are right (`data/track/<slug>/<slug>_base.scn` and `data/art/objects/*.scn`), that the start points are dummies and the AI routes are meshes, that the materials keep their `data/…` texture paths, that **every texture resolves** (a stock `.bmap` under `/wreckfest/data` or a texture in the mod, otherwise it would render pink), that the exported UVs are within ±16 (UV2 within 0..1), that the `#blend` materials keep the 12-slot layout with albedos on UV1 and maps on UV2, that the generated maps are in the mod as `.bmap`, that `#static_cube_map` uses the invisible `ghost` material, that **every start point, checkpoint centre and AI race-route start lies on the exported base road** as the layout's base reference places it, that **every layout has its minimap track data** (`<scene>.tcat` beside the `.scne`, v20, non-zero zoom, one entry per compiled AI route, none hidden from the minimap) and that the compiled main AI route the minimap draws matches the layout (bounds within 15 m of its centreline, same direction of travel, lap length within 5 %), and that the **built base `.scne` stays within the stock scene limits** (`scne_read.LIMITS`: largest draw batch, scene vertices, vertices with every prop instance, subscenes, unresolved subscenes and textures, clutter at full density and its 400 m maximum).
+- **Out of bounds** (`tests/check_bounds.py`, run by both `check_scene.py` on the `.blend` files and
+  `check_export.py` on the built `.scne` files, including `--track-data` and the bundle builder): every layout
+  has its `#resetplayer` reset, at least 4 m outside the blue route; flooding a 2 m grid from the layout's road
+  through every cell not under a reset face never reaches the edge of the collision ground (a car can't leave
+  without being reset) and finds ground collision under every reached cell (no holes; finer cracks are the
+  junction checks' job); the kill floor is 5+ m below every other collision face and under all of the ground;
+  and (scene check, imported tracks) every terrain vertex more than 0.35 m under a lake or the sea has a water
+  sheet over it. The shipped pre-fix Cadwell Park fails them (no reset; 118 ha reachable, off the edge of the
+  terrain).
 - **Determinism:** `oval` is built twice; the exported `.bgo3` files, `model.json`, `scenery.json` and the generated maps must be identical.
 
 Results (2026-10-19, `--cpus 8`, 135 s for everything):
