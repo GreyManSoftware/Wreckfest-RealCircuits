@@ -275,3 +275,21 @@ alder4, group23, boulders, rock piles).
 - The render tool has no clutter grass, fog or game lighting, so ground colour is judged only roughly there.
 - Stock subscene groups (`foliage_bgrforest2..5.scne`) instead of our own cards.
 - Sky and weather already map to stock environments (`pipeline/weather.py`); `#static_cube_map` is unchanged.
+
+## Real-circuit run-off and barriers (2026-10-24)
+
+Found for the measured run-off of imported tracks (`docs/real-tracks.md`, "Run-off, barriers and foliage"):
+
+- **Surfaces** (`data/property/settings/surfacelist.srfl`): `gravel`, `offroadsand` and the other off-road surfaces have
+  rolling resistance 0.005; `slowdown` and `slowdownsand` 0.01 (asphalt 0.0025, mud 0.05). Stock sandpit01-03 sand
+  banks use `#slowdown`, so gravel traps do; `#slowdownsand` is listed but bgeometry warns "Surface Settings does not
+  exists" for it. No stock base uses a tarmac-circuit gravel trap.
+- **Barrier textures as stock bases use them on their own meshes:** `prop_guardrail01_c` (512 × 64, a W-beam strip;
+  guardrail meshes in fields03/04/08, forest01-12, sandpit01-03), `prop_tirerubberbarrier_c` (plain black conveyor
+  belting; tyre-wall meshes in fields06, forest02/03/04/06; `_white_c` exists too), `prop_chainlinkfence04_small_c5`
+  (chain-link with alpha). Red/white options: `prop_tirebarrier02/04` (tyre heaps with chain-link), the red-banded
+  `prop_tirebarrier4/5_c`, `metalfence_paint_01_c5`. Black/grey props also exist (`prop_barrier8_black`,
+  `prop_barrier12_black_side1/2`, `prop_plasticbarrier01_black`) but meshes keep a long barrier within the vertex
+  budget.
+- **Gravel and old tarmac:** `sandpit:ground_pebbles_03_c` (mixed grey/brown pebbles) for traps,
+  `fields:ground_tarmac08f_fields_c` (cracked tarmac) and `sandpit:road_sandpit_tarmac03_c` for run-off aprons.

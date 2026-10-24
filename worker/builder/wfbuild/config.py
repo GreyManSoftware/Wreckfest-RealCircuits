@@ -55,9 +55,9 @@ FAST_CORNER_WALL = 14.0       # ...this far out, behind the grass run-off
 DROP_PROBE = 15.0             # the terrain this far out of the edge...
 DROP_H = 3.0                  # ...more than this below the road: barrier (the ground drops away)
 WALL_RAMP_SLOPE = 0.25        # where barriers at different distances meet, the line moves this much per metre
-WALL_HEIGHT = {"concrete": 1.1, "tyres": 1.2}
+WALL_HEIGHT = {"concrete": 1.1, "tyres": 1.2, "armco": 1.0}
 WALL_SINK = 0.5               # walls start this far below the terrain
-WALL_HALF = {"concrete": 0.35, "tyres": 0.5}   # half thickness of the collision wall (the barrier props' face)
+WALL_HALF = {"concrete": 0.35, "tyres": 0.5, "armco": 0.25}   # half thickness of the collision wall (the barrier's face)
 # The wall mesh is an invisible collision wall (as stock bases' "wall_col" / "#col" meshes); the visible barrier is
 # a row of stock props on the same line (dressing.barriers, environments.json "barriers").
 WALL_CUSTOM_DATA = "vis = false | col = true"
@@ -90,6 +90,29 @@ CHECKPOINT_ABOVE = 10.0
 STARTPOINT_LIFT = 0.3
 TEX_TILE = {"road": 8.0, "kerb": 2.4, "ground": 16.0, "wall": 4.0, "far": 1000.0, "limits": 4.0}
 
+# --- measured run-off of imported tracks (runoff.py) -----------------------------------------------
+TRAP_KERB_CLEAR = 0.3         # a gravel trap starts at least this far beyond a kerb or green strip
+TRAP_BARRIER_GAP = 0.5        # a barrier stands at least this far beyond the end of its trap or apron
+TRAP_DIP_M = 0.15             # the ground inside a gravel trap sinks this much (loose gravel below the verge)...
+TRAP_DIP_EASE_M = 2.0         # ...easing in over about this much from the trap's edge
+MEASURED_WALL_SLOPE = 1.0     # measured barriers at different offsets join at 45 degrees
+MEASURED_CROWD_MAX_M = 75.0   # crowds stand behind the measured barrier, but no further out than this
+MEASURED_TREE_MIN_M = 12.0    # measured trees: none nearer a road edge than this (and never in the run-off band)
+MEASURED_JOIN_M = 30.0        # ...across gaps up to this long between two barrier zones
+BARRIER_SMOOTH_M = 24.0       # measured barrier offsets: steps between zones ease over about this
+BARRIER_CHUNK = 100           # visible barrier meshes: at most this many line samples per object
+ARMCO_BEAMS = ((0.30, 0.62), (0.64, 0.96))   # W-beams (bottom, top above the ground), double-height Armco
+ARMCO_POST_M = 2.0            # post spacing
+FENCE_HEIGHT = 3.0            # debris fence above the barrier
+FENCE_V = (0.22, 1.0)         # the chain-link part of prop_chainlinkfence04_small_c5 (v)
+FENCE_TILE_U = 3.0
+# visible barrier per measured type: material key, texture repeat along (m), and for walls height / depth
+BARRIER_MESH = {
+    "armco": {"mat": "barrier_armco", "tileU": 2.8},
+    "tyres": {"mat": "barrier_tyres", "tileU": 4.0, "height": 1.05, "depth": 1.0},
+    "concrete": {"mat": "barrier_concrete", "tileU": 2.0, "height": 1.0, "depth": 0.5},
+}
+
 # --- materials -------------------------------------------------------------------------------------
 # Single-texture materials (one Principled BSDF, texture in slot 1). The road, shoulder, terrain, edge decal
 # and backdrop materials are multi-slot stock-style materials per environment: see materials.py and
@@ -100,6 +123,13 @@ MATERIALS: dict[str, tuple[str, str, str]] = {
     # invisible collision walls (vis = false): the stock ghost texture, the barrier surface for impacts
     "wall_concrete": ("wall_col_concrete#concrete_barrier", _T + "tmp_ghost_c1.tga", "wall"),
     "wall_tyres": ("wall_col_tyres#global_barrier", _T + "tmp_ghost_c1.tga", "wall"),
+    "wall_armco": ("wall_col_armco#metal_barrier", _T + "tmp_ghost_c1.tga", "wall"),
+    # visible measured barriers (no collision; the wall_col_* wall under them collides): stock textures as stock
+    # bases use them on their own guardrail and tyre-wall meshes (fields08/forest05 guardrail, forest04 tyres)
+    "barrier_armco": ("barrier_armco#metal_barrier", _T + "prop_guardrail01_c.tga", "wall"),
+    "barrier_tyres": ("barrier_tyres#global_barrier", _T + "prop_tirerubberbarrier_c.tga", "wall"),
+    "barrier_concrete": ("barrier_concrete#concrete_barrier", _T + "a_concrete2_c.tga", "wall"),
+    "barrier_fence": ("barrier_fence#metal_barrier", _T + "prop_chainlinkfence04_small_c5.tga", "wall"),
     "bridge_concrete": ("bridge_concrete#concrete", _T + "prop_forest5_concretebridge01_c.tga", "wall"),
     "cube_map": ("ghost", _T + "tmp_ghost_c1.tga", "wall"),  # as every stock base; see GHOST_MATERIALS
 }
@@ -113,12 +143,12 @@ SURFACE_ROADS = {
     "mixed": ("road_tarmac", "road_gravel"),
 }
 
-WALL_MATERIAL = {"concrete": "wall_concrete", "tyres": "wall_tyres"}
+WALL_MATERIAL = {"concrete": "wall_concrete", "tyres": "wall_tyres", "armco": "wall_armco"}
 
 # Mesh kinds that use the #blend materials and so get UV2 (the generated maps' frame).
 BLEND_KINDS = ("road", "shoulder", "terrain")
 # Mesh kinds without collision (CustomData empty): the road-edge decal and the backdrop.
-NO_COLLISION_KINDS = ("decal", "backdrop", "helper")
+NO_COLLISION_KINDS = ("decal", "backdrop", "helper", "barrier")
 
 # --- generated maps (maps.py) ----------------------------------------------------------------------
 MAP_RES = 1024                # blend / colour / clutter maps, square over the terrain extent
@@ -160,4 +190,6 @@ CUBE_MAP_SIZE = 0.3           # stock bases and the example: a 0.3 m cube...
 CUBE_MAP_HEIGHT = 3.5         # ...2-4 m above the ground near the track
 # Materials whose texture also goes into the opacity slot (6), so the object is invisible in game. The example's
 # "ghost" material has ghost_c1 in slots 1 and 6; stock bases use data/art/textures/tmp_ghost_c1 the same way.
-GHOST_MATERIALS = ("cube_map", "wall_concrete", "wall_tyres")
+GHOST_MATERIALS = ("cube_map", "wall_concrete", "wall_tyres", "wall_armco")
+# Materials whose _c5 texture's alpha cuts the surface out (Toolbox: Principled Alpha -> slot 6), e.g. a fence
+ALPHA_MATERIALS = ("barrier_fence",)

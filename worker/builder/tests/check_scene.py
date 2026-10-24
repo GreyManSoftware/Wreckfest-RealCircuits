@@ -35,7 +35,8 @@ GRID_EXEMPT = {"gantry", "flags", "staff", "grandstand"}
 
 
 def no_collision(name: str) -> bool:
-    return name in ("#static_cube_map", "track_edges", "track_transitions") or name.startswith("backdrop_")
+    return (name in ("#static_cube_map", "track_edges", "track_transitions") or name.startswith("backdrop_")
+            or name.startswith("barrier_"))
 
 
 def known_tag(t: str) -> bool:
@@ -94,7 +95,7 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
     check(not on_road, "scenery: nothing but the gantry, the barrier row (on the wall line) and corner markers "
           "within the road/run-off clearance", f"clearance {pl.edge_min - 1.0:.1f} m; {on_road[:3]}")
     barriers = [k for k, c in enumerate(cats) if c == "barriers"]
-    row = set(envs.barrier_row(pl.env_name, geo.walls))
+    row = set() if geo.runoff.active else set(envs.barrier_row(pl.env_name, geo.walls))
     check(bool(barriers) == bool(row) and {P[k]["asset"] for k in barriers} <= row,
           f"scenery: barrier row follows options.walls ({geo.walls}: stock {sorted(row) or 'none'})",
           f"{len(barriers)} barrier props")
@@ -183,10 +184,11 @@ def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict) -> None:
             del lv
     # --- barriers: not round the whole lap (walls: none has none)
     plan = geo.wall_plan()
-    if geo.walls != "none":
+    if geo.walls != "none" and not geo.runoff.active:  # measured barriers follow the data (check_runoff)
         share = max(float(p["ok"].mean()) for p in plan.values())
         check(share <= 0.7,"base: no continuous barrier round the lap (grass run-off first; barriers where needed)",
               f"largest share of one side with a barrier {share:.0%}")
+    if geo.walls != "none":
         # every close pair of sections has a continuous collision wall between them
         segs = []
         for o in obs.values():
@@ -215,6 +217,156 @@ def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict) -> None:
     # the AI route covers the grass run-off (cars off the tarmac aren't reset at once)
     med = float(np.median(np.concatenate([p["ai_margin"] for p in plan.values()])))
     check(med >= 8.0, "base: the AI route reaches over the grass run-off", f"median margin {med:.1f} m beyond the edge")
+
+
+def check_runoff(out: str, obs: dict, model: dict, spec: dict, manifest: dict) -> None:
+    """An imported track's measured run-off (sketch.imported.runoff, wfbuild/runoff.py): the built terrain under
+    every zone has the zone's surface (gravel traps the stock #slowdown surface, aprons #asphalt, grass the
+    environment's); the barrier along every zone is the zone's type and stands behind its trap; no red/white
+    barrier without a source; kerbs never in a trap; nothing but the grid-sector dressing stands in the run-off;
+    only measured trees, as dense as measured near the track."""
+    from wfbuild.dressing import RUNOFF_EXEMPT
+    from wfbuild.geometry import TrackGeometry
+    from wfbuild.woods import WoodMask
+
+    imp = spec["sketch"].get("imported") or {}
+    zones = imp.get("runoff") or []
+    if not zones:
+        return
+    geo = TrackGeometry(model, spec)
+    ro = geo.runoff
+    env = envs.env(spec["options"].get("environment"))
+    # --- surfaces: ray-cast the built terrain (and shoulders) at the middle of every zone
+    meshes = [o for n, o in obs.items() if o.type == "MESH" and (n.startswith("terrain_") or n == "track_shoulders")]
+    tv, tf, tm = [], [], []
+    for o in meshes:
+        base = len(tv)
+        tv += [tuple(v) for v in world_verts(o)]
+        for poly in o.data.polygons:
+            tf.append(tuple(base + i for i in poly.vertices))
+            tm.append(o.data.materials[poly.material_index].name)
+    bvh = BVHTree.FromPolygons(tv, tf)
+    trap_mats = sorted({m for m in tm if m.startswith("terrain_trap")})
+    want = {"gravel": "slowdown", "tarmac": "asphalt", "grass": env["terrainSurface"]}
+    has_gravel = any(z["surface"] == "gravel" for z in zones)
+    check(not has_gravel or (bool(trap_mats) and all("#slowdown" in m for m in trap_mats)),
+          "runoff: gravel traps use the stock gravel-trap surface (#slowdown)", ", ".join(trap_mats))
+    plan = geo.wall_plan()
+    probes, bad, bplan, bbad, behind, rw = 0, [], 0, [], [], 0
+    for z in zones:
+        r = geo.by_id.get(z["route"])
+        if r is None:
+            continue
+        span = (z["toS"] - z["fromS"]) % r.length if r.closed else z["toS"] - z["fromS"]
+        if span < 12.0:
+            continue
+        mid = (z["fromS"] + span / 2.0) % r.length if r.closed else z["fromS"] + span / 2.0
+        i = r.index_at(mid)
+        side = 1 if z["side"] == "left" else -1
+        a = ro.side[(r.index, side)]
+        edge = (r.left if side > 0 else r.right)[i]
+        if z["surface"] == "gravel":
+            d = (a["g0"][i] + a["g1"][i]) / 2.0
+        elif z["surface"] == "tarmac":
+            d = min(a["tarmac"][i] / 2.0, 3.0) + 1.0
+        else:
+            d = 6.0 if not np.isfinite(a["offset"][i]) or a["offset"][i] > 8.0 else a["offset"][i] / 2.0
+        # skip probes that land near another road (dividers, junctions): that ground isn't this zone's
+        pt = edge.copy()
+        pt[:2] += r.nl[i] * side * d
+        if geo.index.near_other(pt[None, :], np.array([r.index]), np.array([r.s[i]]), 3.0)[0]:
+            continue
+        sp = to_scene(pt[None, :], manifest)[0]
+        hit = bvh.ray_cast(Vector((sp[0], sp[1], sp[2] + 60.0)), Vector((0, 0, -1)))
+        if hit[0] is None:
+            continue
+        probes += 1
+        mat = tm[hit[2]]
+        if f"#{want[z['surface']]}" not in mat and not (z["surface"] == "grass" and "#gravel" in mat):
+            bad.append(f"{z['route']}:{z['side'][0]}@{mid:.0f} {z['surface']}->{mat.split('#')[1]}")
+        # barrier type along the zone
+        p = plan[(r.index, side)]
+        if z["barrier"] in ("armco", "tyres", "concrete") and p["ok"][i]:
+            bplan += 1
+            if p["type"][i] != z["barrier"] and not p["divider"][i]:
+                bbad.append(f"{z['route']}:{z['side'][0]}@{mid:.0f} {z['barrier']}->{p['type'][i]}")
+            if z["surface"] == "gravel" and p["offset"][i] < a["g1"][i] - 0.05:
+                behind.append(f"{z['route']}:{z['side'][0]}@{mid:.0f} {p['offset'][i]:.1f}<{a['g1'][i]:.1f}")
+        rw += z.get("colour") == "redwhite"
+    check(probes >= 0.5 * len(zones) and len(bad) <= max(2, probes // 10),
+          "runoff: the built ground under every zone has its measured surface (gravel trap, tarmac, grass)",
+          f"{probes} probes, {len(bad)} off: {bad[:4]}")
+    check(len(bbad) <= max(2, bplan // 10), "runoff: the barrier along every zone is its measured type",
+          f"{bplan} zones with a built barrier, {len(bbad)} differ: {bbad[:4]}")
+    check(not behind, "runoff: barriers stand behind the gravel traps, not in them", f"{behind[:4]}")
+    types_built = {str(t) for p in plan.values() for t, ok in zip(p["type"], p["ok"]) if ok}
+    vis = {n.split("_")[1] for n in obs if n.startswith("barrier_") and obs[n].type == "MESH"} - {"fence"}
+    check(types_built - {"none", "bank"} <= vis and all(obs[n].get("CustomData", "") == "" for n in obs
+                                                        if n.startswith("barrier_")),
+          "runoff: every built barrier type has its visible mesh (stock textures, no collision of its own)",
+          f"wall plan {sorted(types_built)}, meshes {sorted(vis)}")
+    sc = load_json(os.path.join(out, "scenery.json"))
+    P = sc["placements"]
+    redwhite = [p["asset"] for p in P if p["asset"] in ("prop_tirebarrier02", "prop_tirebarrier04")]
+    check(not redwhite or rw > 0, "runoff: no red/white barriers without a source", f"{len(redwhite)} red/white props")
+    # kerbs and green strips never in a trap
+    kp = geo.kerb_plan()
+    under = sum(int(((kw + gw) > ro.side[k]["g0"] + 1e-6)[ro.side[k]["surface"] == 1].sum()) for k, (kw, gw) in kp.items())
+    check(under == 0, "runoff: no kerb or green strip reaches into a gravel trap", f"{under} samples")
+    # nothing in the run-off but the grid-sector dressing
+    xy = np.array([p["position"][:2] for p in P]).reshape(-1, 2)
+    cat = [p["category"] for p in P]
+    inr = (ro.at(xy) > 0) | ro.at(xy, "band") if len(xy) else np.zeros(0, dtype=bool)
+    offenders = [f"{P[k]['category']}:{P[k]['asset']}" for k in np.nonzero(inr)[0] if cat[k] not in RUNOFF_EXEMPT]
+    check(not offenders, "runoff: no trees or props in gravel traps, on aprons or between a road and its barrier",
+          f"{len(offenders)}: {offenders[:4]}")
+    # vegetation: trees only where the measurement has canopy, and as dense as measured near the track
+    trees = np.array([p["position"][:2] for p in P if p["category"] == "trees"]).reshape(-1, 2)
+    woods = [w for w in imp.get("woodland") or []]
+    singles = np.array([[t["x"], t["y"]] for t in imp.get("trees") or []]).reshape(-1, 2)
+    if woods or len(singles):
+        x0, x1, y0, y1 = geo.extent
+        frame = (x0, y0, max(x1 - x0, y1 - y0))
+        wm = WoodMask([np.array([[q["x"], q["y"]] for q in w["points"]]) for w in woods], frame, soft=1.0,
+                      weights=[w.get("cover", 1.0) for w in woods]) if woods else None
+        from wfbuild.fields import exact_edge_distance
+        canopy = np.zeros(len(trees), dtype=bool)
+        if len(trees):
+            if wm is not None:
+                canopy |= wm.at(trees) > 0.05
+            if len(singles):
+                d = np.hypot(trees[:, None, 0] - singles[None, :, 0], trees[:, None, 1] - singles[None, :, 1]).min(1)
+                canopy |= d < 1.0
+        check(not len(trees) or canopy.mean() >= 0.98,
+              "runoff: trees stand only where the LIDAR measured canopy (no seeded scatter on open ground)",
+              f"{int((~canopy).sum())} of {len(trees)} trees on measured open ground")
+        # density near the track (15-150 m): share of 20 m cells with measured canopy that got a tree
+        cell = 20.0
+        gx, gy = np.meshgrid(np.arange(x0 + cell / 2, x1, cell), np.arange(y0 + cell / 2, y1, cell))
+        cc = np.stack([gx.ravel(), gy.ravel()], axis=1)
+        dist = exact_edge_distance(geo, cc)
+        band = (dist >= 15.0) & (dist <= 150.0)
+        cov = wm.at(cc) if wm is not None else np.zeros(len(cc))
+        if len(singles):
+            ii = np.floor((singles - [x0, y0]) / cell).astype(int)
+            nxc = gx.shape[1]
+            ok = (ii[:, 0] >= 0) & (ii[:, 0] < nxc) & (ii[:, 1] >= 0) & (ii[:, 1] < gx.shape[0])
+            idx = ii[ok, 1] * nxc + ii[ok, 0]
+            cov[idx] = np.maximum(cov[idx], 0.5)
+        meas = band & (cov >= 0.4) & ~(ro.at(cc) > 0) & ~ro.at(cc, "band")
+        got = np.zeros(len(cc), dtype=bool)
+        if len(trees):
+            ti = np.floor((trees - [x0, y0]) / cell).astype(int)
+            ok = (ti[:, 0] >= 0) & (ti[:, 0] < gx.shape[1]) & (ti[:, 1] >= 0) & (ti[:, 1] < gx.shape[0])
+            got[ti[ok, 1] * gx.shape[1] + ti[ok, 0]] = True
+        hit = float(got[meas].mean()) if meas.any() else 1.0
+        open_ = band & (cov < 0.05)
+        stray = float(got[open_].mean()) if open_.any() else 0.0
+        check(hit >= 0.6 and stray <= 0.03,
+              "runoff: tree density near the track within tolerance of the measured canopy (15-150 m from the road)",
+              f"{hit:.0%} of {int(meas.sum())} wooded 20 m cells have trees (>= 60%), {stray:.1%} of "
+              f"{int(open_.sum())} open cells (<= 3%)")
+    print(f"INFO runoff: {json.dumps(ro.summary())[:400]}")
 
 
 def read_tga(path: str) -> np.ndarray:
@@ -442,6 +594,7 @@ def check_base(out: str, slug: str, model: dict, spec: dict, manifest: dict) -> 
     check(not missing, "base: every prop exists in the game data", ", ".join(missing))
     check_scenery(out, model, spec, manifest, len(props))
     check_roadside(obs, model, spec, manifest)
+    check_runoff(out, obs, model, spec, manifest)
     check_maps(out, model, spec, manifest)
     # bounds
     worst = max(float(np.abs(world_verts(o)[:, :2]).max()) for o in meshes if len(o.data.vertices))

@@ -99,6 +99,7 @@ def texture_stems(name: str | None) -> set[str]:
     e = env(name)
     out = set()
     layers = list(e["ground"].values()) + [lay for v in e["roads"].values() for lay in v]
+    layers += [v for k, v in (e.get("runoff") or {}).items() if not k.startswith("_")]
     for lay in layers:
         out.add(stem(lay["c"]))
         out.add(ns_of(lay))

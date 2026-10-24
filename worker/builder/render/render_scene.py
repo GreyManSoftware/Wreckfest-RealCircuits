@@ -481,6 +481,22 @@ def cameras(stock: bool, man, target: str, objs) -> dict:
             j = max(i - 1, 0)
         a, b = tp([rs[i]["x"], rs[i]["y"], rs[i]["z"]]), tp([rs[j]["x"], rs[j]["y"], rs[j]["z"]])
         out[f"driver-{name.strip()}"] = (tuple(a + np.array([0, 0, 2.2])), tuple(b + np.array([0, 0, 0.8])), 24.0)
+    # oblique close-ups of spots along the main route: RENDER_OBLIQUE_AT="redgate=393:r" (name=metres[:l|r], the
+    # side to look at: the camera stands 70 m back and 45 m up over the other side, looking at the ground 15 m out
+    # on that side, so the run-off, barriers and trees there show)
+    rs = main["samples"]
+    s_main = np.array([q["s"] for q in rs])
+    for item in filter(None, os.environ.get("RENDER_OBLIQUE_AT", "").split(",")):
+        name, _, rest = item.partition("=")
+        s_txt, _, sd = rest.partition(":")
+        side = -1.0 if sd.strip() == "r" else 1.0
+        i = int(np.argmin(np.abs(s_main - float(s_txt) % main["lengthM"])))
+        h = rs[i]["heading"] + math.radians(rot)
+        fwd = np.array([math.cos(h), math.sin(h), 0.0])
+        left = np.array([-math.sin(h), math.cos(h), 0.0])
+        a = tp([rs[i]["x"], rs[i]["y"], rs[i]["z"]])
+        eye = a - fwd * 70.0 - left * side * 35.0 + np.array([0.0, 0.0, 45.0])
+        out[f"oblique-{name.strip()}"] = (tuple(eye), tuple(a + left * side * 15.0), 24.0)
     # RENDER_INTRO=1: each layout's start camera (the view while the race loads in; manifest layouts[].startCamera,
     # scene coordinates), field of view 58 degrees across a 36 mm sensor; layouts sharing one camera render once
     if os.environ.get("RENDER_INTRO"):

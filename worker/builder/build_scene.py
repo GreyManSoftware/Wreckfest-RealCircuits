@@ -251,7 +251,7 @@ def main() -> None:
     bscene.set_specs(specs)
     bscene.MOD_ROOT[:] = [mod_root]
     bpy.context.scene.name = f"{slug}_base"
-    groups = {"road": ("road", "kerb", "limits", "shoulder", "decal"), "walls": ("wall",), "bridges": ("bridge",),
+    groups = {"road": ("road", "kerb", "limits", "shoulder", "decal"), "walls": ("wall", "barrier"), "bridges": ("bridge",),
               "terrain": ("terrain",), "backdrop": ("backdrop",), "helpers": ("helper",)}
     for group, kinds in groups.items():
         coll = bscene.collection(group)
@@ -315,6 +315,12 @@ def main() -> None:
         "kerbs": getattr(geo, "kerb_report", []),
         "barriers": {f"{p['route'].id}:{'l' if side > 0 else 'r'}": {
             "wallShare": round(float(p["ok"].mean()), 3), "dividerShare": round(float(p["divider"].mean()), 3)}
+            for (_ri, side), p in geo.wall_plan().items()},
+        # measured run-off of an imported track (runoff.py): per route side, shares of surfaces and barrier types
+        "runoff": geo.runoff.summary(),
+        "barrierTypes": {f"{p['route'].id}:{'l' if side > 0 else 'r'}": {
+            str(t): round(float(np.mean([(x == t) and ok for x, ok in zip(p["type"], p["ok"])])), 3)
+            for t in sorted({str(x) for x, ok in zip(p["type"], p["ok"]) if ok})}
             for (_ri, side), p in geo.wall_plan().items()},
         "props": len(props),
         "scenery": {"file": "scenery.json", "counts": scenery.counts(), "total": len(scenery.placements),
