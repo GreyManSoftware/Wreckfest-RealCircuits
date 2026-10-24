@@ -35,16 +35,30 @@
       "name": "Fosters",
       "lap": [
         820427227, 820427217, 820427218, 820427219, [820427212, 235311735, 299689559], 29187915,
-        820427209, 820427213, 820427214, 820427216, 820427215, 820427224, 820427225, 820427222,
+        [820427209, 299689548, 235311818], 27299256, 820427213, 820427214, 820427216, 820427215, 820427224, 820427225, 820427222,
         820427223, 820427226, 820427220, 820427221
       ],
-      "layoutSource": "MSV official map 'Oulton Park Fosters Circuit' ('OP Map_Fosters Circuit.pdf'): the International to Cascades, then Fosters (OSM way 29187915 \"Foster's\") across to Knickerbrook; 1.66 mi / 2.656 km (MSV, Wikipedia; racingcircuits.info 2.662 km). Built through Hislop's chicane (Wikipedia: 'half of Cascades followed by the Hislop's chicane'); MSV's current map instead draws the Fosters link joining the old straight to Knickerbrook (OSM 27299256), Hislop's in grey, and that lap measures 2,649 m on OSM (MSV 2,656 m, through Hislop's 2,670 m). It crosses the International's line at the chicane entry, a flat crossing the importer and geometry don't support for imported tracks yet (tried 2026-10-24: crossing-needs-annotation), so it stays open.",
+      "roads": ["hislopsstraight"],
+      "layoutSource": "MSV official map 'Oulton Park Fosters Circuit' ('OP Map_Fosters Circuit.pdf'): the International to Cascades, then Fosters (OSM way 29187915 \"Foster's\") across to the foot of Hilltop and straight on down the old straight past Hislop's (OSM 27299256; the map draws Hislop's chicane in grey beside it) to Knickerbrook; 1.66 mi / 2.656 km (MSV, Wikipedia; racingcircuits.info 2.662 km). The OSM line measures 2,649 m (through Hislop's it would be 2,670 m). Wikipedia's 'half of Cascades followed by the Hislop's chicane' is older than MSV's current map.",
       "directionSource": "MSV official Fosters map: the same arrow by the flag towards Old Hall Corner (clockwise); racingcircuits.info: Fosters diverts 'off after Cascades to a tight right-hander leading to Knickerbrook'.",
       "startFinishSource": "MSV official Fosters map: the chequered flag at the same place on the pit straight as on the International map, so the Fosters shares its line and grid.",
-      "measuredLapLengthM": 2670,
+      "measuredLapLengthM": 2649,
       "publishedLapLengthM": 2656
     }
   ],
+  "roads": [
+    {
+      "id": "hislopsstraight",
+      "name": "Hislop's straight",
+      "lap": [
+        820427227, 820427217, 820427218, 820427219, 820427212, 820427210, 21831735, 820427211, 820427206, 820427207,
+        820427208, 820427202, [820427209, 299689548, 235311818], 27299256, 820427213, 820427214, 820427216, 820427215,
+        820427224, 820427225, 820427222, 820427223, 820427226, 820427220, 820427221
+      ],
+      "source": "The old straight from the foot of Hilltop down to Knickerbrook beside Hislop's chicane (OSM way 27299256, highway=raceway, asphalt): MSV's current maps draw it in grey on the International and Island maps (Hislop's in red) and in red on the Fosters map (Hislop's in grey); Wikipedia's turn diagram shows it as 10 with the chicane (11) bulging off it. Both ends on Hislop's way (nodes 235311818, 235311822). Driven by the Fosters only."
+    }
+  ],
+  "roadsNote": "Extra real tarmac sharing the base that is no layout's own branch: built as road with collision; layouts that drive one list it in altLayouts[].roads.",
   "lapNames": {
     "820427227": null,
     "820427219": "Dentons",
