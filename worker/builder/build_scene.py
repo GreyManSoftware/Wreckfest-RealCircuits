@@ -214,7 +214,8 @@ def main() -> None:
     sponsor_mesh = sponsor.build_mesh(scenery.placements)
     if sponsor_mesh is not None:
         base_meshes.append(sponsor_mesh)
-        specs.update(sponsor.material_specs(sponsor.write_textures(mod_root, slug)))
+        specs.update(sponsor.material_specs(sponsor.write_textures(
+            mod_root, slug, (scenery.info.get("sponsorCredit") or {}).get("style"))))
     props = [Empty(f"#xref ob/{p.asset}.scne", (p.x, p.y, p.z), p.yaw, display="PLAIN_AXES", size=1.0,
                    scale=(p.scale, p.scale, p.scale)) for p in scenery.placements if not sponsor.is_mesh(p.asset)]
     # the start camera per layout (the view while the race loads in; wfbuild/cameras.py), model coordinates
