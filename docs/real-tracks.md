@@ -327,7 +327,7 @@ section centres, normals and edges in the recipe's grid, derived data) is matche
 sample takes the two nearest sections of its own route running the same way within 8 m). The line **moves onto the
 tarmac's middle** (OSM and the DTM registration left it up to 4 m off: Donington's Starkey's Straight, Bedford), is
 resampled evenly, and every centreline point gets `widthM`; a branch's move fades out over 30 m towards its ends (they
-lie on the main line) and its width blends to the main road's there. Heights and camber are fitted across the inner
+lie on the main line) and its width blends to the main road's there. Before a layout's branch is cut, its whole lap follows the main line's move where it runs on the main road (within 3 m, fading out by 6 m, smoothed over 15 m), so the shared road stays shared (without it Donington's National and Bedford's loops overlapped the main road). Heights and camber are fitted across the inner
 80 % of the measured median width. `options.widthM` becomes the main lap's median width (clamped to the schema's
 8-20 m), the fallback; `sketch.imported.source` gains the width attribution, and the report a `widths` summary (median,
 min/max, p10/p90, how far the line moved). `geom/tests/test_import_real_track.py` checks every measured sample: a width
