@@ -20,3 +20,19 @@ recipe is unchanged; the sample was re-imported for the shared importer changes 
 | Environment | 18 OSM woods (Donington Hall), crowds at Redgate, Craner, Old Hairpin, Melbourne. | OK |
 
 Uncertain: the width; Schwantz Curve and Starkey's Straight are unnamed in OSM (labels from the guides).
+
+## Width (measured 2026-10-24)
+
+Source: EA National LIDAR Programme point cloud, tile SK4025 (flown 2022-01-04). Method and data: `docs/real-tracks.md`, "Widths (2026-10-24)". Profile `tools/real_tracks/widths/doningtonpark.json`; plots and overlays `.local\audit\doningtonpark\width-*.png`.
+
+| | Value |
+|---|---|
+| Grand Prix | median 11.5 m, 10.6-17.9 m (p10 10.8, p90 14.7); 88 % confident |
+| Narrow | Starkey's Straight 10.7-10.9 m (narrowest, s 2,451), Hollywood 10.7-10.9, Starkey's Bridge 10.8-11.1, Coppice 10.9-11.4 |
+| Wide | the Melbourne Loop: Melbourne Hairpin 14.7-17.9 m (widest), Fogarty Esses 11.9-15.7, Goddards 11.7-16.5; Wheatcroft Straight 12.1-13.0 |
+| National link (Roberts) | 11.0-13.9 m |
+| Line | moved by up to 3.9 m (mean 1.9 m: the registered OSM line ran along one side of the road on Starkey's Straight and the Craner Curves); lap 3,993.3 m (published 4,020 m, −0.7 %) |
+| Spec | `options.widthM` 11.5 |
+
+The GP circuit is the widest of the English five, with the Melbourne Loop (built for the 1993 European GP) wider
+still.

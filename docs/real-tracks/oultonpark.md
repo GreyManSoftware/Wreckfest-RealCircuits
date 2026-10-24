@@ -122,3 +122,19 @@ Pre-Workshop accuracy audit (method and the shared importer change: `docs/real-t
 Lap lengths: International 4,320.3 → 4,320.2 m (published 4,307 m, +0.31 %); Island 3,566.1 → 3,566.6 m (3,616 m,
 −1.37 %; the OSM polyline is 3,573 m, so the gap is OSM's line through the Island Hairpin); Fosters 2,679.0 → 2,679.2 m
 (2,656 m, +0.87 %; see Fosters above).
+
+## Width (measured 2026-10-24)
+
+Source: EA National LIDAR Programme point cloud, tiles SJ5560 and SJ5565 (flown 2021-04). Method and data: `docs/real-tracks.md`, "Widths (2026-10-24)". Profile `tools/real_tracks/widths/oultonpark.json`; plots and overlays `.local\audit\oultonpark\width-*.png`.
+
+| | Value |
+|---|---|
+| International | median 9.1 m, 7.0-13.8 m (p10 8.5, p90 11.9); 82 % confident |
+| Narrow | Clay Hill 7.0-9.2 m (narrowest, s 3,064), Lakeside 8.4-8.9, Hilltop 8.6-8.8, Warwick Bridge 8.5-8.9, the Avenue 8.8-9.4 |
+| Wide | Old Hall Corner and the start straight 11.2-13.8 m (widest at Old Hall), Deer Leap 10.4-13.0, Hislop's 9.2-10.8, Lodge 9.5-10.5 |
+| Cascades / Island Bend | 9.2-9.6 m / 8.7-9.2 m: about the lap's median, not notably narrow |
+| Island / Fosters links | 8.5-9.1 m / 8.6-11.0 m |
+| Line | moved by up to 2.0 m (mean 0.8 m); lap 4,320.4 m (published 4,307 m, +0.3 %) |
+| Spec | `options.widthM` 9.1 |
+
+Before Deer Leap and past the line the pit exit's hatched merge is paved: the painted line is taken as the edge.

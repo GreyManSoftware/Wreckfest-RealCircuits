@@ -60,6 +60,8 @@
   "publishedLapLengthM": 4779,
   "measuredLapLengthM": 4801,
   "widthM": 12.0,
+  "widths": "measured",
+  "widthsNote": "Measured tarmac widths (tools/real_tracks/widths/snetterton.json, tools/real_tracks_data/measure_width.py) from the open LIDAR point cloud; widthM is only the nominal width the registration and the fallback use; the spec's options.widthM becomes the measured median.",
   "widthNote": "Not published; about 11-14 m on imagery (wide former airfield roads). One value for the whole lap.",
   "clockwise": true,
   "viewingSpots": ["Murrays", "Bomb Hole", "Palmer", "Riches"],

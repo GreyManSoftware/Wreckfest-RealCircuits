@@ -384,6 +384,7 @@ class ImportedPoint:
     y: float
     z: float
     bank_deg: float
+    width_m: float | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> ImportedPoint:
@@ -392,6 +393,7 @@ class ImportedPoint:
             y=float(data["y"]),
             z=float(data["z"]),
             bank_deg=float(data["bankDeg"]),
+            width_m=None if data.get("widthM") is None else float(data["widthM"]),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -400,6 +402,8 @@ class ImportedPoint:
         out["y"] = self.y
         out["z"] = self.z
         out["bankDeg"] = self.bank_deg
+        if self.width_m is not None:
+            out["widthM"] = self.width_m
         return out
 
 
@@ -906,6 +910,7 @@ class GeometryFacts:
     unmatched_crossing_annotations: list[str] | None = None
     alt_routes: dict[str, AltRouteFacts] | None = None
     elevation_markers: dict[str, ElevationMarkerFacts] | None = None
+    grid_width_m: float | None = None
     grid_max_grade_pct: float | None = None
     height_range_m: float | None = None
     max_grade_pct: float | None = None
@@ -922,6 +927,7 @@ class GeometryFacts:
             unmatched_crossing_annotations=None if data.get("unmatchedCrossingAnnotations") is None else [str(v0) for v0 in data["unmatchedCrossingAnnotations"]],
             alt_routes=None if data.get("altRoutes") is None else {k0: AltRouteFacts.from_dict(v0) for k0, v0 in data["altRoutes"].items()},
             elevation_markers=None if data.get("elevationMarkers") is None else {k0: ElevationMarkerFacts.from_dict(v0) for k0, v0 in data["elevationMarkers"].items()},
+            grid_width_m=None if data.get("gridWidthM") is None else float(data["gridWidthM"]),
             grid_max_grade_pct=None if data.get("gridMaxGradePct") is None else float(data["gridMaxGradePct"]),
             height_range_m=None if data.get("heightRangeM") is None else float(data["heightRangeM"]),
             max_grade_pct=None if data.get("maxGradePct") is None else float(data["maxGradePct"]),
@@ -946,6 +952,8 @@ class GeometryFacts:
             out["altRoutes"] = {k0: v0.to_dict() for k0, v0 in self.alt_routes.items()}
         if self.elevation_markers is not None:
             out["elevationMarkers"] = {k0: v0.to_dict() for k0, v0 in self.elevation_markers.items()}
+        if self.grid_width_m is not None:
+            out["gridWidthM"] = self.grid_width_m
         if self.grid_max_grade_pct is not None:
             out["gridMaxGradePct"] = self.grid_max_grade_pct
         if self.height_range_m is not None:

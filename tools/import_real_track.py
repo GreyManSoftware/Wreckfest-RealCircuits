@@ -1349,6 +1349,103 @@ def profile_artefacts(xy: np.ndarray, z: np.ndarray, bank: np.ndarray, closed: b
     }
 
 
+# ------------------------------------------------------------------------------------------------ widths
+# Measured widths (recipe "widths": "measured"): tools/real_tracks/widths/<slug>.json from
+# tools/real_tracks_data/measure_width.py, sections every 5 m in the recipe's grid with the tarmac's left and
+# right edges. The fitted line moves onto the tarmac's middle and every centreline point gets its width.
+WIDTHS_DIR = Path(__file__).resolve().parent / "real_tracks" / "widths"
+WIDTH_MATCH_M = 8.0          # a sample takes the measured sections within this distance, running its way
+BRANCH_SHIFT_TAPER_M = 30.0  # a branch's move onto its tarmac's middle fades out towards its ends (on the main)
+OPTIONS_WIDTH_RANGE = (8.0, 20.0)  # options.widthM (the schema's range) = the main lap's median width, clamped
+
+
+def load_widths(recipe: dict) -> dict | None:
+    kind = recipe.get("widths")
+    if not kind:
+        return None
+    if kind != "measured":
+        raise ValueError(f"recipe widths: {kind!r} (only \"measured\")")
+    d = json.loads((WIDTHS_DIR / f"{recipe_slug(recipe)}.json").read_text(encoding="utf-8"))
+    out = {"meta": d, "routes": {}}
+    for r in d["routes"]:
+        a = np.array([[q["e"], q["n"], q["nx"], q["ny"], q["leftM"], q["rightM"]] for q in r["sections"]])
+        out["routes"][r["id"]] = {"c": a[:, :2], "n": a[:, 2:4], "l": a[:, 4], "r": a[:, 5]}
+    return out
+
+
+def widths_at(meas: dict, p: np.ndarray, nl: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Distances from each sample to the measured left and right tarmac edges along its own normal (inverse-
+    distance mean of the two nearest sections of the same route running the same way), and which matched.
+    ``meas``: one route's sections (a branch must not take the main road's middle where they share tarmac)."""
+    c, n, l, r = meas["c"], meas["n"], meas["l"], meas["r"]
+    left, right = np.full(len(p), np.nan), np.full(len(p), np.nan)
+    for a0 in range(0, len(p), 256):
+        q, nq = p[a0:a0 + 256], nl[a0:a0 + 256]
+        d = np.hypot(q[:, None, 0] - c[None, :, 0], q[:, None, 1] - c[None, :, 1])
+        dot = nq[:, None, 0] * n[None, :, 0] + nq[:, None, 1] * n[None, :, 1]
+        d = np.where((d < WIDTH_MATCH_M) & (np.abs(dot) > 0.8), d, np.inf)
+        k = np.argsort(d, axis=1)[:, :2]
+        rows = np.arange(len(q))[:, None]
+        dk, sg = d[rows, k], np.sign(dot[rows, k])
+        nc = n[k] * sg[..., None]
+        lc, rc = np.where(sg > 0, l[k], r[k]), np.where(sg > 0, r[k], l[k])
+        le, re = c[k] + nc * lc[..., None], c[k] - nc * rc[..., None]
+        lv = ((le - q[:, None, :]) * nq[:, None, :]).sum(-1)
+        rv = ((q[:, None, :] - re) * nq[:, None, :]).sum(-1)
+        wgt = np.where(np.isfinite(dk), 1.0 / (dk + 0.5), 0.0)
+        ws = wgt.sum(1)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            left[a0:a0 + 256] = np.where(ws > 0, (wgt * lv).sum(1) / ws, np.nan)
+            right[a0:a0 + 256] = np.where(ws > 0, (wgt * rv).sum(1) / ws, np.nan)
+    ok = np.isfinite(left) & np.isfinite(right)
+    return left, right, ok
+
+
+def width_and_offset(meas: dict, p: np.ndarray, nl: np.ndarray, fallback: float, closed: bool
+                     ) -> tuple[np.ndarray, np.ndarray, float]:
+    """The tarmac's width at each sample and its middle's offset to the left of the sample (unmatched samples
+    interpolated between matched ones, else the fallback width centred), lightly smoothed (sigma 4 m)."""
+    left, right, ok = widths_at(meas, p, nl)
+    w, off = left + right, 0.5 * (left - right)
+    if ok.any():
+        i = np.arange(len(p))
+        if closed:
+            ii = np.concatenate([i[ok] - len(p), i[ok], i[ok] + len(p)])
+            w = np.interp(i, ii, np.tile(w[ok], 3))
+            off = np.interp(i, ii, np.tile(off[ok], 3))
+        else:
+            w, off = np.interp(i, i[ok], w[ok]), np.interp(i, i[ok], off[ok])
+    else:
+        w, off = np.full(len(p), fallback), np.zeros(len(p))
+    sm = gauss_closed if closed else gauss_open
+    return sm(w, 2.0), sm(off, 2.0), float(ok.mean())
+
+
+def follow_main_shift(pa: np.ndarray, p_old: np.ndarray, move: np.ndarray, near_m: float = 3.0,
+                      far_m: float = 6.0, fade_m: float = 15.0) -> np.ndarray:
+    """Move a layout's (closed, evenly sampled) line like the main line where it runs on the main road: fully
+    within ``near_m`` of the main line as it was, none beyond ``far_m``, the weight smoothed along the line
+    (sigma ``fade_m``) so a diverging branch bends gently."""
+    j = np.empty(len(pa), dtype=int)
+    dj = np.empty(len(pa))
+    for a0 in range(0, len(pa), 512):
+        q = pa[a0:a0 + 512]
+        d = np.hypot(q[:, None, 0] - p_old[None, :, 0], q[:, None, 1] - p_old[None, :, 1])
+        j[a0:a0 + 512] = np.argmin(d, axis=1)
+        dj[a0:a0 + 512] = d[np.arange(len(q)), j[a0:a0 + 512]]
+    f = np.clip((far_m - dj) / (far_m - near_m), 0.0, 1.0)
+    seg = float(np.mean(np.hypot(*np.diff(pa, axis=0).T)))
+    f = np.clip(gauss_closed(f, fade_m / max(seg, 1e-6)), 0.0, 1.0)
+    return pa + move[j] * f[:, None]
+
+
+def width_summary(w: np.ndarray, off: np.ndarray, matched: float) -> dict:
+    return {"medianM": round(float(np.median(w)), 2), "minM": round(float(w.min()), 2), "maxM": round(float(w.max()), 2),
+            "p10M": round(float(np.percentile(w, 10)), 2), "p90M": round(float(np.percentile(w, 90)), 2),
+            "lineMovedMaxM": round(float(np.abs(off).max()), 2), "lineMovedMeanM": round(float(np.abs(off).mean()), 2),
+            "matchedFraction": round(matched, 3)}
+
+
 def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = None, log=print) -> tuple[dict, dict]:
     """The TrackSpec and a report dict (lengths, heights, grades, camber, data checks)."""
     set_projection(recipe)
@@ -1391,8 +1488,27 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     p = np.column_stack([np.interp(t, sq, q[:, 0]), np.interp(t, sq, q[:, 1])])
     _, nl = normals(p)
 
-    # 3. Heights and camber: a plane across the inner 80 % of the road at every sample.
-    offs = np.arange(-0.4 * width, 0.4 * width + 1e-9, 0.5)
+    # 2b. Measured widths: the line moves onto the tarmac's middle (OSM and the DTM registration leave it up to
+    # 4 m off), resampled evenly from the start line; every sample gets the tarmac's width.
+    meas = load_widths(recipe)
+    road_w, width_report, main_shift = None, None, None
+    if meas:
+        road_w, off, matched = width_and_offset(meas["routes"]["main"], p, nl, width, closed=True)
+        main_shift = (p.copy(), nl * off[:, None])  # the main line before the move, and the move
+        moved = p + nl * off[:, None]
+        q = np.vstack([moved, moved[:1]])
+        sq = arc(q)
+        t = np.arange(n) * sq[-1] / n
+        p = np.column_stack([np.interp(t, sq, q[:, 0]), np.interp(t, sq, q[:, 1])])
+        road_w = np.interp(t, sq[:-1], road_w)
+        _, nl = normals(p)
+        width_report = {"source": meas["meta"]["source"], "attribution": meas["meta"]["attribution"],
+                        "licence": meas["meta"]["licence"], **width_summary(road_w / k_scale, off, matched)}
+
+    # 3. Heights and camber: a plane across the inner 80 % of the road at every sample (the measured median
+    # width where widths are measured).
+    fit_w = float(np.median(road_w)) if road_w is not None else width
+    offs = np.arange(-0.4 * fit_w, 0.4 * fit_w + 1e-9, 0.5)
     a, b, res = cross_fit(dtm, p, nl, offs)
     if np.isnan(a).any():
         raise RuntimeError("the DTM has gaps under the road")
@@ -1425,12 +1541,32 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         if (signed_area(bng_a) < 0) != bool(alt.get("clockwise", clockwise)):
             raise ValueError(f"layout {alt['id']} runs the other way round from the main lap (or its recipe's clockwise)")
         pa, shift_a, eased_a = fit_loop(bng_a, dtm, width, step, max_shift, sharp_segments(marks_a, len(bng_a), sharp_ways))
+        if main_shift is not None:
+            # where the layout drives the main road, it moves with the main line (else the shared part would end
+            # up beside the moved main line and count as its own branch, overlapping the main road)
+            pa = follow_main_shift(pa, *main_shift)
         # branchOffM: how far off the main line a layout's line counts as its own (default 1 m; unregistered OSM
         # lines on shared ways match exactly but are sampled out of phase, up to 1 m apart vertex to vertex)
         # joinWithinM (per layout): a branch that runs beside the main road for a while before it merges (Bedford
         # SEN's return beside the south straight, paved between) joins where it first comes within this distance
         br = branch_of(pa, p, step, core=non_main_span(ll_a, ids_a, main_ids), off_m=float(recipe.get("branchOffM", 1.0)),
                        join_within_m=alt.get("joinWithinM"))
+        road_w_b = None
+        if meas:
+            # onto its tarmac's middle too, the move fading out towards the ends (they lie on the main line,
+            # already moved); the width blends to the main road's at the ends
+            nl_b0 = normals_open(br)
+            if alt["id"] not in meas["routes"]:
+                raise ValueError(f"measured widths: no route {alt['id']!r} in {recipe_slug(recipe)}.json (re-measure)")
+            w_b, off_b, matched_b = width_and_offset(meas["routes"][alt["id"]], br, nl_b0, fit_w, closed=False)
+            sb = arc(br)
+            f = np.clip(np.minimum(sb, sb[-1] - sb) / BRANCH_SHIFT_TAPER_M, 0.0, 1.0)
+            f = f * f * (3.0 - 2.0 * f)
+            br = br + nl_b0 * (off_b * f)[:, None]
+            e0 = int(np.argmin(np.hypot(*(p - br[0]).T)))
+            e1 = int(np.argmin(np.hypot(*(p - br[-1]).T)))
+            w_end = np.where(sb < sb[-1] / 2.0, road_w[e0], road_w[e1])
+            road_w_b = w_b * f + w_end * (1.0 - f)
         alt_branches.append(br)
         nl_b = normals_open(br)
         ab, bb, res_b = cross_fit(dtm, br, nl_b, offs)
@@ -1447,9 +1583,11 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         zb, bank_b = merge_onto_main(loc_b, zb, bank_b, loc, z, bank, width / k_scale)
         zb, bank_b = join_blend(arc(loc_b), zb, bank_b, (z[j0], z[j1]), (bank[j0], bank[j1]))
         zb = ease_vertical(zb, step, closed=False)
+        wb_out = road_w_b / k_scale if road_w_b is not None else [None] * len(loc_b)
         alt_specs.append({"id": alt["id"], "name": alt["name"],
                           "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), Z_DECIMALS),
-                                          "bankDeg": round(float(bk), 2)} for (x, y), zv, bk in zip(loc_b, zb, bank_b)]})
+                                          "bankDeg": round(float(bk), 2), **({"widthM": round(float(wv), 2)} if wv is not None else {})}
+                                         for (x, y), zv, bk, wv in zip(loc_b, zb, bank_b, wb_out)]})
         if alt.get("startFinish"):  # the layout's own line, snapped onto the fitted road (main or branch)
             q_sf = start_finish_point(alt["startFinish"], osm)
             both = np.vstack([p, br])
@@ -1477,6 +1615,8 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
             "maxUpGradePct10m": round(float(g10_lap.max()) * 100, 1), "maxDownGradePct10m": round(float(g10_lap.min()) * 100, 1),
             "branchBankMaxDeg": round(float(np.abs(bank_b).max()), 2),
             "branchMinRadiusM": round(float(radii_open(loc_b).min()), 2),
+            **({"widthMinM": round(float(road_w_b.min() / k_scale), 2), "widthMaxM": round(float(road_w_b.max() / k_scale), 2)}
+               if road_w_b is not None else {}),
             "branchCrossResidualM": round(float(res_b.mean()), 3),
             "lapEasingMaxM": round(eased_a, 2), "registrationShiftM": [round(float(shift_a.min()), 2), round(float(shift_a.max()), 2)],
             "maxStepGradePct": round(float(np.abs(g_lap).max()) * 100, 1),
@@ -1570,7 +1710,9 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         "source": {"wales": ATTRIBUTION_WALES, "es-mdt05": ATTRIBUTION_ES, "es-navarra": ATTRIBUTION_NAVARRA}.get(recipe.get("dtm"), ATTRIBUTION),
         "datumM": datum,
         "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), Z_DECIMALS),
-                        "bankDeg": round(float(bk), 2)} for (x, y), zv, bk in zip(loc, z, bank)],
+                        "bankDeg": round(float(bk), 2), **({"widthM": round(float(wv), 2)} if wv is not None else {})}
+                       for (x, y), zv, bk, wv in zip(loc, z, bank,
+                                                     road_w / k_scale if road_w is not None else [None] * len(loc))],
         "terrain": {"originX": round(float(origin[0]), 2), "originY": round(float(origin[1]), 2),
                     "cellM": round(cell / k_scale, 4), "nx": nx, "ny": ny,
                     "z": [round(float(v - datum), 2) for v in zz.ravel()]},
@@ -1593,10 +1735,16 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         log("Horizon profile from the DTM overview ...")
         imported["horizon"] = horizon_profile(recipe, p[0], float(z[0]) + 1.5, cache, float(sea or 0.0))
     o = recipe["options"]
+    # options.widthM: the recipe's width, or with measured widths the main lap's median (the fallback width)
+    options_width = width if road_w is None else float(np.clip(round(float(np.median(road_w / k_scale)), 1),
+                                                                  *OPTIONS_WIDTH_RANGE))
+    if meas:
+        imported["source"] = (imported["source"] + f" Widths: {meas['meta']['attribution']}, "
+                              f"{meas['meta']['licence']}.")[:1000]
     spec = {
         "meta": {"name": recipe["name"], "slug": recipe_slug(recipe), "description": recipe["trackDescription"][:500]},
         "sketch": {"canvas": {"width": W, "height": H}, "imported": imported},
-        "options": {"lapLengthKm": round(L / 1000.0, 3), "widthM": width, "surface": o["surface"],
+        "options": {"lapLengthKm": round(L / 1000.0, 3), "widthM": options_width, "surface": o["surface"],
                     "kerbs": o["kerbs"], "walls": o["walls"], "elevation": "imported",
                     "environment": o["environment"], "gridSize": o["gridSize"], "weathers": o["weathers"],
                     "reverseLayout": o["reverseLayout"], "defaultLaps": o["defaultLaps"]},
@@ -1628,6 +1776,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         "corners": corners,
         "artefacts": profile_artefacts(loc, z, bank),
         "dtmCellM": dtm.cell, "dtmWholeMetreFraction": round(dtm_quantised_fraction(dtm), 3),
+        **({"widths": width_report} if width_report else {}),
     }
     if alt_reports:
         report["mainLayoutName"] = recipe.get("mainLayoutName", "Main")

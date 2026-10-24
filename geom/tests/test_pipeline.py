@@ -501,7 +501,8 @@ def test_grid_slots_are_ahead_of_the_line(path: Path, built: dict[str, Any]) -> 
             a, b = pair
             assert {a.side, b.side} == {"left", "right"}
             gap = math.hypot(a.position[0] - b.position[0], a.position[1] - b.position[1])
-            assert gap == pytest.approx(RULE_CONSTANTS["gridSlotWidthM"], abs=1e-6)
+            slot_w = RULE_CONSTANTS["importedGridSlotWidthM" if spec["sketch"].get("imported") else "gridSlotWidthM"]
+            assert gap == pytest.approx(slot_w, abs=1e-6)
     assert grid.car_change.name == "#startpointcarchange"
     # Every slot sits on the road surface, also across a cambered road (imported tracks).
     main = model.route("main")
@@ -559,8 +560,12 @@ def test_checkpoints(path: Path, built: dict[str, Any]) -> None:
     assert main_cps[0].s > max(s.s for s in model.grid.slots)
     s = [c.s for c in main_cps[:-1]]
     assert s == sorted(s) and s[-1] < model.lap_length_m
-    for c in model.checkpoints:
-        assert c.width_m == model.width_m + 2 * C.CHECKPOINT_MARGIN_M
+    for c in model.checkpoints:  # the road's width there (real tracks: measured per point) plus the margins
+        r = model.route(c.route)
+        ss = np.array([q.s for q in r.samples])
+        ww = np.array([q.width for q in r.samples])
+        road = float(np.interp(c.s, ss, ww, period=r.length_m if r.closed else None))
+        assert c.width_m == pytest.approx(road + 2 * C.CHECKPOINT_MARGIN_M, abs=0.05)
     for r in model.routes[1:]:
         assert any(c.route == r.id for c in model.checkpoints)
 

@@ -95,6 +95,8 @@
   "publishedLapLengthM": 6110,
   "measuredLapLengthM": 5891,
   "widthM": 12.0,
+  "widths": "measured",
+  "widthsNote": "Measured tarmac widths (tools/real_tracks/widths/bedfordautodrome.json, tools/real_tracks_data/measure_width.py) from the open LIDAR point cloud; widthM is only the nominal width the registration and the fallback use; the spec's options.widthM becomes the measured median.",
   "widthNote": "Not published; 12 m, as the wide airfield circuits (Anglesey 12 m by OSM's width tags).",
   "clockwise": false,
   "viewingSpots": ["Hangar Hairpin", "Turn 11", "Turn 15"],

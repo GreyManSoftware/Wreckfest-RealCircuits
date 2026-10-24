@@ -87,3 +87,19 @@ Pre-Workshop accuracy audit (method and the shared importer change: `docs/real-t
 
 Lap lengths: GP 3,903.2 → 3,903.5 m (published 3,916 m, −0.32 %), Indy 1,930.3 → 1,930.5 m (1,944 m, −0.69 %); the
 OSM polylines are 3,903 / 1,930 m, so the gaps are OSM's.
+
+## Width (measured 2026-10-24)
+
+Source: EA National LIDAR Programme point cloud, tile TQ5560 (flown 2018-01/02). Method and data: `docs/real-tracks.md`, "Widths (2026-10-24)". Profile `tools/real_tracks/widths/brandshatch.json`; plots and overlays `.local\audit\brandshatch\width-*.png`.
+
+| | Value |
+|---|---|
+| Grand Prix lap | median 9.8 m, 7.6-14.8 m (p10 9.0, p90 12.3); 91 % confident |
+| Indy circuit (the start straight to Clark Curve) | 10-14.8 m: Brabham Straight 12.3-14.0, Paddock Hill Bend 12.1-14.8 (widest), Druids 10.0-10.8, Graham Hill Bend 10.9-11.9, Cooper Straight 10.5-11.7, Surtees 10.6-10.9 |
+| GP loop | 8.6-9.6 m: Pilgrims Drop 9.1-9.5, Hawthorn 8.9-9.6, Derek Minter Straight 8.9-9.6, Dingle Dell 9.0-9.8, Sheene Curve 8.6-9.5, Stirlings 8.0-9.4; Westfield 12.1-12.7 |
+| Narrowest | 7.6 m between Clearways and Clark Curve (s 3,521), where the GP loop rejoins |
+| Indy link | 10.5-13.5 m |
+| Line | moved by up to 2.0 m (mean 0.9 m); GP lap 3,896.0 m (published 3,916 m, −0.5 %) |
+| Spec | `options.widthM` 9.8 |
+
+The Indy part is markedly wider than the GP loop, as on the real circuit.

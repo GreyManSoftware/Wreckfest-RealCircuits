@@ -163,6 +163,8 @@
   "publishedLapLengthM": 4313,
   "measuredLapLengthM": 4301,
   "widthM": 12.0,
+  "widths": "measured",
+  "widthsNote": "Measured tarmac widths (tools/real_tracks/widths/navarra.json, tools/real_tracks_data/measure_width.py) from the open LIDAR point cloud; widthM is only the nominal width the registration and the fallback use; the spec's options.widthM becomes the measured median.",
   "widthNote": "Published (autofacil.es, motorpasion.com at the 2010 opening): 12 m, 15 m on the main straight; the PNOA orthophoto (IGN, CC BY 4.0) shows about 13.5 m between the edge lines on the T8-T9 straight (2026-10-24 audit). One width per track, so 12 m (the main straight is 3 m narrower than real).",
   "clockwise": true,
   "viewingSpots": [

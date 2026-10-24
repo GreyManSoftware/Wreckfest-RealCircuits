@@ -142,6 +142,9 @@ Recipe extras (Anglesey, `tools/real_tracks/anglesey.json`):
   registration shift is held from their ends (it could pull the line towards a disused straight beside them); the
   rule radius still applies. Used for Oulton Park (Brittens, Hislop's), Donington Park (Fogarty Esses) and Anglesey
   (Bus Stop).
+- `widths`: `"measured"` reads `tools/real_tracks/widths/<slug>.json` (measured tarmac widths, see "Widths"): the line
+  moves onto the tarmac's middle and every centreline point gets `widthM`; `widthM` stays the nominal width for the
+  registration. Every circuit except Anglesey (no open point cloud in Wales).
 - Heights are written in mm (cm rounding moved a 2 m step's grade by 0.5 %), and the fitted camber is clamped to
   the 10° imported-bank rule (the report keeps `bankFittedMaxDeg`; Oulton Park's Shell Oils hairpin fits 10.9°).
 
@@ -260,6 +263,83 @@ as before), and the camber weight fades along the branch over at least 20 m and 
 → 0.18, Navarra Short 0.25 → 0.16, Anglesey Coastal 0.28 → 0.19). Lap lengths unchanged on every layout (only branch
 heights and camber near the joins move).
 
+## Widths (2026-10-24)
+
+Every circuit used one estimated width until now. Seven now have **measured, variable widths** from open LIDAR point
+clouds; Anglesey keeps its published 12 m (Wales has no open point cloud). Google, Bing, Esri or other proprietary
+imagery was never used.
+
+| Circuit | Data | Median | Min-max | Narrow | Wide | Line moved (max) | Confident |
+|---|---|---|---|---|---|---|---|
+| Cadwell Park | EA NLP 2019 | 7.8 m | 7.0-10.1 | Park Straight 7.1-7.3, Chris Curve, the Mountain 7.5-8.5, Hall Bends exit 7.0 | Mansfield-Woodland 9.5-10.1, start straight 8.6-9.5 | 1.5 m | 86 % |
+| Brands Hatch | EA NLP 2018 | 9.8 m | 7.6-14.8 | the GP loop 8.6-9.6, Clark Curve 7.6 | Paddock Hill Bend 12.1-14.8, Brabham Straight 12.3-14.0 | 2.0 m | 91 % |
+| Oulton Park | EA NLP 2021 | 9.1 m | 7.0-13.8 | Clay Hill 7.0, Lakeside 8.4-8.9, Hilltop 8.6-8.8 | Old Hall / start straight 11.2-13.8, Deer Leap | 2.0 m | 82 % |
+| Snetterton | EA NLP 2018/2021 | 10.7 m | 7.7-15.3 | by Williams 7.7, Nelson 9.0 | Bentley Straight 13.1-14.8, Brundle 14.9 | 2.8 m | 83 % |
+| Donington Park | EA NLP 2022 | 11.5 m | 10.6-17.9 | Starkey's Straight, Hollywood 10.7-10.9 | Melbourne Hairpin 14.7-17.9, Fogarty Esses, Goddards | 3.9 m | 88 % |
+| Bedford Autodrome | EA NLP 2023 | 12.5 m | 9.2-17.3 | Turns 9-10 9.9-10.7 | Turns 4-6 14.7-17.1, the Turn 10 Y junction | 4.2 m | 77 % |
+| Circuito de Navarra | Navarre LiDAR 2024 (RGBI) | 12.0 m | 9.2-15.4 | Turn 4 10.4-11.4 | main straight 14.1-15.4 | 1.8 m | 74 % |
+| Anglesey | none (published) | 12 m | 12 | | | | |
+
+"Confident": main-lap sections with both edges found at confidence ≥ 0.5; the rest are filled from their neighbours
+or the circuit's median. Per-circuit details: `real-tracks/<slug>.md`, "Width". **Sanity checks:** Navarra reads 12.0 m
+with 14-15 m on the main straight (published: 12 m, 15 m on the main straight); Anglesey is the published 12 m;
+Cadwell Park is the narrowest circuit (7.8 m median: sources call it narrow, "about half Silverstone's width"), with
+the Mountain and Park Straight among its narrowest parts; Oulton's Cascades (9.2-9.6 m) and Island Bend (8.7-9.2 m)
+are about its median, its narrowest parts are Clay Hill, Lakeside and Hilltop. The recipes' old estimates were 1.7 m
+too wide at Cadwell Park and 0.5 m too narrow at Donington Park; Brands Hatch's Indy part is markedly wider than its
+GP loop.
+
+**Data.** England: the Environment Agency National LIDAR Programme point cloud (LAZ, 5 km OS tiles, Open Government
+Licence v3.0; ~1.8 points/m²), found through the DEFRA survey catalogue API
+(`environment.data.gov.uk/backend/catalog/api/tiles/collections/survey/search`). Navarre: the Gobierno de Navarra's
+2024 LIDAR (LAZ, 1 km tiles, ~7 points/m², RGBI from the joint camera, CC BY 4.0, `filescartografia.navarra.es`,
+`5_LIDAR/5_6_2024_NAV_cam_EPSG25830`). Only the tiles under each circuit's roads: one or two per circuit, in
+`E:\Source\wreckfest\.local\realtracks\<slug>\pointcloud\` (gitignored). Wales: DataMapWales has only the 2020-22
+DTM/DSM rasters (its tile catalogue lists no point clouds), and the DTM's surface roughness shows no road edge.
+
+**Tools** (a venv on E: with numpy, scipy, laspy[lazrs], matplotlib, Pillow; at most 8 processes):
+
+```powershell
+py -m venv E:\Source\wreckfest\.local\widths-venv   # pip cache on E:
+python tools\real_tracks_data\import_frame.py <slug>      # the committed sample's local frame (re-runs the importer)
+python tools\real_tracks_data\fetch_pointcloud.py <slug>  # the LAZ tiles under the roads
+python tools\real_tracks_data\measure_width.py <slug> --plots [--at S ...]   # profile + .local\audit\<slug>\width-*.png
+pwsh -File tools\real_tracks_data\reimport_widths.ps1 [slug ...]           # re-import with the profiles
+```
+
+**Method** (`measure_width.py`): every 5 m along every route a cross-section ±16 m wide and 6 m long. Its points'
+intensity (single and last returns, normalised per flight line between the circuit's road level near the line and its
+verge level 13-16 m out; in Navarre averaged with the RGB brightness) is binned every 0.5 m across. From the darkest
+point within 5 m of the line, each side's edge is where the surface stops being asphalt for 1 m: above a threshold
+halfway between the local road and verge levels, a step over 0.25 m off the road's cross plane, or objects
+(vegetation, buildings, barriers); a painted line with 2 m or more of paving beyond it (pit lanes and their hatched
+merges, aprons) is the edge. Confidence falls with low contrast, few points, an edge not found within ±16 m (run-off,
+junctions), objects over the road (trees), no road near the line, disagreement with the 35 m running median, a side 2 m
+wider than its 155 m running median, and within 40 m of a branch end. The width and the line's offset from the
+tarmac's middle are then filled where confidence is under 0.5 (from neighbours, relaxing to the circuit's median width
+and zero offset in long gaps), smoothed (width σ 12 m, offset σ 40 m), clamped (7-18 m, offset ±5 m) and rate-limited
+(the width changes at most 0.4 m per 5 m, the offset 0.1 m). `UNMEASURED` lists stretches checked on the overlays that
+the survey can't see (Navarra's 2024 extension, unpaved when flown). Overlays (`width-overlay.png`, `width-zoom-*.png`)
+show the edges on the intensity raster; `width-<route>.png` plots the width, both halves and the confidence.
+
+**Importer** (recipe `"widths": "measured"`, `widthsNote`): the profile (`tools/real_tracks/widths/<slug>.json`,
+section centres, normals and edges in the recipe's grid, derived data) is matched to the fitted line by position (each
+sample takes the two nearest sections of its own route running the same way within 8 m). The line **moves onto the
+tarmac's middle** (OSM and the DTM registration left it up to 4 m off: Donington's Starkey's Straight, Bedford), is
+resampled evenly, and every centreline point gets `widthM`; a branch's move fades out over 30 m towards its ends (they
+lie on the main line) and its width blends to the main road's there. Before a layout's branch is cut, its whole lap follows the main line's move where it runs on the main road (within 3 m, fading out by 6 m, smoothed over 15 m), so the shared road stays shared (without it Donington's National and Bedford's loops overlapped the main road). Heights and camber are fitted across the inner
+80 % of the measured median width. `options.widthM` becomes the main lap's median width (clamped to the schema's
+8-20 m), the fallback; `sketch.imported.source` gains the width attribution, and the report a `widths` summary (median,
+min/max, p10/p90, how far the line moved). `geom/tests/test_import_real_track.py` checks every measured sample: a width
+at every point, 7-18 m, at most 0.5 m change per 5 m outside 40 m of a junction, `options.widthM` the median.
+
+**Geometry and builder:** `trackgen_geom` builds each route with its per-point width (edges, samples, the TrackModel's
+`width`), checkpoints span the road's width there (+2 × 2 m), the grid uses `importedGridSlotWidthM` (4 m) slots on real
+tracks, and reports `gridWidthM`, the narrowest road along any grid, which the `grid-width-two-abreast` rule now checks
+(8 m for real tracks). The builder already worked per sample (road mesh, kerbs, green strips, shoulders and run-off, AI
+route/safe/race strips, dividers between close sections, the flush terrain, the minimap route); its road UVs, edge
+decals, apron links and checkpoint-on-road test now use the local width too.
+
 ## Data sources and attribution
 
 | Data | Source | Licence | Attribution (in the spec's `sketch.imported.source`) |
@@ -269,6 +349,8 @@ heights and camber near the joins move).
 | Heights, camber, terrain | Environment Agency LIDAR Composite DTM, 1 m (bare earth; WCS `environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs`) | Open Government Licence v3.0 | © Environment Agency copyright and/or database right 2022 |
 | Heights, camber, terrain (Spain) | IGN MDT05, 5 m, from the PNOA LIDAR (WCS `servicios.idee.es/wcs-inspire/mdt`, coverage `Elevacion25830_5`, ETRS89 / UTM 30N); no track uses it since 2026-10-24 | CC BY 4.0 | MDT05 © Instituto Geográfico Nacional de España (IGN), derived from PNOA LIDAR |
 | Heights, camber, terrain (Navarre) | Gobierno de Navarra MDT 2 m, 2024 LIDAR (IDENA WCS, coverage `IDENA.WCS__ELEVAC_Ras_MDT_2M`, ETRS89 / UTM 30N) | CC BY 4.0 | Servicio proporcionado por el Gobierno de Navarra (IDENA) |
+| Widths (England) | Environment Agency National LIDAR Programme point cloud (LAZ, 5 km tiles; DEFRA survey catalogue) | Open Government Licence v3.0 | Contains Environment Agency information (c) Environment Agency and/or database right |
+| Widths (Navarre) | Gobierno de Navarra LiDAR 2024 point cloud with RGBI (LAZ, 1 km tiles, filescartografia.navarra.es) | CC BY 4.0 | Servicio proporcionado por el Gobierno de Navarra (IDENA), LiDAR 2024 |
 
 The committed sample (`geom/tests/samples/cadwellpark.json`) is derived data (a 2 m centreline, a 6 m grid and
 simplified woods), not the raw downloads. A published mod that uses it should carry the same attribution.
@@ -309,7 +391,7 @@ Renders: `.local\renders\cadwellpark-club-{start,grid,hairpin-approach,hairpin,o
 | Corners identified (OSM names) | Coppice, Charlies, Park Straight, Park, Chris Curve, The Gooseneck, Mansfield, Woodland, The Mountain, Hall Bends, The Hairpin, Barn | full circuit (the club circuit's Club Hairpin link is not used) |
 | Direction | clockwise | clockwise |
 | Start/finish | middle of the pit lane on the pit straight (estimated), grid on a 2.0 % grade | |
-| Width | 9.5 m (recipe) | narrow for cars; about 9-10 m |
+| Width | 9.5 m (recipe; measured 7.8 m median since 2026-10-24, "Widths") | narrow for cars |
 | Height | 93.8-139.8 m above datum (range 45.9 m), total climb 79 m per lap | |
 | Steepest | +20.7 % over 10 m (+19.2 % over 20 m) on the Mountain; −11.6 % over 10 m into Mansfield | the Mountain: famously steep, with a crest where bikes take off |
 | The Mountain | dip at 2,581 m, crest at 2,719 m: 12.0 m rise over 138 m (8.7 % mean, 19.2 % peak), grade drops ~10 points over the crest | |
@@ -423,7 +505,7 @@ Esses, Melbourne Hairpin, Goddards; the National leaves after Starkey's Straight
 - **Ground:** EA 1 m DTM, heights 63.0–98.9 m (range 36 m), climb 48 m per lap; the Craner Curves drop at −8.1 %
   over 10 m, McLeans climbs +7.4 %. Camber up to 2.7° (p95 1.6°). Fit: centre RMS 0.014 m, inner edges 0.025 m;
   registration shifts −2.0…+0.5 m, no corner easing (min radius 15.9 m at the Melbourne Hairpin).
-- **Width:** not published; 11 m (`widthNote`).
+- **Width:** not published; 11 m (`widthNote`) until 2026-10-24, now measured ("Widths": median 11.5 m).
 - **Kerbs:** OSM has none; seven corners from the driver61.com guide (Redgate, Craner Curves, Old Hairpin apex +
   exit, Schwantz Curve, McLeans apex + exit + green concrete, Coppice, Goddards' sausage kerb as an apex kerb), the
   rest geometric.
@@ -470,7 +552,7 @@ uniformly short: MSV rounds to 0.1 mi (±80 m), and its West figure (3.0 km) loo
 - **Ground:** the flat Thurleigh airfield: road heights 82.8–89.5 m (6.7 m over 2.5 km), grades under 2.1 %, camber
   under 1.6°. With no road signal in the DTM the OSM line is used as mapped (`registrationMaxShiftM` 0); fit to the
   DTM: centre RMS 0.015 m.
-- **Width:** not published; 12 m.
+- **Width:** not published; 12 m until 2026-10-24, now measured ("Widths": median 12.5 m).
 - **Corner names:** Bedford's corners are numbered on MSV's and racingcircuits.info's maps; the labels are the GT's
   turn numbers ("Turn 2" … "Turn 18", `cornerLabels` at OSM nodes) with Turn 1 named the Hangar Hairpin (evo.co.uk
   corner guide). The other layouts number their corners differently.
@@ -517,7 +599,7 @@ corners have no published names. The OSM lap has exactly MSV's 11 right and 6 le
   the IGN MDT05, which the IDEE WCS serves in whole metres: its 1 m terraces made every straight wavy, gave the
   main straight a false 4° camber, and its older flight showed the 2024 extension (T11-T14) as the ground before it
   was built (the "3 m hump", 7.4° camber and −13.5 % grade were there, not on the back straight).
-- **Width:** 12 m (published: 12 m, 15 m on the main straight; one width per track).
+- **Width:** published 12 m, 15 m on the main straight; measured since 2026-10-24 ("Widths": 12.0 m, 14-15 m on the main straight).
 - **Kerbs:** OSM has none and no track guide with kerb detail for the 2024 layout was found: geometric kerbs.
 - **Environment:** the new `arid` preset: the stock sandpit03 palette (sand, pebbles, dry ground, sandpit3 dry-grass
   clutter, the landscape1 vista), low scrub, rocks and a few pines, bare rolling hills on the far ground; light

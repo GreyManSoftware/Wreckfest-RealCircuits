@@ -426,11 +426,12 @@ class LayoutBuilder:
         junction cut aren't; Oulton Park's Island Hairpin link ends on Hilltop 30 m after its cut) or on a paved
         apron link."""
         geo = self.geo
-        pts = [(rr.p[geo.svalid[rr.index] | (rr.index in geo.apron_routes), :2], rr.width / 2.0 - 0.5) for rr in geo.routes]
+        keep = [geo.svalid[rr.index] | (rr.index in geo.apron_routes) for rr in geo.routes]
+        pts = [(rr.p[k, :2], rr.w[k] / 2.0 - 0.5) for rr, k in zip(geo.routes, keep)]
         L = r.length
         for d in [0.0] + [sg * k * step for k in range(1, int(reach / step) + 1) for sg in (1, -1)]:
             q = r.p[r.index_at((s + d) % L), :2]
-            if any(len(P) and float(np.min(np.hypot(*(P - q).T))) <= hw for P, hw in pts):
+            if any(len(P) and float(np.min(np.hypot(*(P - q).T) - hw)) <= 0.0 for P, hw in pts):
                 return s + d
         self.warnings.append(f"checkpoint at s {s:.0f} of {r.id}: no built road within {reach:.0f} m")
         return s

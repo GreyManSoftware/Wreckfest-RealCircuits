@@ -588,9 +588,10 @@ class TrackGeometry:
         tb, ib = self.by_id[alt.end_join["route"]], int(alt.end_join["sampleIndex"])
         hw_b = alt.width / 2.0
         others = np.vstack([r.p[:, :2] for r in self.routes if r is not alt])
-        hw_o = max(r.width for r in self.routes if r is not alt) / 2.0
-        d = np.array([float(np.min(np.hypot(*(others - q).T))) for q in alt.p[:, :2]])
-        gap = d > hw_o - 0.5  # the part of the turn off both roads: it crosses the gap there
+        hw_others = np.concatenate([r.w for r in self.routes if r is not alt]) / 2.0
+        # the part of the turn off both roads (outside each nearest road sample's half width): it crosses the gap
+        d = np.array([float(np.min(np.hypot(*(others - q).T) - hw_others)) for q in alt.p[:, :2]])
+        gap = d > -0.5
         if not gap.any():
             gap = d >= d.max() - 0.25
         core = alt.p[gap, :2]
@@ -707,9 +708,10 @@ class TrackGeometry:
                 i2 = r.nxt(i)
                 mat = self.road_material(r, i)
                 v0, v1 = r.s[i] / tile, (r.s[i] + seg[i]) / tile
+                wq = 0.5 * (r.w[i] + r.w[i2])  # the road's width here (real tracks: measured, varies along)
                 for j in range(r.m):
-                    u0 = j * r.width / r.m / tile
-                    u1 = (j + 1) * r.width / r.m / tile
+                    u0 = j * wq / r.m / tile
+                    u1 = (j + 1) * wq / r.m / tile
                     mesh.face((vid(r, i, j), vid(r, i, j + 1), vid(r, i2, j + 1), vid(r, i2, j)), mat,
                               [(u0, v0), (u1, v0), (u1, v1), (u0, v1)])
         self.road_quads = len(mesh.faces)
@@ -1055,7 +1057,7 @@ class TrackGeometry:
                 cols = []
                 for off in offs:
                     if off <= 0:  # on the road: along the cross-section towards the other edge
-                        f = min(-off / max(r.width, 1e-6), 1.0)
+                        f = np.minimum(-off / np.maximum(r.w, 1e-6), 1.0)[:, None]
                         p = edge + (other - edge) * f
                     else:         # on the verge, following its slope
                         p = self._side_points(r, side, off)

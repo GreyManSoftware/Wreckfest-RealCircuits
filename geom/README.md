@@ -147,7 +147,7 @@ Coordinates are **metres, right-handed, Z up** (Blender's convention): **x = eas
 | `canvasTransform` | `{scale, offsetX, offsetY}` |
 | `bounds` | `minX…maxZ` of the road edges, `maxAbsRoadM`, `terrainMarginM`, `maxAbsCoordinateM`, `limitM` (2000) |
 | `routes[]` | `{id, aiIndex (0 main, −1, −2… alts), closed, lengthM, widthM, samples[], leftEdge[], rightEdge[], startJoin?, endJoin?}` |
-| `routes[].samples[]` | `{x, y, z, s, heading, banking, width}` every ~2 m; the main loop is closed (no repeated point), s = 0 at the start/finish. `banking`: camber in radians, positive raises the driver's left edge (0 except on imported tracks) |
+| `routes[].samples[]` | `{x, y, z, s, heading, banking, width}` every ~2 m (`width`: options.widthM, or an imported centreline's per-point `widthM`; the route's `widthM` is then their median); the main loop is closed (no repeated point), s = 0 at the start/finish. `banking`: camber in radians, positive raises the driver's left edge (0 except on imported tracks) |
 | `routes[].leftEdge/rightEdge` | `[x, y, z]` per sample, ±width/2 along the left normal (left = driver's left); `z` includes the camber |
 | `startJoin/endJoin` | `{route: "main", sampleIndex, s}`: the main-loop vertex the alt route shares exactly |
 | `crossings[]` | `{id, annotated, detected, type (bridge/flat/unannotated), position [x, y], angleDeg, branches[{route, s, param, heading, z}], overBranch, deckHalfLengthM, rampUpM, rampDownM, deckHeightM}` |

@@ -219,3 +219,11 @@ The recipe is unchanged; the sample was re-imported for the shared importer chan
 | Lap lengths | Re-imported 2026-10-24 with audit A's smoothed registration and the branch-join changes: International 3,286.8 vs 3,380 m (−2.8 %), Coastal 2,463.4 (−1.2 %), National 1,898.9 (−1.7 %), Club 1,272.4 (−1.1 %). OSM `width` 12 m on three ways and the registered line agree with the DTM; the International's extra gap (the Tom Pryce Straight-Hairpin-Bus Stop part) has no source to check against. | Unchanged (within 3 %) |
 | Start/finish | International/Coastal: OSM "Start/Finish" node; National: ACU 2012 + map flag; Club: map flag 22 m after the Club Hairpin joins. No better source found for the Club line. | Unchanged, Club estimated |
 | Environment | Sea plane below 0 m ODN to the W/S (no-data cells of the Welsh DTM), coastal rocks on the shore, crowds at the Corkscrew, Rocket, Banking. | OK |
+
+## Width (2026-10-24)
+
+Not measured: Wales has no open LIDAR point cloud (DataMapWales serves the Welsh Government 2020-22 survey as DTM and
+DSM rasters only; the tile catalogue has no point-cloud or intensity links, and APGB aerial imagery isn't open), and
+the 1 m DTM's surface roughness, tried as a stand-in for intensity, shows no road edge. The width stays the
+published one: 12 m (the operator's minimum width; OSM `width` 12 on three ways), one width for the lap, no
+`widths` in the recipe.

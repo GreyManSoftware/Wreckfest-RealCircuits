@@ -42,6 +42,8 @@
   "publishedLapLengthM": 4020,
   "measuredLapLengthM": 4006,
   "widthM": 11.0,
+  "widths": "measured",
+  "widthsNote": "Measured tarmac widths (tools/real_tracks/widths/doningtonpark.json, tools/real_tracks_data/measure_width.py) from the open LIDAR point cloud; widthM is only the nominal width the registration and the fallback use; the spec's options.widthM becomes the measured median.",
   "widthNote": "Not published; 11 m is typical of the MSV circuits (Cadwell Park 9.5 m, Anglesey 12 m) and Donington's two-abreast grid.",
   "clockwise": true,
   "viewingSpots": ["Redgate", "Craner Curves", "Old Hairpin", "Melbourne Hairpin"],
