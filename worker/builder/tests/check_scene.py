@@ -322,6 +322,8 @@ def _close_gaps(geo, reach: float = 12.0, clear: float = 12.0) -> dict:
         for side in (1, -1):
             edge = r.left if side > 0 else r.right
             gap = np.full(r.n, np.inf)
+            hit_ri = np.full(r.n, -1, dtype=np.int32)
+            hit_s = np.full(r.n, np.nan)
             todo = ~skip
             for t in np.arange(0.5, reach + 0.01, 1.0):
                 idx = np.nonzero(todo)[0]
@@ -334,8 +336,9 @@ def _close_gaps(geo, reach: float = 12.0, clear: float = 12.0) -> dict:
                 todo[idx[merge]] = False
                 hit = (j >= 0) & ~merge
                 gap[idx[hit]] = t
+                hit_ri[idx[hit]], hit_s[idx[hit]] = geo.index.ri[j[hit]], geo.index.s[j[hit]]
                 todo[idx[hit]] = False
-            out[(r.index, side)] = {"gap": gap}
+            out[(r.index, side)] = {"gap": gap, "hit_ri": hit_ri, "hit_s": hit_s}
     return out
 
 
@@ -420,10 +423,20 @@ def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict) -> None:
             # themselves (12 m along the road), so a junction allowance grown too wide can't hide an undivided
             # stretch (Cadwell Park's start straight beside the run to the Mountain, 2026-10-24)
             gaps = _close_gaps(geo)
+        bad_div = []
         for (ri, side), g in gaps.items():
             r = geo.routes[ri]
             edge = r.left if side > 0 else r.right
-            for i in np.nonzero(np.isfinite(g["gap"]))[0][::2]:
+            close = np.isfinite(g["gap"])
+            if geo.runoff.active:
+                # real circuits: a divider only between separate parts of the lap (geo.separate_part), never
+                # between a chicane's, an esses' or a hairpin's legs, nor beside a branch (Chris 2026-10-24/25)
+                close &= geo.separate_part(r, g)
+                p = plan.get((ri, side))
+                if p is not None:
+                    wrong = p["divider"] & ~geo.separate_part(r, geo.road_gaps()[(ri, side)])
+                    bad_div += [f"{r.id}:{'l' if side > 0 else 'r'}@{r.s[i]:.0f}m" for i in np.nonzero(wrong)[0][:2]]
+            for i in np.nonzero(close)[0][::2]:
                 ends = np.array([edge[i, :2] + r.nl[i] * side * 0.3, edge[i, :2] + r.nl[i] * side * (g["gap"][i] - 0.3)])
                 p0, p1 = to_scene(ends, manifest)
                 pairs += 1
@@ -434,6 +447,9 @@ def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict) -> None:
         check(not open_ or len(open_) <= max(2, pairs // 50),
               f"base: a collision wall divides every pair of close sections (gap < {C.DIVIDER_GAP:.0f} m)",
               f"{pairs} probes across gaps, {len(open_)} open: {open_[:4]}")
+        if geo.runoff.active:
+            check(not bad_div, "base: real circuits divide only separate parts of the lap (no wall between a "
+                  "chicane's legs or beside a branch)", f"{len(bad_div)} divider samples elsewhere: {bad_div[:4]}")
     # the AI route covers the grass run-off (cars off the tarmac aren't reset at once)
     med = float(np.median(np.concatenate([p["ai_margin"] for p in plan.values()])))
     check(med >= 8.0, "base: the AI route reaches over the grass run-off", f"median margin {med:.1f} m beyond the edge")

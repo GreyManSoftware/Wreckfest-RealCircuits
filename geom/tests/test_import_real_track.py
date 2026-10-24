@@ -472,6 +472,15 @@ def _check_measured_runoff(im: dict) -> None:
                 assert z["offsetM"] >= z["startM"] + z["depthM"] - 0.05, z
         if z.get("colour") == "redwhite":
             assert "evidence" in z.get("source", ""), z
+        # a barrier needs corroboration (measure_runoff.BARRIER_CONF: OSM, the back of a gravel trap, a separate
+        # part of the lap beside it, or a sourced corner fact), never a lone LIDAR line; a debris fence needs OSM
+        # or the evidence
+        src = z.get("source", "")
+        if z["barrier"] in ("armco", "tyres", "concrete"):
+            assert z.get("confidence", 0.0) >= 0.6, z
+            assert any(k in src for k in ("osm", "lidar+trap", "lidar+divider", "evidence")), z
+        if z.get("fence"):
+            assert "osm" in src or "evidence" in src, z
     for rid in lines:
         for side in ("left", "right"):
             assert cover.get((rid, side), 0.0) >= 0.9 * lengths[rid], (rid, side, cover.get((rid, side)), lengths[rid])
