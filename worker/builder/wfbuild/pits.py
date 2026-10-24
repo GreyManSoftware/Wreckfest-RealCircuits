@@ -382,7 +382,7 @@ class Pits:
     def _building(self, planner, b: dict, poly: np.ndarray, add) -> bool:
         c, L, D, ax = min_area_rect(poly)
         kind = b["kind"]
-        if L < 12.0 and kind != "grandstand":
+        if (L < 12.0 or b.get("_small")) and kind != "grandstand":
             kind = "small"
         choices = PROPS.get(kind, PROPS["other"])
         face = np.array([b.get("facing", {}).get("x", 0.0), b.get("facing", {}).get("y", 1.0)])
@@ -404,27 +404,33 @@ class Pits:
         cat = "realGrandstand" if kind == "grandstand" else "pitBuildings"
         lanes = [ln.polygon() for ln in self.lanes if ln.b1 > ln.b0]
 
-        def tiles(back: float) -> list[np.ndarray]:
-            cl = front - ay * (back + dm * s / 2.0)
+        def tiles(back: float, along: float = 0.0) -> list[np.ndarray]:
+            cl = front - ay * (back + dm * s / 2.0) + ax * along
             return [cl + ax * ((k + 0.5) * lm * s - n * lm * s / 2.0) for k in range(n)]
 
         X = np.array([math.cos(yaw), math.sin(yaw)])  # the prop's local axes as placed
         Y = np.array([-math.sin(yaw), math.cos(yaw)])
         hw, hd = lm * s / 2.0 + 0.5, dm * s / 2.0 + 0.5
 
-        def hits(back: float) -> bool:
+        def hits(back: float, along: float = 0.0) -> bool:
             # every tile's corners, edge midpoints and centre, grown 0.5 m, off the pit lane (OSM footprints often
             # reach it)
-            pts = np.array([q + X * u + Y * v for q in tiles(back) for u in (-hw, 0.0, hw) for v in (-hd, 0.0, hd)])
-            return any(point_in_poly(pts, lp).any() for lp in lanes)
+            pts = np.array([q + X * u + Y * v for q in tiles(back, along) for u in (-hw, 0.0, hw) for v in (-hd, 0.0, hd)])
+            return any(point_in_poly(pts, lp).any() for lp in lanes) or bool((planner.field.dist(pts) < 1.5).any())
 
-        back = 0.0
-        while lanes and back < D + 40.0 and hits(back):
-            back += 0.5
-        if lanes and hits(back):
-            self.report["warnings"].append(f"{b.get('name') or kind}: no room off the pit lane, left out")
-            return False
-        for q in tiles(back):
+        # the smallest move that clears the lane: back from the road first, then also sideways along the row
+        moves = sorted(((bk, al) for bk in np.arange(0.0, D + 40.0, 0.5) for al in np.arange(-20.0, 20.01, 1.0)),
+                       key=lambda m: m[0] + 1.5 * abs(m[1]))
+        back, along = 0.0, 0.0
+        if hits(0.0):
+            ok = next((m for m in moves if not hits(*m)), None)
+            if ok is None:
+                if kind not in ("small", "grandstand"):  # a smaller stock building fits where a long one doesn't
+                    return self._building(planner, {**b, "_small": True}, poly, add)
+                self.report["warnings"].append(f"{b.get('name') or kind}: no room off the pit lane, left out")
+                return False
+            back, along = ok
+        for q in tiles(back, along):
             add(asset, cat, q, yaw, s)
         return True
 
