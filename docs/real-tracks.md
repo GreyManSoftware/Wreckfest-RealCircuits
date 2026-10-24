@@ -275,7 +275,7 @@ and enabled as "Anglesey".
 
 | | International | Coastal | National | Club |
 |---|---|---|---|---|
-| Lap (built) / published | 3,286.8 / 3,380 m (−2.8 %) | 2,463.8 / 2,494 m (−1.2 %) | 1,898.9 / 1,931 m (−1.7 %) | 1,272.1 / 1,287 m (−1.2 %) |
+| Lap (built) / published | 3,286.5 / 3,380 m (−2.8 %; Bus Stop sharpened 2026-10-24) | 2,463.2 / 2,494 m (−1.2 %) | 1,899.7 / 1,931 m (−1.6 %) | 1,272.1 / 1,287 m (−1.2 %) |
 | Route | full lap | Corkscrew link (OSM 108374690) | School Corner (OSM 108374691) from the end of the return straight, Rocket, Peel, Seamans, Tom Pryce Straight, Hairpin, return straight | start straight, Target, Banking, Church, Club Hairpin (OSM 264840722) |
 | Direction | clockwise (racingcircuits.info arrows; BRSCC notes) | clockwise | clockwise (ACU 2012: first corner the uphill right School Corner) | clockwise |
 | Start/finish | OSM "Start/Finish" node by the 2007 pits | shares International | own: the return straight beside the National pit lane, 62 % along it (ACU 2012: the original pre-2007 line and pit lane; map flag) | own: 22 m after the Club Hairpin joins the start straight (map flag; the International line is 34 m before that junction) |
@@ -333,7 +333,7 @@ date); the 2010 Tilke GP extension was never built.
 | | Grand Prix | National |
 |---|---|---|
 | Source of the layout | MSV GP Circuit map (donington-park.co.uk/about/circuit-layouts): 2.49 mi / 4.02 km, 12 corners | MSV National Circuit map: 1.98 mi / 3.186 km, 10 corners; the Roberts chicane (OSM 27131003, "short cut used on National circuit") in place of the Melbourne Loop |
-| Lap (built) / published | 3,999.7 / 4,020 m (−0.5 %) | 3,183.8 / 3,186 m (−0.1 %; Wikipedia 3,149 m: +1.1 %) |
+| Lap (built) / published | 4,000.9 / 4,020 m (−0.5 %; Fogarty Esses sharpened 2026-10-24) | 3,184.0 / 3,186 m (−0.1 %; Wikipedia 3,149 m: +1.1 %) |
 | OSM polyline | 4,006 m | 3,180 m |
 | Direction | clockwise: the MSV map's start/finish chevrons point down the Wheatcroft Straight towards Redgate; guides (driver61.com, oversteer48.com) start the lap at Redgate, a right-hander | clockwise (same map and guides) |
 | Start/finish | on the Wheatcroft Straight 197 m from Goddards, beside the middle of the pit lane (driver61.com coordinates 52°49′47.3″N 1°22′46.4″W; MSV maps) | shares the GP line and grid (same chevrons on the MSV National map) |
