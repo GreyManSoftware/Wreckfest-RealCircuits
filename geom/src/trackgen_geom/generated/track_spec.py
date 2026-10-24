@@ -24,6 +24,41 @@ class JumpSize(StrEnum):
     LARGE = "large"
 
 
+class PitLaneMode(StrEnum):
+    """closed: fenced off at both ends (scenery); drivable: open at its entry and exit, never on the AI route."""
+
+    DRIVABLE = "drivable"
+    CLOSED = "closed"
+
+
+class PitSide(StrEnum):
+    """Pit side"""
+
+    LEFT = "left"
+    RIGHT = "right"
+
+
+class PitBuildingKind(StrEnum):
+    """Pit building kind"""
+
+    GARAGES = "garages"
+    CONTROL = "control"
+    MEDIA = "media"
+    HOSPITALITY = "hospitality"
+    PADDOCK = "paddock"
+    OTHER = "other"
+    GRANDSTAND = "grandstand"
+
+
+class PitGantryKind(StrEnum):
+    """Gantry kind"""
+
+    START_LIGHTS = "startLights"
+    BRIDGE = "bridge"
+    FOOTBRIDGE = "footbridge"
+    GANTRY = "gantry"
+
+
 class Surface(StrEnum):
     """Surface"""
 
@@ -634,6 +669,7 @@ class ImportedTrack:
     alt_layouts: list[ImportedAltLayout] | None = None
     sea_level_m: float | None = None
     horizon: HorizonProfile | None = None
+    pits: ImportedPits | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> ImportedTrack:
@@ -651,6 +687,7 @@ class ImportedTrack:
             alt_layouts=None if data.get("altLayouts") is None else [ImportedAltLayout.from_dict(v0) for v0 in data["altLayouts"]],
             sea_level_m=None if data.get("seaLevelM") is None else float(data["seaLevelM"]),
             horizon=None if data.get("horizon") is None else HorizonProfile.from_dict(data["horizon"]),
+            pits=None if data.get("pits") is None else ImportedPits.from_dict(data["pits"]),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -679,6 +716,203 @@ class ImportedTrack:
             out["seaLevelM"] = self.sea_level_m
         if self.horizon is not None:
             out["horizon"] = self.horizon.to_dict()
+        if self.pits is not None:
+            out["pits"] = self.pits.to_dict()
+        return out
+
+
+@dataclass(kw_only=True)
+class ImportedPits:
+    """The real circuit's pit lane, pit wall, pit buildings, paddock, grandstands, bridges and gantries (metres, imported frame; from OSM and LIDAR, tools/real_tracks/pits). The builder lays the pit lane and its wall, places stock buildings, paddock props and grandstands on the footprints and the start lights, bridges and gantries at their real positions over the road."""
+
+    source: str | None = None
+    pit_lanes: list[PitLane] | None = None
+    buildings: list[PitBuilding] | None = None
+    grandstands: list[PitBuilding] | None = None
+    paddocks: list[PitArea] | None = None
+    gantries: list[PitGantry] | None = None
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> ImportedPits:
+        return cls(
+            source=None if data.get("source") is None else str(data["source"]),
+            pit_lanes=None if data.get("pitLanes") is None else [PitLane.from_dict(v0) for v0 in data["pitLanes"]],
+            buildings=None if data.get("buildings") is None else [PitBuilding.from_dict(v0) for v0 in data["buildings"]],
+            grandstands=None if data.get("grandstands") is None else [PitBuilding.from_dict(v0) for v0 in data["grandstands"]],
+            paddocks=None if data.get("paddocks") is None else [PitArea.from_dict(v0) for v0 in data["paddocks"]],
+            gantries=None if data.get("gantries") is None else [PitGantry.from_dict(v0) for v0 in data["gantries"]],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.source is not None:
+            out["source"] = self.source
+        if self.pit_lanes is not None:
+            out["pitLanes"] = [v0.to_dict() for v0 in self.pit_lanes]
+        if self.buildings is not None:
+            out["buildings"] = [v0.to_dict() for v0 in self.buildings]
+        if self.grandstands is not None:
+            out["grandstands"] = [v0.to_dict() for v0 in self.grandstands]
+        if self.paddocks is not None:
+            out["paddocks"] = [v0.to_dict() for v0 in self.paddocks]
+        if self.gantries is not None:
+            out["gantries"] = [v0.to_dict() for v0 in self.gantries]
+        return out
+
+
+@dataclass(kw_only=True)
+class PitLane:
+    """A pit lane beside the main centreline, in the driving direction. closed: fenced off at both ends where the pit wall ends (the lane is scenery); drivable: open at its entry and exit (never on the AI route)."""
+
+    id: str
+    mode: PitLaneMode
+    width_m: float
+    side: PitSide | None = None
+    entry_sm: float | None = None
+    exit_sm: float | None = None
+    centreline: list[MetrePoint]
+    wall: PitWall | None = None
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> PitLane:
+        return cls(
+            id=str(data["id"]),
+            mode=PitLaneMode(data["mode"]),
+            width_m=float(data["widthM"]),
+            side=None if data.get("side") is None else PitSide(data["side"]),
+            entry_sm=None if data.get("entrySM") is None else float(data["entrySM"]),
+            exit_sm=None if data.get("exitSM") is None else float(data["exitSM"]),
+            centreline=[MetrePoint.from_dict(v0) for v0 in data["centreline"]],
+            wall=None if data.get("wall") is None else PitWall.from_dict(data["wall"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["id"] = self.id
+        out["mode"] = self.mode.value
+        out["widthM"] = self.width_m
+        if self.side is not None:
+            out["side"] = self.side.value
+        if self.entry_sm is not None:
+            out["entrySM"] = self.entry_sm
+        if self.exit_sm is not None:
+            out["exitSM"] = self.exit_sm
+        out["centreline"] = [v0.to_dict() for v0 in self.centreline]
+        if self.wall is not None:
+            out["wall"] = self.wall.to_dict()
+        return out
+
+
+@dataclass(kw_only=True)
+class PitWall:
+    """The pit wall between the track and the lane: continuous from sM[0] to sM[1] along the main centreline."""
+
+    points: list[MetrePoint]
+    s_m: list[float] | None = None
+    height_m: float | None = None
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> PitWall:
+        return cls(
+            points=[MetrePoint.from_dict(v0) for v0 in data["points"]],
+            s_m=None if data.get("sM") is None else [float(v0) for v0 in data["sM"]],
+            height_m=None if data.get("heightM") is None else float(data["heightM"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["points"] = [v0.to_dict() for v0 in self.points]
+        if self.s_m is not None:
+            out["sM"] = [v0 for v0 in self.s_m]
+        if self.height_m is not None:
+            out["heightM"] = self.height_m
+        return out
+
+
+@dataclass(kw_only=True)
+class PitBuilding:
+    """A real building (or grandstand) footprint with its height and the direction its front faces (towards the nearest road)."""
+
+    kind: PitBuildingKind
+    name: str | None = None
+    footprint: list[MetrePoint]
+    height_m: float
+    facing: MetrePoint | None = None
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> PitBuilding:
+        return cls(
+            kind=PitBuildingKind(data["kind"]),
+            name=None if data.get("name") is None else str(data["name"]),
+            footprint=[MetrePoint.from_dict(v0) for v0 in data["footprint"]],
+            height_m=float(data["heightM"]),
+            facing=None if data.get("facing") is None else MetrePoint.from_dict(data["facing"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["kind"] = self.kind.value
+        if self.name is not None:
+            out["name"] = self.name
+        out["footprint"] = [v0.to_dict() for v0 in self.footprint]
+        out["heightM"] = self.height_m
+        if self.facing is not None:
+            out["facing"] = self.facing.to_dict()
+        return out
+
+
+@dataclass(kw_only=True)
+class PitArea:
+    """Paddock area"""
+
+    name: str | None = None
+    points: list[MetrePoint]
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> PitArea:
+        return cls(
+            name=None if data.get("name") is None else str(data["name"]),
+            points=[MetrePoint.from_dict(v0) for v0 in data["points"]],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.name is not None:
+            out["name"] = self.name
+        out["points"] = [v0.to_dict() for v0 in self.points]
+        return out
+
+
+@dataclass(kw_only=True)
+class PitGantry:
+    """A structure over the road at sM along a route: the start lights, a bridge, a footbridge or an advertising gantry."""
+
+    kind: PitGantryKind
+    name: str | None = None
+    route: str | None = None
+    s_m: float
+    top_m: float | None = None
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> PitGantry:
+        return cls(
+            kind=PitGantryKind(data["kind"]),
+            name=None if data.get("name") is None else str(data["name"]),
+            route=None if data.get("route") is None else str(data["route"]),
+            s_m=float(data["sM"]),
+            top_m=None if data.get("topM") is None else float(data["topM"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["kind"] = self.kind.value
+        if self.name is not None:
+            out["name"] = self.name
+        if self.route is not None:
+            out["route"] = self.route
+        out["sM"] = self.s_m
+        if self.top_m is not None:
+            out["topM"] = self.top_m
         return out
 
 
@@ -982,6 +1216,7 @@ __all__ = [
     "Heightfield",
     "HorizonProfile",
     "ImportedAltLayout",
+    "ImportedPits",
     "ImportedPoint",
     "ImportedTrack",
     "Jump",
@@ -994,6 +1229,15 @@ __all__ = [
     "MetrePoint",
     "NamedSpot",
     "Options",
+    "PitArea",
+    "PitBuilding",
+    "PitBuildingKind",
+    "PitGantry",
+    "PitGantryKind",
+    "PitLane",
+    "PitLaneMode",
+    "PitSide",
+    "PitWall",
     "Point",
     "Sketch",
     "StartFinish",
