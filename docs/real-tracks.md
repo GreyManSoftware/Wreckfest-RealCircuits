@@ -25,7 +25,7 @@ layouts; lengths from Wikipedia unless noted, to verify per circuit under the st
 | 4 | Snetterton (`snetterton`) | 300 4.779 km, 200 3.219 km, 100 1.577 km (MSV) | built 2026-10-20, audited 2026-10-24: 4,789 m (+0.2 %), 3,195 m (−0.8 %), 1,556 m (−1.3 %); the 100's own line is estimated; [details](real-tracks/snetterton.md) |
 | 5 | Donington Park (`doningtonpark`) | Grand Prix 4.020 km, National 3.186 km (MSV; Wikipedia 3.149 km) | built 2026-10-20 |
 | 6 | Bedford Autodrome (`bedfordautodrome`) | GT 6.11 km, SW 4.50 km, West 3.0 km, SEN 3.70 km (MSV's circuit-layouts page; North, South and East no longer listed) | built 2026-10-20 |
-| 7 | Circuito de Navarra (`navarra`) | Main Track 4.313 km, Medium 2.693 km, Short 1.391 km (MSV, since September 2024) | built 2026-10-20 (IGN MDT05 heights, UTM 30N) |
+| 7 | Circuito de Navarra (`navarra`) | Main Track 4.313 km, Medium 2.693 km, Short 1.391 km (MSV, since September 2024) | built 2026-10-20; heights from Navarre's 2024 2 m LIDAR since the 2026-10-24 audit ([details](real-tracks/navarra.md)) |
 
 **Standing requirements (Chris, 2026-10-20), for every circuit in the pack:**
 
@@ -115,7 +115,13 @@ Recipe extras (Anglesey, `tools/real_tracks/anglesey.json`):
   30N: the importer then projects WGS84 (taken as ETRS89, under 1 m apart) to UTM 30N with the same transverse
   Mercator formulae on GRS80, and the local frame uses the UTM scale factor. On a coarser DTM the heights and camber
   are smoothed more (sigma max(4 m, 2 cells) and max(10 m, 3 cells)). An explicit `slug` may also be the default of
-  the name's last words ("Circuito de Navarra" -> `navarra`).
+  the name's last words ("Circuito de Navarra" -> `navarra`). **The IDEE WCS serves the MDT05 in whole metres**
+  (1 m terraces; the report's `dtmWholeMetreFraction` is 0.2-0.45 on it, about 0.01 on a LIDAR DTM in cm): don't use
+  it where a better DTM exists.
+- `"dtm": "es-navarra"` (Navarre): the Gobierno de Navarra's 2 m DTM from the 2024 LIDAR flight (IDENA WCS
+  `idena.navarra.es/ogc/wcs`, coverage `IDENA.WCS__ELEVAC_Ras_MDT_2M`, centimetre heights, CC BY 4.0, "Servicio
+  proporcionado por el Gobierno de Navarra"), UTM 30N, 1 km tiles cached as `dtm/idena2m_*.npz` (Circuito de Navarra
+  since 2026-10-24).
 - `altLayouts[].joinWithinM`: a branch that runs beside the main road before it merges (Bedford SEN) joins where it
   first comes within this distance of the main line, instead of overlapping it.
 - `lapLengthTolerancePct` + `lapLengthNote` (main or per layout): a larger gap to the published length than the
@@ -216,6 +222,30 @@ at Brabham Straight, Paddock Hill Bend and Shell Oils). Widths: no published fig
 of the four; the LIDAR gives only upper bounds (flush verges and run-off count as road), consistent with the recipe
 values, so they stay.
 
+**Second half (Donington Park, Bedford Autodrome, Circuito de Navarra, Anglesey).** Findings tables in
+`real-tracks/<slug>.md`, "Audit 2026-10-24"; plots in `.localudit\<slug>\<slug>-<layout>.png`. Shared changes:
+
+- **`tools/audit_real_track.py`** (system Python: numpy + Pillow): per-layout PNGs of curvature, height, 10/50 m
+  grade, vertical curvature, camber, straight ripple and wobble against distance with the corner labels (`--before`
+  overlays an earlier sample), plus `<slug>-artefacts.json`.
+- **`profile_artefacts`** (importer): straight wobble, grade ripple on straights (10 m grade minus its 15 m
+  smoothing), camber flips and rate, tightest crest and dip. In every import report (`artefacts`, per alt layout
+  too) and checked on every committed sample by `test_imported_sample_has_no_profile_artefacts` (limits: ripple
+  RMS ≤ 0.4 %, wobble ≤ 0.5 m, camber rate ≤ 0.35°/m, vertical radius ≥ 75 m; the worst real values when set were
+  0.31 %, 0.34 m, 0.27°/m and 93 m). All eight samples pass; Navarra's MDT05 build read 0.53 %.
+- **`dtmWholeMetreFraction`** in the report: a terraced (whole-metre) DTM shows 0.2-0.45.
+- **`join_blend`:** an alternative layout's branch ends take the main road's height and camber, the mismatch faded
+  over at least 30 m (more for a large height step, at most 1.5 % grade); geom only blends heights over 20 m.
+  Samples of other circuits change only when re-imported.
+- **`ease_vertical`:** crests and dips tighter than 100 m (over 10 m) get a local 6 m smoothing, main lap and
+  branches (Navarra Short's hook ramp, 93 m, failed check_scene's AI-strip-on-road check by 7 mm). No current
+  English or Welsh sample has one (tightest: Cadwell Park's Mountain, 130 m), so they don't change when re-imported.
+- **`merge_onto_main`:** where a branch's road overlaps the main road at its ends, it takes the main road's
+  cambered surface (Navarra Short's hook ran 16 cm off the T7-T8 road side by side).
+- **`fillet_ends`:** a branch end meeting the main line at more than 15° is curved onto it over 30 m instead of a
+  2 m kink (Navarra Short 47°, Bedford SEN 43° and 27°); the sample test checks every branch end is within 25°.
+- No other height de-noising was needed on the 1 m EA / Welsh DTMs: their straights show 0.08-0.31 % ripple RMS.
+
 ## Data sources and attribution
 
 | Data | Source | Licence | Attribution (in the spec's `sketch.imported.source`) |
@@ -223,7 +253,8 @@ values, so they stay.
 | Layout (raceway ways), woodland polygons | OpenStreetMap via the Overpass API | ODbL 1.0 | © OpenStreetMap contributors |
 | Heights, camber, terrain (Wales) | Welsh Government / NRW LIDAR composite DTM, 1 m (COG on DataMapWales) | Open Government Licence v3.0 | Contains Natural Resources Wales information © Natural Resources Wales and database right |
 | Heights, camber, terrain | Environment Agency LIDAR Composite DTM, 1 m (bare earth; WCS `environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs`) | Open Government Licence v3.0 | © Environment Agency copyright and/or database right 2022 |
-| Heights, camber, terrain (Spain) | IGN MDT05, 5 m, from the PNOA LIDAR (WCS `servicios.idee.es/wcs-inspire/mdt`, coverage `Elevacion25830_5`, ETRS89 / UTM 30N) | CC BY 4.0 | MDT05 © Instituto Geográfico Nacional de España (IGN), derived from PNOA LIDAR |
+| Heights, camber, terrain (Spain) | IGN MDT05, 5 m, from the PNOA LIDAR (WCS `servicios.idee.es/wcs-inspire/mdt`, coverage `Elevacion25830_5`, ETRS89 / UTM 30N); no track uses it since 2026-10-24 | CC BY 4.0 | MDT05 © Instituto Geográfico Nacional de España (IGN), derived from PNOA LIDAR |
+| Heights, camber, terrain (Navarre) | Gobierno de Navarra MDT 2 m, 2024 LIDAR (IDENA WCS, coverage `IDENA.WCS__ELEVAC_Ras_MDT_2M`, ETRS89 / UTM 30N) | CC BY 4.0 | Servicio proporcionado por el Gobierno de Navarra (IDENA) |
 
 The committed sample (`geom/tests/samples/cadwellpark.json`) is derived data (a 2 m centreline, a 6 m grid and
 simplified woods), not the raw downloads. A published mod that uses it should carry the same attribution.
@@ -307,7 +338,7 @@ and enabled as "Anglesey".
 
 | | International | Coastal | National | Club |
 |---|---|---|---|---|
-| Lap (built) / published | 3,286.5 / 3,380 m (−2.8 %; Bus Stop sharpened 2026-10-24) | 2,463.2 / 2,494 m (−1.2 %) | 1,899.7 / 1,931 m (−1.6 %) | 1,272.1 / 1,287 m (−1.2 %) |
+| Lap (built) / published | 3,286.8 / 3,380 m (−2.8 %; Bus Stop sharpened 2026-10-24) | 2,463.4 / 2,494 m (−1.2 %) | 1,898.9 / 1,931 m (−1.7 %) | 1,272.4 / 1,287 m (−1.1 %) |
 | Route | full lap | Corkscrew link (OSM 108374690) | School Corner (OSM 108374691) from the end of the return straight, Rocket, Peel, Seamans, Tom Pryce Straight, Hairpin, return straight | start straight, Target, Banking, Church, Club Hairpin (OSM 264840722) |
 | Direction | clockwise (racingcircuits.info arrows; BRSCC notes) | clockwise | clockwise (ACU 2012: first corner the uphill right School Corner) | clockwise |
 | Start/finish | OSM "Start/Finish" node by the 2007 pits | shares International | own: the return straight beside the National pit lane, 62 % along it (ACU 2012: the original pre-2007 line and pit lane; map flag) | own: 22 m after the Club Hairpin joins the start straight (map flag; the International line is 34 m before that junction) |
@@ -365,7 +396,7 @@ date); the 2010 Tilke GP extension was never built.
 | | Grand Prix | National |
 |---|---|---|
 | Source of the layout | MSV GP Circuit map (donington-park.co.uk/about/circuit-layouts): 2.49 mi / 4.02 km, 12 corners | MSV National Circuit map: 1.98 mi / 3.186 km, 10 corners; the Roberts chicane (OSM 27131003, "short cut used on National circuit") in place of the Melbourne Loop |
-| Lap (built) / published | 4,000.9 / 4,020 m (−0.5 %; Fogarty Esses sharpened 2026-10-24) | 3,184.0 / 3,186 m (−0.1 %; Wikipedia 3,149 m: +1.1 %) |
+| Lap (built) / published | 3,999.4 / 4,020 m (−0.5 %; Fogarty Esses sharpened, re-imported 2026-10-24) | 3,182.5 / 3,186 m (−0.1 %; Wikipedia 3,149 m: +1.1 %) |
 | OSM polyline | 4,006 m | 3,180 m |
 | Direction | clockwise: the MSV map's start/finish chevrons point down the Wheatcroft Straight towards Redgate; guides (driver61.com, oversteer48.com) start the lap at Redgate, a right-hander | clockwise (same map and guides) |
 | Start/finish | on the Wheatcroft Straight 197 m from Goddards, beside the middle of the pit lane (driver61.com coordinates 52°49′47.3″N 1°22′46.4″W; MSV maps) | shares the GP line and grid (same chevrons on the MSV National map) |
@@ -411,7 +442,7 @@ corner over an airfield service road (OSM 449592525, paved between the mapped gr
 | | GT | SW | West | SEN |
 |---|---|---|---|---|
 | Source of the layout | MSV GT map (3.8 mi / 6.11 km, 10 left + 8 right corners); racingcircuits.info GT map T1–T18 | MSV SW map (2.8 mi / 4.50 km); racingcircuits.info South West map | MSV West map (1.87 mi / 3 km); OSM's West circuit way, matching the maps turn for turn | MSV SEN map (2.3 mi / 3.70 km); racingcircuits.info SEN map |
-| Lap (built) / published | 5,880.8 / 6,110 m (−3.8 %) | 4,585.3 / 4,500 m (+1.9 %) | 2,798.4 / 3,000 m (−6.7 %) | 3,593.7 / 3,700 m (−2.9 %) |
+| Lap (built) / published | 5,880.8 / 6,110 m (−3.8 %) | 4,585.3 / 4,500 m (+1.9 %) | 2,798.4 / 3,000 m (−6.7 %) | 3,595.3 / 3,700 m (−2.8 %; junctions filleted 2026-10-24) |
 | OSM polyline | 5,899 m | 4,592 m | 2,806 m | 3,592 m |
 | Direction | anticlockwise (racingcircuits.info turn numbering; evo.co.uk: the Hangar Hairpin first) | anticlockwise | anticlockwise (lapmeta: counter-clockwise) | anticlockwise |
 | Start/finish | inner (pit) straight before T1, OSM node 305063847, 159 m before the pit lane merges (racingcircuits.info flag, mapped by an affine fit of the West loop) | shares the GT line | shares the GT line | own: the south straight where the South pit lane rejoins, after the small west loop (racingcircuits.info SEN flag) |
@@ -458,20 +489,21 @@ Turns 11-14). racingcircuits.info's "Bike" Long and Medium are bike-only and not
 | | Main Track | Medium | Short |
 |---|---|---|---|
 | Source of the layout | MSV Main Track map (2.679 mi / 4.313 km, 6 left + 11 right); racingcircuits.info Speed Circuit Long 2024 (T1-T17) | MSV Medium map (1.673 mi / 2.693 km); the diagonal link (OSM 103746068) from T5 to T14 | MSV Short map (0.864 mi / 1.391 km); the Main Track's T8-T11 and the hook from the T11 hairpin's exit back to the T7-T8 road (OSM 1539678089, joined to the lap by `nodeJoins`: it ends 2.3 m off it) |
-| Lap (built) / published | 4,280.0 / 4,313 m (−0.8 %) | 2,637.4 / 2,693 m (−2.1 %) | 1,347.7 / 1,391 m (−3.1 %; OSM's hook is coarse, `lapLengthNote`) |
+| Lap (built) / published | 4,280.0 / 4,313 m (−0.8 %) | 2,637.4 / 2,693 m (−2.1 %) | 1,349.3 / 1,391 m (−3.0 %; OSM's hook is coarse, `lapLengthNote`) |
 | Direction | clockwise (racingcircuits.info arrows; MSV's 11 right / 6 left fit only clockwise) | clockwise | clockwise |
 | Start/finish | main straight opposite the middle of the pit building, 263 m from T17 (MSV map line; OSM pit building 121-402 m along the straight; racingcircuits.info draws its flag ~160 m further on) | shares the Main Track line | own: the T10-T11 straight 70 m after T10 (racingcircuits.info Short flag on that straight; placed where the 24-car grid stays under 4 %) |
 
 Corner labels are racingcircuits.info's turn numbers ("Turn 1" … "Turn 17", `cornerLabels` at OSM nodes); Navarra's
 corners have no published names. The OSM lap has exactly MSV's 11 right and 6 left corners.
 
-- **Heights:** Spain's IGN MDT05 (5 m, from the PNOA LIDAR, CC BY 4.0, "© Instituto Geográfico Nacional"), from the
-  IDEE INSPIRE WCS in ETRS89 / UTM 30N; the importer now projects to UTM 30N for it (`"dtm": "es-mdt05"`). Road
-  heights 427-447 m (range 20.3 m), climb 45 m per lap, +9.3 % / −13.5 % over 10 m (the back straight between T8
-  and T9 crosses a 3 m hump), camber up to 7.4° (T11 is banked). The 5 m grid is too coarse to register the OSM
-  line to (with 3 m allowed the three layouts' fits drifted apart), so the line is used as mapped; heights and
-  camber are smoothed over 10 m and 15 m. Fit to the DTM: centre RMS 0.13 m (max 0.7 m at the hump).
-- **Width:** not published; 12 m.
+- **Heights (since the 2026-10-24 audit, `real-tracks/navarra.md`):** the Gobierno de Navarra's 2 m DTM from the
+  2024 LIDAR (IDENA WCS, CC BY 4.0, `"dtm": "es-navarra"`), in UTM 30N. Road heights 427-448 m (range 20.3 m), climb
+  42 m per lap, +6.8 % / −9.6 % over 10 m, camber up to 3.0° (p95 1.4°; T11 2.4° into the hairpin); fit to the DTM
+  0.019 m. The line is used as mapped (the orthophoto puts it mid-road; registration only added wobble). Until then
+  the IGN MDT05, which the IDEE WCS serves in whole metres: its 1 m terraces made every straight wavy, gave the
+  main straight a false 4° camber, and its older flight showed the 2024 extension (T11-T14) as the ground before it
+  was built (the "3 m hump", 7.4° camber and −13.5 % grade were there, not on the back straight).
+- **Width:** 12 m (published: 12 m, 15 m on the main straight; one width per track).
 - **Kerbs:** OSM has none and no track guide with kerb detail for the 2024 layout was found: geometric kerbs.
 - **Environment:** the new `arid` preset: the stock sandpit03 palette (sand, pebbles, dry ground, sandpit3 dry-grass
   clutter, the landscape1 vista), low scrub, rocks and a few pines, bare rolling hills on the far ground; light
@@ -485,4 +517,4 @@ corners have no published names. The OSM lap has exactly MSV's 11 right and 6 le
   the builder now runs the strips on past the line until they agree, and `check_scene` checks it.
 - **Renders:** `.local\renders\navarra-{oblique,horizon,driver,driver-t3,driver-t11}.png`.
 - **Check in game:** the Short's hook inside the T11 hairpin (its road and divider run inside the hairpin), the
-  back-straight hump, the banked T11, how the arid ground and sandpit textures read on tarmac.
+  2024 extension (T11-T14) on the 2024 heights, how the arid ground and sandpit textures read on tarmac.
