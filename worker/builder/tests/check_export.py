@@ -439,6 +439,18 @@ def main() -> None:
         gen = sorted({t.path for m in full.materials for t in m.textures if t.path.startswith(f"data/track/{slug}/")})
         check(gen and all(texture_exists(p, root) for p in gen),
               "base: generated maps referenced by mod path and present in the mod as .bmap", f"{len(gen)} maps")
+        # our sponsor boards and credit plaque (wfbuild/sponsor.py): exported with their own rendered textures
+        scen = os.path.join(out, "scenery.json")
+        n_sp = 0
+        if os.path.isfile(scen):
+            with open(scen, encoding="utf-8") as f:
+                n_sp = sum(1 for p in json.load(f)["placements"] if p["asset"].startswith("sponsor_"))
+        sp = [m for m in full.materials if m.name.startswith("sponsor_")]
+        own = f"data/track/{slug}/textures/{slug}_sponsor_"
+        check(bool(sp) == (n_sp > 0) and all(any(t.path.startswith(own) and texture_exists(t.path, root)
+                                                 for t in m.textures) for m in sp),
+              "base: sponsor boards exported with their own textures, present in the mod",
+              f"{n_sp} boards, {len(sp)} materials")
         check_road_flush(full, model, manifest)
     check(road is not None, "base: exported road surface found")
     for scene, desc in manifest["scenes"].items():

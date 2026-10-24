@@ -203,24 +203,62 @@ def check_brake_boards(geo, pl, sc: dict) -> None:
 
 
 def check_sponsor(out: str, geo, pl, sc: dict) -> None:
-    """Our sponsor boards (category sponsorBoards, wfbuild/sponsor.py): only when enabled, a handful of
-    billboards (at most the configured number), fence panels a share of the ad fences, every printed face (local
-    -Y) towards the nearest road (billboards may turn up to ~60 deg back up the road), billboards 15-60 m off the
-    road edge, and each texture rendered into the mod (the base check resolves the materials' paths)."""
+    """Our sponsor boards (category sponsorBoards, wfbuild/sponsor.py): handle boards only when enabled, a
+    handful of billboards (at most the configured number, plus the few the per-layout guarantee may add), fence
+    panels a share of the ad fences, every printed face (local -Y) towards the nearest road (billboards may turn
+    up to ~60 deg back up the road), billboards 15-60 m off the road edge, every layout with at least one handle
+    board in clear view of its grid or start straight (re-tested here with ``sponsor.visible`` against the
+    terrain and the final props), one or a few credit items when the credit is on, and each texture rendered
+    into the mod (the base check resolves the materials' paths)."""
     P = sc["placements"]
     mine = [p for p in P if p["category"] == sponsor.CATEGORY]
-    if not sponsor.enabled():
-        check(not mine, "sponsor: no boards when the sponsor setting is off")
-        return
+    handles = [p for p in mine if sponsor.is_handle(p["asset"])]
+    plaques = [p for p in mine if p["asset"] == "sponsor_credit"]
     check(all(sponsor.is_mesh(p["asset"]) for p in mine), "sponsor: only our own board assets in sponsorBoards")
-    bb = [p for p in mine if sponsor.kind_of(p["asset"])[0] == "billboard"]
-    fences = [p for p in mine if sponsor.kind_of(p["asset"])[0] == "fence"]
-    cap = int(sponsor.config().get("billboards", 6))
-    check(1 <= len(bb) <= cap, "sponsor: a handful of billboards", f"{len(bb)} (cap {cap})")
-    stock = sum(1 for p in P if p["category"] == "adFence")
-    share = float(sponsor.config().get("fenceShare", 0.0))
-    check(not fences or len(fences) <= (share + 0.25) * (len(fences) + stock) + 6,
-          "sponsor: fence panels replace a share of the ad fences", f"{len(fences)} ours, {stock} stock")
+    if not sponsor.enabled():
+        check(not handles, "sponsor: no handle boards when the sponsor setting is off")
+    bb = [p for p in handles if sponsor.kind_of(p["asset"])[0] in ("billboard", "minibillboard")]
+    fences = [p for p in handles if sponsor.kind_of(p["asset"])[0] == "fence"]
+    starts = D.layout_starts(geo)
+    seen: dict[str, int] = {}
+    if sponsor.enabled():
+        cap = int(sponsor.config().get("billboards", 6))
+        check(len(bb) <= cap + len(starts), "sponsor: a handful of billboards",
+              f"{len(bb)} (cap {cap} + up to {len(starts)} guaranteed)")
+        stock = sum(1 for p in P if p["category"] == "adFence")
+        share = float(sponsor.config().get("fenceShare", 0.0))
+        check(not fences or len(fences) <= (share + 0.25) * (len(fences) + stock) + 6 + 3 * len(starts),
+              "sponsor: fence panels replace a share of the ad fences", f"{len(fences)} ours, {stock} stock")
+        # the guarantee: every layout sees a handle board from its grid or start/finish straight
+        blockers = sponsor.Blockers([(p["asset"], p["category"], p["position"][0], p["position"][1],
+                                      p["position"][2], p["yaw"], p.get("scale", 1.0)) for p in P])
+
+        def terrain(xy):
+            xy = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
+            return geo.terrain(np.column_stack([xy, np.zeros(len(xy))]))
+
+        for st in starts:
+            seen[st["layout"]] = sum(
+                int(sponsor.visible(p["asset"], *p["position"], p["yaw"], st["eyes"], st["dirs"], terrain, blockers,
+                                    skip=n)[0])
+                for n, p in enumerate(P) if p["category"] == sponsor.CATEGORY and sponsor.is_handle(p["asset"]))
+        check(all(seen.values()), "sponsor: every layout has a handle board in clear view of its grid or start "
+              "straight", ", ".join(f"{k}: {v}" for k, v in seen.items()))
+        g = sc["info"].get("sponsorGuarantee") or {}
+        check(set(g) == set(seen) and all(P[v["placement"]]["asset"] == v["asset"] and sponsor.is_handle(v["asset"])
+                                          for v in g.values()),
+              "sponsor: info.sponsorGuarantee names each layout's board",
+              ", ".join(f"{k}: {v['how']} {v['asset']}" for k, v in g.items()))
+    cr = sponsor.credit()
+    info = sc["info"].get("sponsorCredit")
+    if cr is None:
+        check(not plaques and not info, "sponsor: no credit when the credit setting is off")
+    else:
+        style = (info or {}).get("style")
+        n_credit = len(plaques) if style == "plaque" else (len(bb) if style == "line" else 0)
+        check(1 <= n_credit <= 8 and (style != "plaque" or len(plaques) == 1) and (style != "line" or not plaques),
+              "sponsor: one or a few credit items on the circuit",
+              f"style {style}, {len(plaques)} plaques, {n_credit} credit items ({(info or {}).get('text')})")
     roads = geo.index.xy
     from wfbuild.fields import exact_edge_distance
     bad, far = [], []
@@ -244,7 +282,9 @@ def check_sponsor(out: str, geo, pl, sc: dict) -> None:
     missing = [k for k in keys if not os.path.isfile(
         os.path.join(out, "mod", *sponsor.texture_rel(sc["slug"], *sponsor.kind_of(k)).split("/")) + ".tga")]
     check(not missing, "sponsor: every board's texture rendered into the mod textures", ", ".join(missing))
-    print(f"INFO sponsor: {len(bb)} billboards, {len(fences)} fence panels")
+    how = {k: v["how"] for k, v in (sc["info"].get("sponsorGuarantee") or {}).items()}
+    print(f"INFO sponsor: {len(bb)} billboards, {len(fences)} fence panels, {len(plaques)} credit plaques "
+          f"({(info or {}).get('style')}); handle boards in view per layout {seen}; guarantee {how}")
 
 
 def _segments_cross(p0, p1, a, b) -> np.ndarray:
@@ -567,6 +607,10 @@ def check_base(out: str, slug: str, model: dict, spec: dict, manifest: dict) -> 
     check((sp_ob is not None) == (n_sp > 0) and (sp_ob is None or all(
         m.name.startswith("sponsor_") for m in sp_ob.data.materials)),
         "base: sponsor boards are one mesh with our own board materials", f"{n_sp} boards")
+    if sp_ob is not None:  # each board material's albedo is our own rendered texture (resolved by the material check)
+        plain = [m.name for m in sp_ob.data.materials if not (m and m.node_tree and any(
+            nd.type == "TEX_IMAGE" and nd.image and "_sponsor_" in nd.image.filepath for nd in m.node_tree.nodes))]
+        check(not plain, "base: every sponsor board material uses its rendered texture", ", ".join(plain))
     check_roadside(obs, model, spec, manifest)
     check_maps(out, model, spec, manifest)
     # bounds
