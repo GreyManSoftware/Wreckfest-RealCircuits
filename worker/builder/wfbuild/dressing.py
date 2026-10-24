@@ -1086,7 +1086,9 @@ class Planner:
                              # barriers pass beneath the deck)
                              "nearRoadM": {"barriers": [C.DIVIDER_MIN - 1.0,
                                                         max(C.CROWD_WALL, C.FAST_CORNER_WALL) + 2.0],
-                                           "cornerMarkers": [C.SHOULDER_W, None]},
+                                           "cornerMarkers": [C.SHOULDER_W, None],
+                                           "brakeBoards": [BRAKE_GAP + BRAKE_HALF - 0.8,
+                                                           BRAKE_GAP + BRAKE_HALF + C.KERB_W + C.GREEN_W + 0.8]},
                              "treeThreshold": round(self.tree_thr, 4)})
         return self.sc
 

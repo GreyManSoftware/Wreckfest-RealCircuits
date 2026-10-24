@@ -160,6 +160,24 @@ The facing was measured against the stock fields13 AI route:
   - bales `prop_bale1`, `prop_straw_bale1`, `prop_balefence`;
   - `prop_concrete_element3`.
 - **Big boards:** `prop_ad_eu_huge01a..v` (7 × 5.6 m).
+- **Braking boards:** `gameplay_distanceboard50`, `100`, `150` and `200` (see "Braking boards" below).
+
+### Braking boards (2026-10-24)
+
+Stock `data/art/objects/gameplay_distanceboard{50,100,150,200}.scne`, measured with `scne_read.py` (model
+transforms plus batch boxes):
+
+- **Size.** One panel 2.0 m wide (local Y) × 1.0 m tall (origin at its foot) × 0.06 m thick (local X); 636
+  vertices, material `distanceboard`, texture `data/art/textures/gameplay_distanceboard_c`.
+- **Dynamics.** Breakable: the root is `data/property/object/distanceboard1.dntp`, with two halves
+  (`distanceboard1_bigpiece`) of four wooden pieces each (`generic_wood_small`). Hitting one shatters it,
+  so it is no wall.
+- **Facing.** The numbered face is local **+X**. Every one of urban03's 19 boards (and forest04's 100 and 50
+  boards) has local +X pointing against the travel direction, i.e. towards oncoming cars.
+- **Stock use.** forest04 has 12, forest06 3, urban03 19 (with 200 m boards) and urban04 1, in sets 50 m apart.
+
+The planner (`dressing.brake_boards`, category `brakeBoards`) uses the 150, 100 and 50 boards; nothing is
+copied. Placement rules: `worker/docs/scenery-manifest.md`.
 
 ### Buildings
 
