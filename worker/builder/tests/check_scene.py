@@ -582,6 +582,10 @@ def check_runoff(out: str, obs: dict, model: dict, spec: dict, manifest: dict) -
             cov[idx] = np.maximum(cov[idx], 0.5)
             cmax[idx] = np.maximum(cmax[idx], 0.5)
         meas = band & (cov >= 0.4) & ~(ro.at(cc) > 0) & ~ro.at(cc, "band")
+        # nor in the dressing's no-go zones (grid sector, bridges, jumps), where nothing may stand by design
+        # (Anglesey's grid runs past a measured wood; the manifest keeps every 4th disc, so this is a lower bound)
+        for z in sc.get("noGo") or []:
+            meas &= np.hypot(cc[:, 0] - z["position"][0], cc[:, 1] - z["position"][1]) > z["r"]
         got = np.zeros(len(cc), dtype=bool)
         if len(trees):
             ti = np.floor((trees - [x0, y0]) / cell).astype(int)

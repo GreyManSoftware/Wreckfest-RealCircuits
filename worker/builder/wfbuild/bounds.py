@@ -277,7 +277,9 @@ class Bounds:
                 for a, b in zip(np.flatnonzero(d == 1), np.flatnonzero(d == -1)):
                     ids = (m.vert((self.xs[a], self.ys[j], z)), m.vert((self.xs[b], self.ys[j], z)),
                            m.vert((self.xs[b], self.ys[j + 1], z)), m.vert((self.xs[a], self.ys[j + 1], z)))
-                    m.oriented_face(ids, "bounds_reset", up)
+                    # invisible: a unit UV square per quad (a run across a lake can be hundreds of metres long,
+                    # beyond the +-16 UV range world-space UVs would need)
+                    m.oriented_face(ids, "bounds_reset", up, [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)])
                 n += int(col.sum())
         self.info["waterCells"] = n
         return None if m.empty else m

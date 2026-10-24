@@ -1662,6 +1662,7 @@ class TrackGeometry:
                 offset = np.full(r.n, np.inf)
                 has = np.zeros(r.n, dtype=bool)
                 which = np.full(r.n, -1, dtype=np.int32)
+                masks: list[np.ndarray] = []
                 for q, (mask, off) in enumerate(reasons):
                     mask = mask & self.svalid[r.index]
                     if not mask.any():
@@ -1674,6 +1675,7 @@ class TrackGeometry:
                         cone = np.where(reach, cone, np.inf)
                         mask = reach
                     has |= mask
+                    masks.append((q, mask))
                     which = np.where(cone < offset, q, which)
                     offset = np.minimum(offset, cone)
                 if measured:
@@ -1682,7 +1684,12 @@ class TrackGeometry:
                     a = self.runoff.side[(r.index, side)]
                     end = np.maximum(np.where(a["surface"] == 1, a["g1"], 0.0), a["tarmac"])
                     kind_of = np.array([kinds[q] if q >= 0 else "" for q in which])
-                    push = (end > 0) & ~np.isin(kind_of, ("divider", "grid"))
+                    # (only where the divider or pit wall itself runs: its ramp out towards a barrier further
+                    # out stays behind the trap, e.g. Knickerbrook's after the divider by Hislop's straight)
+                    own = np.zeros(r.n, dtype=bool)
+                    for q, mask in masks:
+                        own |= (which == q) & mask
+                    push = (end > 0) & ~(np.isin(kind_of, ("divider", "grid")) & own)
                     offset = np.where(push, np.maximum(offset, end + C.TRAP_BARRIER_GAP), offset)
                 offset = np.where(np.isfinite(offset), offset, C.CROWD_WALL)
                 line = self._side_points(r, side, offset)
