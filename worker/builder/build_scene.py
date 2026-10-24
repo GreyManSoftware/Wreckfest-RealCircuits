@@ -33,6 +33,7 @@ from wfbuild import config as C
 from wfbuild.geometry import Mesh, TrackGeometry
 from wfbuild.layout import LayoutBuilder, strip_end_lines
 from wfbuild import backdrop as backdrop_mod
+from wfbuild import bounds as bounds_mod
 from wfbuild import cameras, dressing, maps, materials, tcat
 from wfbuild.fields import DistanceField
 from wfbuild.layout import Empty
@@ -208,6 +209,14 @@ def main() -> None:
         if m.kind in C.BLEND_KINDS:
             m.set_map_uv(fr)
     base_meshes += backdrop_meshes
+    # out of bounds as stock: a #resetplayer wall + lid round each layout, collidable far ground, water resets and
+    # a kill floor (wfbuild/bounds.py)
+    bnd = bounds_mod.Bounds(geo, base_meshes)
+    for lay in layouts:
+        reset = bnd.layout_reset(lay)
+        if reset is not None:
+            lay.meshes.append(reset)
+    base_meshes += bnd.base_meshes(bd, base_meshes, rot, shift)
     generated = bd.textures(mod_root)
     specs = materials.build(geo.options.get("environment"), slug, map_info, bd.n_textures, generated)
     props = [Empty(f"#xref ob/{p.asset}.scne", (p.x, p.y, p.z), p.yaw, display="PLAIN_AXES", size=1.0,
@@ -252,7 +261,7 @@ def main() -> None:
     bscene.MOD_ROOT[:] = [mod_root]
     bpy.context.scene.name = f"{slug}_base"
     groups = {"road": ("road", "kerb", "limits", "shoulder", "decal"), "walls": ("wall",), "bridges": ("bridge",),
-              "terrain": ("terrain",), "backdrop": ("backdrop",), "helpers": ("helper",)}
+              "terrain": ("terrain",), "backdrop": ("backdrop",), "helpers": ("helper",), "bounds": ("bounds",)}
     for group, kinds in groups.items():
         coll = bscene.collection(group)
         for m in base_meshes:
@@ -275,7 +284,7 @@ def main() -> None:
         cps = bscene.collection("checkpoints")
         jumps = bscene.collection("jumps")
         for m in lay.meshes:
-            target = {"ai": ai, "checkpoint": cps}.get(m.kind, jumps)
+            target = {"ai": ai, "checkpoint": cps}.get(m.kind) or (bscene.collection("bounds") if m.kind == "bounds" else jumps)
             bscene.mesh_object(m, target)
         sp = bscene.collection("startpoints")
         for e in lay.empties:
@@ -317,6 +326,7 @@ def main() -> None:
             "wallShare": round(float(p["ok"].mean()), 3), "dividerShare": round(float(p["divider"].mean()), 3)}
             for (_ri, side), p in geo.wall_plan().items()},
         "props": len(props),
+        "bounds": bnd.info,
         "scenery": {"file": "scenery.json", "counts": scenery.counts(), "total": len(scenery.placements),
                     "info": scenery.info, "backdrop": backdrop_info},
         "maps": map_info,
