@@ -765,12 +765,42 @@ class TrackGeometry:
         side = float(np.dot(c - wpts[jc], t.nl[win[jc]]))
         col = 0 if side > 0 else t.m
         edge = (t.left if side > 0 else t.right)[win, :2]
-        # Extend this road's two edge lines back to the target's edge: the mouth spans the target-edge
-        # vertices between the two hits, so the corners between the roads are filled too.
+        # The mouth's sides follow this road's own edges back from the cut to where they enter the target road
+        # (a junction mouth: the fork keeps the real outline of both roads), then on to the target's edge; the
+        # mouth spans the target-edge vertices between the two hits. Straight chords from the cut (as for a
+        # flat crossing's hole) filled a large triangular apron outside a curving branch's edge (Donington's
+        # National split; Chris 2026-10-24).
         away = r.tangent[cut.sample] * (1.0 if np.dot(r.tangent[cut.sample], c - wpts[jc]) >= 0 else -1.0)
+        step_k = -1 if cut.sample < r.n // 2 else 1  # towards the junction
+        hw_t = float(np.max(t.w[win])) / 2.0
+        chains: list[list[int]] = [[], []]
         ends = []
-        for p0 in (cross[0, :2], cross[-1, :2]):
-            hit = _ray_polyline(p0, -away, edge, 40.0)
+        for n_c, (p0, ecol) in enumerate(((cross[0, :2], r.left), (cross[-1, :2], r.right))):
+            start, d = p0, -away
+            if cut.kind == "mouth":
+                k = cut.sample + step_k
+                last = p0
+                while 0 <= k < r.n and len(chains[n_c]) < 60:
+                    q = ecol[k, :2]
+                    if float(np.min(dist_to_polyline(q[None, :], wpts))) <= hw_t:
+                        break
+                    # on a third road (another junction right beside this one, Anglesey's Bus Stop): that one's
+                    # mouth paves it, so this side keeps the plain chord
+                    mask = self.index.ri != t.index
+                    if self.index.near_other(ecol[k:k + 1], np.array([r.index]), r.s[k:k + 1], 0.0, mask=mask)[0]:
+                        chains[n_c] = []
+                        break
+                    chains[n_c].append(k)
+                    last = q
+                    k += step_k
+                if 0 <= k < r.n and chains[n_c]:
+                    dv = ecol[k, :2] - last
+                    if float(np.hypot(*dv)) > 1e-6:
+                        start, d = last, dv / float(np.hypot(*dv))
+            hit = _ray_polyline(start, d, edge, 40.0)
+            if hit is None and chains[n_c]:  # back to the plain chord from the cut
+                chains[n_c] = []
+                hit = _ray_polyline(p0, -away, edge, 40.0)
             ends.append(hit if hit is not None else float(np.argmin(np.hypot(*(wpts - p0).T))))
         ja, jb = ends
         lo, hi = math.floor(min(ja, jb)), math.ceil(max(ja, jb))
@@ -791,7 +821,14 @@ class TrackGeometry:
         edge_ids = [vid(t, win[k], col) for k in range(lo, hi + 1)]
         blocked = self.mouth_samples.setdefault((t.index, 1 if side > 0 else -1), set())
         blocked.update(win[k] for k in range(max(0, lo - 1), min(len(win), hi + 2)))
-        tail = cross_ids[::-1] if jb >= ja else cross_ids
+        # around the polygon: the target edge (lo -> hi), the side reaching hi (from the target edge to the cut),
+        # the cut's cross-section, then the other side back towards lo
+        side_a = [vid(r, k, 0) for k in chains[0]]      # from the cut corner (left) towards the target
+        side_b = [vid(r, k, r.m) for k in chains[1]]    # from the cut corner (right) towards the target
+        if jb >= ja:
+            tail = side_b[::-1] + cross_ids[::-1] + side_a
+        else:
+            tail = side_a[::-1] + cross_ids + side_b
         poly_ids = edge_ids + tail
         if len(set(poly_ids)) != len(poly_ids):
             self.warnings.append(f"stitch-degenerate: {r.id}@{cut.sample} -> {t.id}")
