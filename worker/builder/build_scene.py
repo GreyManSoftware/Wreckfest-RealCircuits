@@ -87,6 +87,32 @@ def static_cube_map(geo: TrackGeometry) -> Mesh:
     return m
 
 
+RESULT_CAMERA = ("resultcamera", "resultcamera_target")
+
+
+def result_camera(eye, target, static: bool = False) -> list[Mesh]:
+    """The race intro view ("WELCOME TO ..." while the race loads in) and the results view: Wreckfest 1 shows the
+    track through its animated camera, which looks from the scene object named ``resultcamera`` at the one named
+    ``resultcamera_target`` (``Wreckfest_x64.exe``: the prerace state calls the camera manager's result-camera
+    setup, which finds both nodes by name and switches to IngameAnimatedCamera; its update uses each node's
+    world position and, when either node is missing, puts the camera at the world origin looking along -z: the
+    under-the-ground view of every generated track). Every stock base carries both, small boxes with the dynamic
+    ghost object (as ``#static_cube_map``) and a keyframe animation; ours are static, at the start camera's eye
+    and target (wfbuild/cameras.py). The object location carries the position, so each box's origin is its
+    centre. ``static`` makes them plain static meshes without the ghost object (an in-game A/B test)."""
+    out = []
+    for name, c in zip(RESULT_CAMERA, (eye, target)):
+        c = np.asarray(c, dtype=np.float64)
+        h = C.CUBE_MAP_SIZE / 2.0
+        m = Mesh(name, "col = true" if static else C.STATIC_CUBE_MAP[1], kind="helper")
+        m.origin = (float(c[0]), float(c[1]), float(c[2]))
+        TrackGeometry._box(m, c[:2], 0.0, C.CUBE_MAP_SIZE, c[2] - h, c[2] + h, "cube_map")
+        bottom = [i for i, v in enumerate(m.verts) if v[2] < c[2]]
+        m.oriented_face(tuple(bottom), "cube_map", np.array([0, 0, -1.0]))
+        out.append(m)
+    return out
+
+
 def _rot(x: float, y: float, deg: int) -> tuple[float, float]:
     c, s = {0: (1, 0), 90: (0, 1), 180: (-1, 0), 270: (0, -1)}[deg]
     return x * c - y * s, x * s + y * c
@@ -231,6 +257,15 @@ def main() -> None:
     # replays cut between, model coordinates
     start_cams = {lay.name: cameras.start_camera(geo, lay, field, planner, scenery.placements) for lay in layouts}
     side_cams = {lay.name: cameras.trackside_cameras(geo, lay, field, planner, scenery.placements) for lay in layouts}
+    # the intro/results view (result_camera): per layout, from its start camera. BUILDER_RESULT_CAMERA picks a
+    # variant for in-game A/B tests: "base" (the main layout's pair in the base, as stock), "static" (no ghost
+    # object), "none"
+    rc_mode = os.environ.get("BUILDER_RESULT_CAMERA", "layout")
+    if rc_mode == "base":
+        base_meshes += result_camera(*start_cams[layouts[0].name][:2])
+    elif rc_mode != "none":
+        for lay in layouts:
+            lay.meshes += result_camera(*start_cams[lay.name][:2], static=rc_mode == "static")
     transform_info = {"rotateDeg": rot, "shift": [0.0, round(shift, 4), 0.0],
                       "note": "scene = rotate(model, rotateDeg about +z) + shift"}
     with open(os.path.join(args.out, "scenery.json"), "w", encoding="utf-8", newline="\n") as f:
@@ -302,7 +337,9 @@ def main() -> None:
         cps = bscene.collection("checkpoints")
         jumps = bscene.collection("jumps")
         for m in lay.meshes:
-            target = {"ai": ai, "checkpoint": cps}.get(m.kind) or (bscene.collection("bounds") if m.kind == "bounds" else jumps)
+            target = ({"ai": ai, "checkpoint": cps}.get(m.kind)
+                      or (bscene.collection({"bounds": "bounds", "helper": "helpers"}[m.kind])
+                          if m.kind in ("bounds", "helper") else jumps))
             bscene.mesh_object(m, target)
         sp = bscene.collection("startpoints")
         lp = None
