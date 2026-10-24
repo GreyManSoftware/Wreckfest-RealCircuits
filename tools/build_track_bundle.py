@@ -304,9 +304,12 @@ def description(cfg: dict, members: list[dict]) -> str:
     n_lay = sum(len(m["layouts"]) for m in members)
     lines = [cfg.get("intro", "").format(circuits=len(members), layouts=n_lay).strip(), "",
              "[h2]Circuits and layouts[/h2]", "[list]"]
+    blurbs = cfg.get("blurbs", {})
     for m in members:
         lays = ", ".join(f"{l['name']} {km(l['lapM'])}" for l in m["layouts"])
         lines.append(f"[*][b]{m['name']}[/b]: {lays}")
+        if blurbs.get(m["slug"]):
+            lines.append(blurbs[m["slug"]])
     lines += ["[/list]", cfg.get("lapNote", "Lap lengths as built."), "",
               "[h2]Using it[/h2]", *cfg.get("usage", []), "",
               "[h2]Credits[/h2]", "[list]", *[f"[*]{c}" for c in cfg["credits"]], "[/list]",
