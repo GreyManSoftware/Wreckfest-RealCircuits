@@ -11,8 +11,8 @@
  "pitLanes": [
   {
    "id": "pit",
-   "mode": "drivable",
-   "modeReason": "a straight, parallel lane beside Senna Straight with shallow merges on straights; no short cut (0.3 m)",
+   "mode": "closed",
+   "modeReason": "closed for now, though it could be drivable (a straight, parallel lane beside Senna Straight, no short cut: 0.3 m): a car in the lane would miss the finish checkpoint (it spans the track only) and the track's barrier plan has no gaps for the merges yet",
    "widthM": 10.0,
    "widthSource": "estimated from the gap between the track's edge and the pit building (OSM 145755929, LIDAR)",
    "side": "right",

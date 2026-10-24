@@ -1446,6 +1446,52 @@ def width_summary(w: np.ndarray, off: np.ndarray, matched: float) -> dict:
             "matchedFraction": round(matched, 3)}
 
 
+PITS_DIR = Path(__file__).resolve().parent / "real_tracks" / "pits" / "derived"
+
+
+def load_pits(recipe: dict, centre: np.ndarray, k_scale: float) -> dict | None:
+    """``sketch.imported.pits`` from the circuit's derived pits file (tools/real_tracks/pits/derived/<slug>.json,
+    written by tools/real_tracks_data/pits.py in the recipe's grid), in the local frame; None without one (or
+    with the recipe's ``"pits": false``)."""
+    path = PITS_DIR / f"{recipe_slug(recipe)}.json"
+    if recipe.get("pits") is False or not path.exists():
+        return None
+    d = json.loads(path.read_text(encoding="utf-8"))
+
+    def pts(a, nd: int = 2) -> list[dict]:
+        q = (np.asarray(a, dtype=float) - centre) / k_scale
+        return [{"x": round(float(x), nd), "y": round(float(y), nd)} for x, y in q]
+
+    walls = {w["lane"]: w for w in d.get("pitWalls", [])}
+    lanes = []
+    for ln in d.get("pitLanes", []):
+        lane = {"id": ln["id"], "mode": ln["mode"], "widthM": float(ln["widthM"]), "side": ln["side"],
+                "entrySM": ln["entry"]["sM"], "exitSM": ln["exit"]["sM"], "centreline": pts(ln["centreline"])}
+        if ln["id"] in walls:
+            w = walls[ln["id"]]
+            lane["wall"] = {"points": pts(w["line"]), "sM": [w["s0"], w["s1"]], "heightM": w["heightM"]}
+        lanes.append(lane)
+
+    def building(b: dict) -> dict:
+        return {"kind": b["kind"], **({"name": b["name"][:80]} if b.get("name") else {}),
+                "footprint": pts(b["footprint"], 1), "heightM": float(min(max(b["heightM"], 1.0), 60.0)),
+                "facing": {"x": round(float(b["facing"][0]), 3), "y": round(float(b["facing"][1]), 3)}}
+
+    src = "; ".join(f"{k}: {v}" for k, v in d.get("sources", {}).items())
+    return {
+        "source": ("Pits: " + src)[:1000],
+        "pitLanes": lanes,
+        "buildings": [building(b) for b in d.get("buildings", [])],
+        "grandstands": [building(b) for b in d.get("grandstands", [])],
+        "paddocks": [{**({"name": a["name"][:80]} if a.get("name") else {}), "points": pts(a["polygon"], 1)}
+                     for a in d.get("paddocks", [])],
+        "gantries": [{"kind": g["kind"], **({"name": g["name"][:80]} if g.get("name") else {}),
+                      "route": g.get("route", "main"), "sM": g["sM"],
+                      **({"topM": g["lidar"]["topMaxM"]} if (g.get("lidar") or {}).get("topMaxM") else {})}
+                     for g in d.get("gantries", [])],
+    }
+
+
 def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = None, log=print) -> tuple[dict, dict]:
     """The TrackSpec and a report dict (lengths, heights, grades, camber, data checks)."""
     set_projection(recipe)
@@ -1731,6 +1777,9 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         imported["altLayouts"] = alt_specs
     if sea is not None:
         imported["seaLevelM"] = round(float(sea) - datum, 2)
+    pits = load_pits(recipe, centre, k_scale)
+    if pits:
+        imported["pits"] = pits
     if recipe.get("horizon") and recipe.get("dtm") == "wales":
         log("Horizon profile from the DTM overview ...")
         imported["horizon"] = horizon_profile(recipe, p[0], float(z[0]) + 1.5, cache, float(sea or 0.0))

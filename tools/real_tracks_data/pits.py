@@ -456,7 +456,7 @@ class Pits:
         for k in DERIVED:
             res[k] = derived[k]
         self.out.parent.mkdir(parents=True, exist_ok=True)
-        self.out.write_text(dumps(res) + "\n", encoding="utf-8")
+        self.out.write_text(dumps(res) + "\n", encoding="utf-8", newline="\n")
 
 
 def dumps(doc: dict) -> str:

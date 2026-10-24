@@ -5,10 +5,10 @@
     "id": "pit",
     "ways": [90102737],
     "widthM": 10.0,
-    "mode": "drivable",
+    "mode": "closed",
     "centreFromTrackM": 13.0,
     "taperM": 70,
-    "modeReason": "a straight, parallel lane beside the Wheatcroft Straight; entry after Goddards, exit on the straight; no short cut (4 m longer than the track)",
+    "modeReason": "closed for now, though it could be drivable (a straight, parallel lane beside the Wheatcroft Straight, 4 m longer than the track): a car in the lane would miss the finish checkpoint (it spans the track only) and the track's barrier plan has no gaps for the merges yet",
     "widthSource": "estimated from the gap between the track's edge and the pit garages (OSM 'Pit Garages 1-38' 410366924, LIDAR)"
    }
   ],
