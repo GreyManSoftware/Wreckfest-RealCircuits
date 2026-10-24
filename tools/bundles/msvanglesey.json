@@ -1,19 +1,19 @@
 {
   "slug": "msvanglesey",
-  "title": "MSV + Anglesey Tracks",
+  "title": "Greyman Software Track Pack 1",
   "publishedId": 3826192302,
   "visibility": "public",
   "homepage": "https://git.greymansoftware.com",
   "tracks": ["cadwellpark", "brandshatch", "oultonpark", "snetterton", "doningtonpark", "bedfordautodrome", "navarra", "anglesey"],
-  "intro": "[h1]MSV + Anglesey Tracks[/h1]\nThe seven MotorSport Vision circuits plus Anglesey Circuit (Trac Mon), rebuilt from open map and LIDAR data: {circuits} circuits, {layouts} layouts. Each circuit has its current official layouts with the real racing direction and start/finish lines, real elevation and camber, measured track widths, a 24-car grid, AI and the in-race minimap.",
+  "intro": "[h1]Greyman Software Track Pack 1[/h1]\nReal UK and Spanish circuits (Cadwell Park, Brands Hatch, Oulton Park, Snetterton, Donington Park, Bedford Autodrome, Circuito de Navarra and Anglesey), rebuilt from open map and LIDAR data: {circuits} circuits, {layouts} layouts. Each circuit has its current official layouts with the real racing direction and start/finish lines, real elevation and camber, measured track widths, a 24-car grid, AI and the in-race minimap.",
   "lapNote": "Lap lengths are as built in the game.",
   "usage": [
-    "Subscribe, then enable [b]MSV + Anglesey Tracks[/b] in the Mods menu and restart the game. Each layout is an event, e.g. \"Brands Hatch Indy\".",
+    "Subscribe, then enable [b]Greyman Software Track Pack 1[/b] in the Mods menu and restart the game. Each layout is an event, e.g. \"Brands Hatch Indy\".",
     "Online: the server and every player need the mod enabled (server: copy the mod folder into the server's mods folder and add that folder's name to mods= in server_config.cfg).",
     "Don't enable it together with separate single-circuit versions of these tracks: the same track in two mods clashes."
   ],
-  "changeNote": "First release: {circuits} circuits, {layouts} layouts.",
-  "previewSubtitle": "7 MotorSport Vision circuits + Anglesey  |  {layouts} layouts  |  real elevation and camber",
+  "changeNote": "Renamed to Greyman Software Track Pack 1. Fixes: start camera, Oulton Hislop's straight, Cadwell junctions and dividers, verge gaps; new 150/100/50 m braking boards.",
+  "previewSubtitle": "8 real circuits  |  {layouts} layouts  |  real elevation and camber",
   "credits": [
     "Circuit layouts and woodland: © OpenStreetMap contributors, ODbL 1.0",
     "Heights in England: Environment Agency LIDAR Composite DTM, © Environment Agency copyright and/or database right, Open Government Licence v3.0",
