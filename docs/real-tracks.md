@@ -207,7 +207,10 @@ Anglesey; findings tables in `real-tracks/<slug>.md`, "Audit 2026-10-24"). Share
 - **`join_blend`:** an alternative layout's branch ends take the main road's height and camber, the mismatch faded
   over at least 30 m (more for a large height step, at most 1.5 % grade); geom only blends heights over 20 m.
   Samples of other circuits change only when re-imported.
-- No height de-noising was needed on the 1 m EA / Welsh DTMs: their straights show 0.08-0.31 % ripple RMS.
+- **`ease_vertical`:** crests and dips tighter than 100 m (over 10 m) get a local 6 m smoothing, main lap and
+  branches (Navarra Short's hook ramp, 93 m, failed check_scene's AI-strip-on-road check by 7 mm). No current
+  English or Welsh sample has one (tightest: Cadwell Park's Mountain, 130 m), so they don't change when re-imported.
+- No other height de-noising was needed on the 1 m EA / Welsh DTMs: their straights show 0.08-0.31 % ripple RMS.
 
 ## Data sources and attribution
 
@@ -480,4 +483,4 @@ corners have no published names. The OSM lap has exactly MSV's 11 right and 6 le
   the builder now runs the strips on past the line until they agree, and `check_scene` checks it.
 - **Renders:** `.local\renders\navarra-{oblique,horizon,driver,driver-t3,driver-t11}.png`.
 - **Check in game:** the Short's hook inside the T11 hairpin (its road and divider run inside the hairpin), the
-  back-straight hump, the banked T11, how the arid ground and sandpit textures read on tarmac.
+  2024 extension (T11-T14) on the 2024 heights, how the arid ground and sandpit textures read on tarmac.
