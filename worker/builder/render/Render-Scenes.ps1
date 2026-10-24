@@ -18,6 +18,7 @@ param(
     [int] $Samples = 16,
     [int] $Cpus = 8,
     [string] $DriverAt = '',
+    [switch] $Intro,
     [string] $Image = 'trackgen-worker:dev',
     [string] $HostPython = 'E:\Source\wreckfest\.local\visual\venv\Scripts\python.exe',
     [string] $WreckfestDir = $(if ($env:WRECKFEST_DIR) { $env:WRECKFEST_DIR } else { 'D:\SteamLibrary\steamapps\common\Wreckfest' })
@@ -28,7 +29,7 @@ $R = Join-Path $repo '.local\render'
 if (-not $Out) { $Out = Join-Path $repo '.local\renders' }
 New-Item -ItemType Directory -Force $R, (Join-Path $R 'scenes'), (Join-Path $R 'specs'), (Join-Path $R 'out'), $Out | Out-Null
 $prep = Join-Path $PSScriptRoot 'prep.py'
-$base = @('run', '--rm', '--cpus', $Cpus, '--memory', '10g', '-e', "RENDER_THREADS=$Cpus", '-e', "RENDER_DRIVER_AT=$DriverAt",
+$base = @('run', '--rm', '--cpus', $Cpus, '--memory', '10g', '-e', "RENDER_THREADS=$Cpus", '-e', "RENDER_DRIVER_AT=$DriverAt", '-e', "RENDER_INTRO=$(if ($Intro) { '1' } else { '' })",
     '--mount', "type=bind,source=$WreckfestDir,target=/wreckfest,readonly",
     '--mount', "type=bind,source=$R,target=/r",
     '--mount', "type=bind,source=$(Join-Path $repo 'worker\builder'),target=/opt/worker/builder,readonly")

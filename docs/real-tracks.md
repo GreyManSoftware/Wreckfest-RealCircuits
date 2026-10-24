@@ -21,7 +21,7 @@ layouts; lengths from Wikipedia unless noted, to verify per circuit under the st
 | 1 | Cadwell Park (`cadwellpark`) | Full 3.502 km, Club 2.375 km, Woodlands 1.365 km (the bike chicane variant isn't used by cars) | built 2026-10-20 |
 | – | Anglesey (`anglesey`, not MSV) | International 3.380 km, Coastal 2.494 km, National 1.931 km, Club 1.287 km | built 2026-10-20 |
 | 2 | Brands Hatch (`brandshatch`) | Grand Prix 3.916 km, Indy 1.944 km (MSV) | built 2026-10-20: GP 3,903 m (−0.3 %), Indy 1,930 m (−0.7 %); [details](real-tracks/brandshatch.md) |
-| 3 | Oulton Park (`oultonpark`) | International 4.307 km, Island 3.616 km, Fosters 2.656 km (MSV) | built 2026-10-20: 4,317 m (+0.2 %), 3,564 m (−1.4 %), 2,676 m (+0.8 %); [details](real-tracks/oultonpark.md) |
+| 3 | Oulton Park (`oultonpark`) | International 4.307 km, Island 3.616 km, Fosters 2.656 km (MSV) | built 2026-10-20, chicanes sharpened 2026-10-24: 4,320 m (+0.3 %), 3,566 m (−1.4 %), 2,679 m (+0.9 %); [details](real-tracks/oultonpark.md) |
 | 4 | Snetterton (`snetterton`) | 300 4.779 km, 200 3.219 km, 100 1.577 km (MSV) | built 2026-10-20: 4,789 m (+0.2 %), 3,195 m (−0.8 %), 1,556 m (−1.3 %); the 100's own line is estimated; [details](real-tracks/snetterton.md) |
 | 5 | Donington Park (`doningtonpark`) | Grand Prix 4.020 km, National 3.186 km (MSV; Wikipedia 3.149 km) | built 2026-10-20 |
 | 6 | Bedford Autodrome (`bedfordautodrome`) | GT 6.11 km, SW 4.50 km, West 3.0 km, SEN 3.70 km (MSV's circuit-layouts page; North, South and East no longer listed) | built 2026-10-20 |
@@ -131,6 +131,11 @@ Recipe extras (Anglesey, `tools/real_tracks/anglesey.json`):
   environments with `lake` (parkland, airfield) lay a flat water plane there and keep scenery off it.
 - `altLayouts[].clockwise`: a layout that winds the other way as a loop while driving the shared roads the same way
   (Snetterton 100, the 300's infield loop): `false`. Alt layout ids start with a letter (`c200`, `c100`).
+- `sharpWays` (+ `sharpWaysNote`): ids of chicane ways whose corners the 5 m smoothing would round off (2026-10-24,
+  Oulton Park's Hislop's read as a kink in game). Over them the line is smoothed only 1 m (feathered over 8 m) and the
+  registration shift is held from their ends (it could pull the line towards a disused straight beside them); the
+  rule radius still applies. Used for Oulton Park (Brittens, Hislop's), Donington Park (Fogarty Esses) and Anglesey
+  (Bus Stop).
 - Heights are written in mm (cm rounding moved a 2 m step's grade by 0.5 %), and the fitted camber is clamped to
   the 10° imported-bank rule (the report keeps `bankFittedMaxDeg`; Oulton Park's Shell Oils hairpin fits 10.9°).
 
@@ -153,6 +158,31 @@ Every recipe (2026-10-19, after Cadwell Park drove backwards):
   a green strip beyond the exit kerb when the apex radius is 40 m or more). Use OSM kerb/run-off features, a clear
   LIDAR signal or a track guide, never proprietary imagery. The build's `manifest.json` lists every kerbed corner
   with its source (`kerbs`).
+
+## Chicanes (2026-10-24)
+
+Chris drove Oulton Park and missed the "bus stop" chicane on the big straight. It was in OSM, the recipe and the
+model, but the importer's 5 m smoothing had made every chicane a gentle S taken flat out. Recipes now list their
+chicanes in `sharpWays`; tightest radius before / after:
+
+| Circuit | Chicane (OSM way) | Before | After | Layouts using it |
+|---|---|---|---|---|
+| Oulton Park | Brittens (820427208), start of the Hill straight | 16.3 m | 12.7 m | International (Island bypasses it via the Island Hairpin) |
+| Oulton Park | Hislop's (820427209), 135 m before Knickerbrook | 20.1 m | 14.9 m | International, Island; Fosters too in our build (see oultonpark.md) |
+| Donington Park | Fogarty Esses (28381201) | 21.3 m | 17.7 m | Grand Prix, National |
+| Anglesey | Bus Stop (892471229) | 28.8 m | 13.6 m | all four |
+
+Lap lengths barely move (Donington GP 4,000.9 m, National 3,184.0 m; Anglesey 3,286.5 / 2,463.2 / 1,899.7 / 1,272.1 m).
+
+Survey of chicanes OSM might map outside the recipes (cached `osm.json` plus one Overpass query per circuit for every
+way sharing a node with its laps, `osm-connected.json`): no circuit has an unused chicane way. Unused `raceway` ways
+are pit lanes, karting/rally stages, other configurations (Bedford's links, Navarra's "Connection") and Oulton's old
+straight past Hislop's (27299256) and the Island line through Brittens (450023909 + 820427876); Cadwell's 92 m
+private raceway beside Woodland (396424045) is a service bypass, not a car chicane. Connected non-raceway ways are
+service, emergency and paddock roads. Brands Hatch (no chicane), Snetterton (Bomb Hole, Coram: corners, no chicane on
+the 300/200/100), Cadwell Park (none for cars), Bedford (none on GT/SW/West/SEN) and Navarra (numbered turns, no
+named chicane; their tightest S-bends follow OSM) need no change. Donington's old Esses were replaced by the Fogarty
+Esses; the Melbourne Hairpin and Goddards are hairpins (15.9 m, 22.2 m), not chicanes.
 
 ## Data sources and attribution
 
@@ -245,7 +275,7 @@ and enabled as "Anglesey".
 
 | | International | Coastal | National | Club |
 |---|---|---|---|---|
-| Lap (built) / published | 3,286.8 / 3,380 m (−2.8 %) | 2,463.8 / 2,494 m (−1.2 %) | 1,898.9 / 1,931 m (−1.7 %) | 1,272.1 / 1,287 m (−1.2 %) |
+| Lap (built) / published | 3,286.5 / 3,380 m (−2.8 %; Bus Stop sharpened 2026-10-24) | 2,463.2 / 2,494 m (−1.2 %) | 1,899.7 / 1,931 m (−1.6 %) | 1,272.1 / 1,287 m (−1.2 %) |
 | Route | full lap | Corkscrew link (OSM 108374690) | School Corner (OSM 108374691) from the end of the return straight, Rocket, Peel, Seamans, Tom Pryce Straight, Hairpin, return straight | start straight, Target, Banking, Church, Club Hairpin (OSM 264840722) |
 | Direction | clockwise (racingcircuits.info arrows; BRSCC notes) | clockwise | clockwise (ACU 2012: first corner the uphill right School Corner) | clockwise |
 | Start/finish | OSM "Start/Finish" node by the 2007 pits | shares International | own: the return straight beside the National pit lane, 62 % along it (ACU 2012: the original pre-2007 line and pit lane; map flag) | own: 22 m after the Club Hairpin joins the start straight (map flag; the International line is 34 m before that junction) |
@@ -303,7 +333,7 @@ date); the 2010 Tilke GP extension was never built.
 | | Grand Prix | National |
 |---|---|---|
 | Source of the layout | MSV GP Circuit map (donington-park.co.uk/about/circuit-layouts): 2.49 mi / 4.02 km, 12 corners | MSV National Circuit map: 1.98 mi / 3.186 km, 10 corners; the Roberts chicane (OSM 27131003, "short cut used on National circuit") in place of the Melbourne Loop |
-| Lap (built) / published | 3,999.7 / 4,020 m (−0.5 %) | 3,183.8 / 3,186 m (−0.1 %; Wikipedia 3,149 m: +1.1 %) |
+| Lap (built) / published | 4,000.9 / 4,020 m (−0.5 %; Fogarty Esses sharpened 2026-10-24) | 3,184.0 / 3,186 m (−0.1 %; Wikipedia 3,149 m: +1.1 %) |
 | OSM polyline | 4,006 m | 3,180 m |
 | Direction | clockwise: the MSV map's start/finish chevrons point down the Wheatcroft Straight towards Redgate; guides (driver61.com, oversteer48.com) start the lap at Redgate, a right-hander | clockwise (same map and guides) |
 | Start/finish | on the Wheatcroft Straight 197 m from Goddards, beside the middle of the pit lane (driver61.com coordinates 52°49′47.3″N 1°22′46.4″W; MSV maps) | shares the GP line and grid (same chevrons on the MSV National map) |

@@ -22,7 +22,14 @@ plain), tag 'tcat' reversed, version 20, then
     'fxdf' text     dof (data/property/effects/dof/default.fxdf)
     f  free cam max distance (X), (Z), max elevation; prerace cam fov
     'dofs' v0 [1]   prerace cam dof (5 dwords)
-    'tcam' v11 [0]  cameras (none: stock fields04_2 and urban02_6 have none either)
+    'tcam' v11 [n]  cameras (decoded from the 120 stock files, field names from BagEdit's strings): u32 type
+                    (0 rotating, 1 fixed, 2 moving), u32 flags (2: start camera, 4: replay), f field of view,
+                    f (7 in most), u32 0, i32 active / move between sectors (4: AI main-route sector indices
+                    of a replay camera), f tracking start / end distance, a dof reference ('fxdf' text, or an
+                    empty reference: two zero dwords), 'tcde' v1 [k] positions: f x, y (up), z (Bugbear
+                    axes: Blender x, z, y), f pitch, yaw, roll (degrees; yaw from +z towards +x, pitch < 0
+                    looks down, stored 0..360), f field of view, f screen position x, y, f smoothing (vel, pos,
+                    pred). We write one start camera per layout (``Camera``, see wfbuild/cameras.py).
     'trou' v7 [n]   routes, one per AI route in index order (main, alt1, ...): u32 flags (0; a flag bit is
                     "Do not render in minimap"), f Minimap Race To Safe Bias, f Minimap Track Width Extend,
                     f ai drive probability, i32 Alt Start Route Start Sector, 'tszo' v1 [0] special zones,
@@ -32,12 +39,16 @@ plain), tag 'tcat' reversed, version 20, then
     9 x i32         lap reference times (Class A/B/C), checkpoint race start and first span times
     'ttgi' v1 [0]   time gate infos;  'tobs' v1 [0] obstacles
 
-Values are the ones stock and Workshop files carry by default (highlight 2.0, zoom 1.0, bias 0.3, extend 0,
+Without a start camera the game shows the race loading in from a default spot, under the ground on our tracks
+(Chris, 2026-10-23: every generated track; the scene origin, 16 m under Oulton Park's terrain); 103 of the 112
+stock files with decodable cameras have exactly one. Values are the ones stock and Workshop files carry by default (highlight 2.0, zoom 1.0, bias 0.3, extend 0,
 drive probability 0.9 on the main route and 0.1 on alternatives as in stock fields04_2).
 """
 from __future__ import annotations
 
+import math
 import struct
+from dataclasses import dataclass
 
 VERSION = 20
 DOF = "data/property/effects/dof/default.fxdf"
@@ -46,6 +57,37 @@ RACE_TO_SAFE_BIAS, WIDTH_EXTEND = 0.3, 0.0
 DRIVE_PROB_MAIN, DRIVE_PROB_ALT = 0.9, 0.1
 GRID_GENERATION_OFF = 2
 GRID_DEFAULTS = (5.0, 3, 0, 0.2, 1.5, 2.0, 3.0)  # what the game's track editor writes (Workshop tracks)
+CAM_ROTATING, CAM_FIXED, CAM_MOVING = 0, 1, 2
+CAM_START, CAM_REPLAY = 2, 4  # flags
+CAM_TRACKING = 1000.0  # tracking start/end distance of most stock start cameras
+
+
+@dataclass
+class Camera:
+    """A track camera in Blender axes (x, y, z up, metres; the layout scene's coordinates). ``yaw_deg`` is the
+    bearing it looks along, from +y towards +x; ``pitch_deg`` < 0 looks down. Stock start cameras (the view the
+    game shows while the race loads in, before the menu): fixed, 2-10 m above the ground beside the road, some
+    10-50 m from the pole, looking back at the grid, field of view ~58."""
+    x: float
+    y: float
+    z: float
+    pitch_deg: float
+    yaw_deg: float
+    fov_deg: float = 58.0
+    kind: int = CAM_FIXED
+    flags: int = CAM_START
+
+    @staticmethod
+    def looking_at(eye, target, fov_deg: float = 58.0, kind: int = CAM_FIXED, flags: int = CAM_START) -> "Camera":
+        dx, dy, dz = (float(target[k]) - float(eye[k]) for k in range(3))
+        yaw = math.degrees(math.atan2(dx, dy)) % 360.0
+        pitch = math.degrees(math.atan2(dz, math.hypot(dx, dy)))
+        return Camera(float(eye[0]), float(eye[1]), float(eye[2]), pitch, yaw, fov_deg, kind, flags)
+
+    def direction(self) -> tuple[float, float, float]:
+        """Unit view direction (Blender axes)."""
+        p, y = math.radians(self.pitch_deg), math.radians(self.yaw_deg)
+        return (math.cos(p) * math.sin(y), math.cos(p) * math.cos(y), math.sin(p))
 
 
 def _tag(t: str) -> bytes:
@@ -64,8 +106,17 @@ def _arr(tag: str, version: int, n: int) -> bytes:
     return _tag(tag) + _i(version, n)
 
 
-def build(n_routes: int, lap_length_m: float) -> bytes:
-    """A plain (format 1) v20 .tcat for a layout with ``n_routes`` AI routes (1 + alternative routes)."""
+def _camera(c: Camera) -> bytes:
+    b = struct.pack("<IIff5I2f", c.kind, c.flags, c.fov_deg, 7.0, 0, 0, 0, 0, 0, CAM_TRACKING, CAM_TRACKING)
+    b += _tag("fxdf") + _i(len(DOF)) + DOF.encode("ascii")
+    b += _arr("tcde", 1, 1)
+    b += _f(c.x, c.z, c.y, c.pitch_deg % 360.0, c.yaw_deg % 360.0, 0.0, c.fov_deg, 0.5, 0.5, 0.9, 0.9, 1.0)
+    return b
+
+
+def build(n_routes: int, lap_length_m: float, cameras: list[Camera] | tuple = ()) -> bytes:
+    """A plain (format 1) v20 .tcat for a layout with ``n_routes`` AI routes (1 + alternative routes) and the
+    given cameras (scene coordinates)."""
     if n_routes < 1:
         raise ValueError("a layout needs its main AI route")
     b = bytearray(_i(1) + _tag("tcat") + _i(VERSION))
@@ -76,7 +127,9 @@ def build(n_routes: int, lap_length_m: float) -> bytes:
     b += _tag("fxdf") + _i(len(DOF)) + DOF.encode("ascii")
     b += _f(50.0, 50.0, 50.0, 58.0)
     b += _arr("dofs", 0, 1) + _i(0, 0, 0, 0, 0)
-    b += _arr("tcam", 11, 0)
+    b += _arr("tcam", 11, len(cameras))
+    for c in cameras:
+        b += _camera(c)
     b += _arr("trou", 7, n_routes)
     for k in range(n_routes):
         b += struct.pack("<Ifff", 0, RACE_TO_SAFE_BIAS, WIDTH_EXTEND, DRIVE_PROB_MAIN if k == 0 else DRIVE_PROB_ALT)
@@ -119,10 +172,21 @@ class _R:
         return v
 
 
+def _dof_ref(r: _R) -> str | None:
+    """A dof reference: 'fxdf' and its path, or an empty reference (two zero dwords)."""
+    if r.d[r.p:r.p + 4] == bytes(4):
+        r.p += 4
+        r.text()
+        return None
+    r.tag("fxdf")
+    return r.text()
+
+
 def read(payload: bytes) -> dict:
     """Parse a v20 .tcat payload (after the 12-byte header; scne_read.unbag gives it for plain and lz4 files).
-    Raises ValueError when the layout differs. Cameras are skipped by their count only when there are none
-    (camera records aren't decoded); stock files with cameras are read up to them."""
+    Raises ValueError when the layout differs. Cameras come back as ``Camera`` (Blender axes, first position)
+    with the raw header and every position entry. The cameras of all 120 stock files parse; so does the rest
+    (to the last byte, or up to their time gates, which aren't decoded) except forest02_1's special zones."""
     r = _R(payload)
     out = {"highlightRange": r.f(), "zoomFactor": r.f(), "derbyTagFactor": r.f(),
            "pit": (r.f(), r.f(), r.f())}
@@ -130,16 +194,27 @@ def read(payload: bytes) -> dict:
     out["grid"] = [struct.unpack_from("<IfiIffff", payload, r.p + 32 * k) for k in range(n)]
     r.p += 32 * n
     out["aiGrip"] = (r.f(), r.f())
-    r.tag("fxdf")
-    out["dof"] = r.text()
+    out["dof"] = _dof_ref(r)
     out["freeCam"] = (r.f(), r.f(), r.f())
     out["prerace_fov"] = r.f()
     v, n = r.arr("dofs")
     r.p += 20 * n
     v, n = r.arr("tcam")
-    out["cameras"] = n
-    if n:
-        return out  # camera records not decoded
+    cams = []
+    for _ in range(n):
+        h = struct.unpack_from("<IIff5I2f", payload, r.p)
+        r.p += 44
+        dof = _dof_ref(r)
+        ev, en = r.arr("tcde")
+        ents = [struct.unpack_from("<12f", payload, r.p + 48 * k) for k in range(en)]
+        r.p += 48 * en
+        if not ents:
+            raise ValueError("camera without a position")
+        e = ents[0]
+        pitch = (e[3] + 180.0) % 360.0 - 180.0
+        cams.append({"camera": Camera(e[0], e[2], e[1], pitch, e[4] % 360.0, e[6], h[0], h[1]),
+                     "header": h, "dof": dof, "positions": ents})
+    out["cameras"] = cams
     v, n = r.arr("trou")
     routes = []
     for _ in range(n):
@@ -162,7 +237,7 @@ def read(payload: bytes) -> dict:
     out["times"] = [r.i() for _ in range(9)]
     v, n = r.arr("ttgi")
     if n:
-        raise ValueError("time gates not decoded")
+        return out  # time gates not decoded
     r.arr("tobs")
     if r.p != len(payload):
         raise ValueError(f"{len(payload) - r.p} trailing bytes")

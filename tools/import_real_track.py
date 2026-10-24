@@ -752,15 +752,80 @@ def normals_open(p: np.ndarray) -> np.ndarray:
     return np.column_stack([-t[:, 1], t[:, 0]])
 
 
+# Chicanes (a recipe's ``sharpWays``): the 5 m smoothing turns a bus-stop chicane's 10-15 m corners into a 30 m
+# radius S that is taken flat out (Oulton Park's Hislop's and Brittens, Chris 2026-10-23: "missing"), and the
+# registration can pull its line towards a disused straight beside it. Over these ways the line is only smoothed
+# enough to round the OSM node corners, and the registration shift is held from the ends.
+SHARP_SIGMA_M = 1.0
+SHARP_FEATHER_M = 8.0
+
+
+def sharp_segments(marks: list[tuple[int, int, str]], n_pts: int, sharp_ways) -> np.ndarray:
+    """Per segment of a stitched closed lap (point i to i + 1): True on a ``sharpWays`` way."""
+    sharp_ways = {int(w) for w in (sharp_ways or [])}
+    seg = np.zeros(n_pts, dtype=bool)
+    for k, (wid, i0, _) in enumerate(marks):
+        i1 = marks[k + 1][1] if k + 1 < len(marks) else n_pts
+        if wid in sharp_ways:
+            seg[i0:i1] = True
+    return seg
+
+
+def _resample_weight(src: np.ndarray, w_seg: np.ndarray, step: float) -> tuple[np.ndarray, np.ndarray]:
+    """resample_closed(src, step) and the per-segment weight carried to the new points."""
+    q = np.vstack([src, src[:1]])
+    cum = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(q, axis=0).T))])
+    n = max(8, int(round(cum[-1] / step)))
+    t = np.arange(n) * (cum[-1] / n)
+    k = np.clip(np.searchsorted(cum, t, side="right") - 1, 0, len(w_seg) - 1)
+    return np.column_stack([np.interp(t, cum, q[:, 0]), np.interp(t, cum, q[:, 1])]), w_seg[k].astype(np.float64)
+
+
+def _hold_through(v: np.ndarray, zone: np.ndarray) -> np.ndarray:
+    """``v`` with every run of ``zone`` (closed) replaced by a straight line between the values either side."""
+    out, n = v.copy(), len(v)
+    if not zone.any() or zone.all():
+        return out
+    start = int(np.flatnonzero(~zone)[0])
+    i = 0
+    while i < n:
+        a = (start + i) % n
+        if zone[a]:
+            j = i
+            while j < n and zone[(start + j) % n]:
+                j += 1
+            lo, hi = (start + i - 1) % n, (start + j) % n
+            m = j - i + 1
+            for k in range(i, j):
+                f = (k - i + 1) / m
+                out[(start + k) % n] = (1 - f) * v[lo] + f * v[hi]
+            i = j
+        else:
+            i += 1
+    return out
+
+
 def fit_loop(bng: np.ndarray, dtm: Dtm, width: float, step: float,
-             max_shift: float = 6.0) -> tuple[np.ndarray, np.ndarray, float]:
+             max_shift: float = 6.0, sharp: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, float]:
     """Smooth the OSM polyline (it has corners at its nodes), register it to the road in the DTM and ease
-    corners tighter than rule min-corner-radius. Returns the points, the registration shifts and the largest
-    easing move."""
-    p = resample_closed(gauss_closed(resample_closed(bng, 1.0), 5.0), step)
+    corners tighter than rule min-corner-radius. ``sharp`` (per segment of ``bng``, ``sharp_segments``): chicanes
+    kept sharp (SHARP_SIGMA_M smoothing, feathered over SHARP_FEATHER_M; the registration shift held through
+    them). Returns the points, the registration shifts and the largest easing move."""
+    if sharp is None or not np.any(sharp):
+        p = resample_closed(gauss_closed(resample_closed(bng, 1.0), 5.0), step)
+        w = np.zeros(len(p))
+    else:
+        r1, w1 = _resample_weight(bng, np.asarray(sharp, dtype=bool), 1.0)
+        # feather: the chicane's own corners fully sharp, blending into the smoothed line over SHARP_FEATHER_M
+        w1 = np.clip(gauss_closed(w1, SHARP_FEATHER_M / 2.0) * 2.0, 0.0, 1.0)
+        r1 = w1[:, None] * gauss_closed(r1, SHARP_SIGMA_M) + (1.0 - w1[:, None]) * gauss_closed(r1, 5.0)
+        p, w = _resample_weight(r1, w1, step)
     _, nl = normals(p)
     shift = register(dtm, p, nl, width, step, max_shift=max_shift) if max_shift > 0 else np.zeros(len(p))
-    p = resample_closed(gauss_closed(p + shift[:, None] * nl, 1.5), step)
+    shift = _hold_through(shift, w > 0.01)
+    q = p + shift[:, None] * nl
+    q = w[:, None] * q + (1.0 - w[:, None]) * gauss_closed(q, 1.5)
+    p = resample_closed(q, step)
     need = (width / 2.0 + IMPORTED_MIN_INNER_EDGE_RADIUS_M) * 1.03  # rule min-corner-radius for real tracks, +3 %
     p, eased = ease_corners(p, need)
     return resample_closed(p, step), shift, eased
@@ -974,7 +1039,8 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     # registrationMaxShiftM 0: keep the OSM line (flat ground such as an airfield has no road signal in the DTM, so
     # the registration only drifts, differently per layout)
     max_shift = float(recipe.get("registrationMaxShiftM", 6.0))
-    p, shift, eased = fit_loop(bng, dtm, width, step, max_shift)
+    sharp_ways = recipe.get("sharpWays", [])
+    p, shift, eased = fit_loop(bng, dtm, width, step, max_shift, sharp_segments(marks, len(bng), sharp_ways))
 
     # 2. Start/finish: the recipe's point; sample 0 sits on it.
     ways = {e["id"]: e for e in osm["elements"] if e["type"] == "way"}
@@ -1019,7 +1085,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         # 300's infield loop, driven the same way but anticlockwise as a loop): "clockwise": false
         if (signed_area(bng_a) < 0) != bool(alt.get("clockwise", clockwise)):
             raise ValueError(f"layout {alt['id']} runs the other way round from the main lap (or its recipe's clockwise)")
-        pa, shift_a, eased_a = fit_loop(bng_a, dtm, width, step, max_shift)
+        pa, shift_a, eased_a = fit_loop(bng_a, dtm, width, step, max_shift, sharp_segments(marks_a, len(bng_a), sharp_ways))
         # branchOffM: how far off the main line a layout's line counts as its own (default 1 m; unregistered OSM
         # lines on shared ways match exactly but are sampled out of phase, up to 1 m apart vertex to vertex)
         # joinWithinM (per layout): a branch that runs beside the main road for a while before it merges (Bedford

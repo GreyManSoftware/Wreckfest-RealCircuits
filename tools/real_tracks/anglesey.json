@@ -74,6 +74,8 @@
     "892471225": "Tom Pryce Straight",
     "108374689": null
   },
+  "sharpWays": [892471229],
+  "sharpWaysNote": "The Bus Stop (OSM 892471229) is the tight chicane before the start/finish line (MSV map, track guides); the importer's 5 m smoothing rounded it to a 29 m radius S, so it is kept sharp (tools/import_real_track.py, sharpWays; Oulton Park's Hislop's read as a kink in game, 2026-10-23).",
   "startFinish": { "node": 11458386749, "note": "OSM node 'Start/Finish' on the pit straight." },
   "publishedLapLengthM": 3380,
   "measuredLapLengthM": 3296,

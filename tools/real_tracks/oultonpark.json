@@ -38,7 +38,7 @@
         820427209, 820427213, 820427214, 820427216, 820427215, 820427224, 820427225, 820427222,
         820427223, 820427226, 820427220, 820427221
       ],
-      "layoutSource": "MSV official map 'Oulton Park Fosters Circuit' ('OP Map_Fosters Circuit.pdf'): the International to Cascades, then Fosters (OSM way 29187915 \"Foster's\") across to Hislops and Knickerbrook; 1.66 mi / 2.656 km (MSV, Wikipedia; racingcircuits.info 2.662 km).",
+      "layoutSource": "MSV official map 'Oulton Park Fosters Circuit' ('OP Map_Fosters Circuit.pdf'): the International to Cascades, then Fosters (OSM way 29187915 \"Foster's\") across to Knickerbrook; 1.66 mi / 2.656 km (MSV, Wikipedia; racingcircuits.info 2.662 km). Built through Hislop's chicane (Wikipedia: 'half of Cascades followed by the Hislop's chicane'); MSV's current map instead draws the Fosters link joining the old straight to Knickerbrook (OSM 27299256), Hislop's in grey, and that lap measures 2,649 m on OSM (MSV 2,656 m, through Hislop's 2,670 m). It crosses the International's line at the chicane entry, a flat crossing the importer and geometry don't support for imported tracks yet (tried 2026-10-24: crossing-needs-annotation), so it stays open.",
       "directionSource": "MSV official Fosters map: the same arrow by the flag towards Old Hall Corner (clockwise); racingcircuits.info: Fosters diverts 'off after Cascades to a tight right-hander leading to Knickerbrook'.",
       "startFinishSource": "MSV official Fosters map: the chequered flag at the same place on the pit straight as on the International map, so the Fosters shares its line and grid.",
       "measuredLapLengthM": 2670,
@@ -57,6 +57,8 @@
     "820427225": null,
     "820427226": null
   },
+  "sharpWays": [820427208, 820427209],
+  "sharpWaysNote": "Brittens (OSM 820427208) and Hislop's (820427209) are tight bus-stop chicanes on the Hill straight (MSV's maps draw both as sharp jinks); the importer's 5 m smoothing made them 30 m radius S-bends taken flat out (Chris, 2026-10-23: a 'bus stop' chicane on the big straight 'that we don't have'), so their corners are kept sharp (tools/import_real_track.py, sharpWays).",
   "publishedLapLengthM": 4307,
   "measuredLapLengthM": 4324,
   "widthM": 10.0,

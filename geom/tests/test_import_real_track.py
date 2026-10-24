@@ -177,6 +177,25 @@ def test_corner_easing_reaches_the_rule_radius() -> None:
     assert 0 < moved < 8.0
 
 
+def test_sharp_ways_keep_a_chicanes_corners() -> None:
+    # a 600 x 300 m loop with a bus-stop chicane on its long bottom straight: 12 m right, 25 m along, 12 m left
+    pts = [(0, 0), (250, 0), (262, -12), (287, -12), (299, 0), (600, 0), (600, 300), (0, 300)]
+    bng = irt.resample_closed(np.array(pts, dtype=float), 5.0)
+    k = np.flatnonzero((bng[:, 0] > 245) & (bng[:, 0] < 305) & (bng[:, 1] < 1))
+    marks = [(1, 0, ""), (2, int(k[0]), "chicane"), (3, int(k[-1]) + 1, "")]
+    flat = irt.Dtm(-200.0, 500.0, 2.0, np.zeros((400, 500)))
+
+    def chicane_radius(sharp) -> float:
+        p, _, _ = irt.fit_loop(bng, flat, 10.0, 2.0, 0.0, sharp)
+        sel = (p[:, 0] > 240) & (p[:, 0] < 310) & (p[:, 1] < 5)
+        return float(irt.radii(p)[sel].min())
+
+    assert irt.sharp_segments(marks, len(bng), [2]).sum() == len(k)
+    smooth, sharp = chicane_radius(None), chicane_radius(irt.sharp_segments(marks, len(bng), [2]))
+    assert smooth > 20.0  # the 5 m smoothing makes it a gentle S (Oulton Park, 2026-10-23)
+    assert sharp < 0.6 * smooth and sharp >= (5.0 + irt.IMPORTED_MIN_INNER_EDGE_RADIUS_M) * 0.999  # rule radius
+
+
 _ROOT = Path(__file__).resolve().parents[2]
 _RECIPES = sorted(p for p in (_ROOT / "tools" / "real_tracks").glob("*.json")
                   if "expectedCornerOrder" in json.loads(p.read_text(encoding="utf-8")))

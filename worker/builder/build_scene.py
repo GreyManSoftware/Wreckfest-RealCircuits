@@ -33,7 +33,7 @@ from wfbuild import config as C
 from wfbuild.geometry import Mesh, TrackGeometry
 from wfbuild.layout import LayoutBuilder, strip_end_lines
 from wfbuild import backdrop as backdrop_mod
-from wfbuild import dressing, maps, materials, tcat
+from wfbuild import cameras, dressing, maps, materials, tcat
 from wfbuild.fields import DistanceField
 from wfbuild.layout import Empty
 
@@ -139,11 +139,11 @@ def transform(meshes, empties, curves, deg: int, dy: float) -> None:
         c.points = [tp(p) for p in c.points]
 
 
-def write_tcat(lay, slug: str, mod_root: str) -> dict:
-    """mod/data/track/<slug>/<layout>.tcat with one route entry per AI route (main, alt1, ...), and what the
-    minimap will show: the main route's outline (``ai_path``, the TrackModel centreline in driving order, in
-    scene coordinates) as bounds, signed area (> 0 counter-clockwise seen from above) and length, for
-    check_export to compare with the compiled AI route the game draws."""
+def write_tcat(lay, slug: str, mod_root: str, cams: list) -> dict:
+    """mod/data/track/<slug>/<layout>.tcat with one route entry per AI route (main, alt1, ...) and the layout's
+    cameras (scene coordinates), and what the minimap will show: the main route's outline (``ai_path``, the
+    TrackModel centreline in driving order, in scene coordinates) as bounds, signed area (> 0 counter-clockwise
+    seen from above) and length, for check_export to compare with the compiled AI route the game draws."""
     routes = sorted((m.name for m in lay.meshes if m.kind == "ai" and m.name.startswith("#ai_route_")),
                     key=lambda n: (n != "#ai_route_main", int(n.rsplit("alt", 1)[-1]) if "_alt" in n else 0))
     path = next(c for c in lay.curves if c.name == "ai_path")
@@ -155,8 +155,9 @@ def write_tcat(lay, slug: str, mod_root: str) -> dict:
     out = os.path.join(mod_root, *rel.split("/"))
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "wb") as f:
-        f.write(tcat.build(len(routes), length))
-    return {"tcat": rel, "routes": routes, "bounds": [round(float(v), 2) for v in (*p.min(0), *p.max(0))],
+        f.write(tcat.build(len(routes), length, cams))
+    return {"tcat": rel, "routes": routes, "cameras": len(cams),
+            "bounds": [round(float(v), 2) for v in (*p.min(0), *p.max(0))],
             "signedAreaM2": round(area, 1), "lengthM": round(length, 1)}
 
 
@@ -211,6 +212,8 @@ def main() -> None:
     specs = materials.build(geo.options.get("environment"), slug, map_info, bd.n_textures, generated)
     props = [Empty(f"#xref ob/{p.asset}.scne", (p.x, p.y, p.z), p.yaw, display="PLAIN_AXES", size=1.0,
                    scale=(p.scale, p.scale, p.scale)) for p in scenery.placements]
+    # the start camera per layout (the view while the race loads in; wfbuild/cameras.py), model coordinates
+    start_cams = {lay.name: cameras.start_camera(geo, lay, field, planner, scenery.placements) for lay in layouts}
     transform_info = {"rotateDeg": rot, "shift": [0.0, round(shift, 4), 0.0],
                       "note": "scene = rotate(model, rotateDeg about +z) + shift"}
     with open(os.path.join(args.out, "scenery.json"), "w", encoding="utf-8", newline="\n") as f:
@@ -230,8 +233,14 @@ def main() -> None:
     worst = check_bounds(base_meshes, "base")
     for lay in layouts:
         worst = max(worst, check_bounds(lay.meshes, lay.name))
-    for lay in layouts:  # track data (.tcat) per layout: the game sets up the minimap with it (wfbuild/tcat.py)
-        lay.info["minimap"] = write_tcat(lay, slug, mod_root)
+    for lay in layouts:  # track data (.tcat) per layout: minimap and start camera (wfbuild/tcat.py, cameras.py)
+        eye, target, note = start_cams[lay.name]
+        eye, target = (np.array([*_rot(p[0], p[1], rot), p[2]]) + np.array([0.0, shift, 0.0]) for p in (eye, target))
+        cam = tcat.Camera.looking_at(eye, target, cameras.FOV_DEG)
+        lay.info["startCamera"] = {"position": [round(float(v), 2) for v in eye],
+                                   "target": [round(float(v), 2) for v in target],
+                                   "pitchDeg": round(cam.pitch_deg, 2), "yawDeg": round(cam.yaw_deg, 2), "note": note}
+        lay.info["minimap"] = write_tcat(lay, slug, mod_root, [cam])
 
     import bpy
     from wfbuild import bscene
