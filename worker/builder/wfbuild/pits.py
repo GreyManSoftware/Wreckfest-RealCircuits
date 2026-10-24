@@ -406,16 +406,22 @@ class Pits:
             cl = front - ay * (back + dm * s / 2.0)
             return [cl + ax * ((k + 0.5) * lm * s - n * lm * s / 2.0) for k in range(n)]
 
+        X = np.array([math.cos(yaw), math.sin(yaw)])  # the prop's local axes as placed
+        Y = np.array([-math.sin(yaw), math.cos(yaw)])
+        hw, hd = lm * s / 2.0 + 0.5, dm * s / 2.0 + 0.5
+
         def hits(back: float) -> bool:
-            # every tile's corners and centre, grown 0.5 m, off the pit lane (OSM footprints often reach it)
-            hw, hd = lm * s / 2.0 + 0.5, dm * s / 2.0 + 0.5
-            pts = np.array([q + ax * u + ay * v for q in tiles(back) for u, v in
-                            ((hw, hd), (-hw, hd), (-hw, -hd), (hw, -hd), (0, 0), (0, hd), (0, -hd))])
+            # every tile's corners, edge midpoints and centre, grown 0.5 m, off the pit lane (OSM footprints often
+            # reach it)
+            pts = np.array([q + X * u + Y * v for q in tiles(back) for u in (-hw, 0.0, hw) for v in (-hd, 0.0, hd)])
             return any(point_in_poly(pts, lp).any() for lp in lanes)
 
         back = 0.0
-        while lanes and back < D + 15.0 and hits(back):
+        while lanes and back < D + 40.0 and hits(back):
             back += 0.5
+        if lanes and hits(back):
+            self.report["warnings"].append(f"{b.get('name') or kind}: no room off the pit lane, left out")
+            return False
         for q in tiles(back):
             add(asset, cat, q, yaw, s)
         return True
