@@ -260,6 +260,40 @@ def _segments_cross(p0, p1, a, b) -> np.ndarray:
     return bool(np.any((np.abs(den) > 1e-12) & (t >= 0) & (t <= 1) & (u >= 0) & (u <= 1)))
 
 
+def _close_gaps(geo, reach: float = 12.0, clear: float = 12.0) -> dict:
+    """Per (route, side): the gap to another section of road straight out (inf if none within ``reach``), probing
+    every built edge sample except within ``clear`` metres (along the road) of a junction mouth or an apron link's
+    paved run, and except where the other road is a branch merging into this one (geo._merging)."""
+    road = ~np.isin(geo.index.ri, list(geo.apron_routes))
+    out = {}
+    for r in geo.routes:
+        if r.index in geo.apron_routes:
+            continue
+        skip = ~geo.svalid[r.index] | geo.structure[r.index]
+        meet = [c.target_sample for c in geo.cuts if c.target is r] + [c.sample for c in geo.cuts if c.route is r]
+        meet += [k for _, chains in geo.aprons for t, _, run in chains if t is r for k in run]
+        for i in meet:
+            skip |= r.s_dist(r.s, r.s[i]) < clear
+        for side in (1, -1):
+            edge = r.left if side > 0 else r.right
+            gap = np.full(r.n, np.inf)
+            todo = ~skip
+            for t in np.arange(0.5, reach + 0.01, 1.0):
+                idx = np.nonzero(todo)[0]
+                if not len(idx):
+                    break
+                pts = edge[idx].copy()
+                pts[:, :2] += r.nl[idx] * side * t
+                j = geo.index.other_at(pts, r.index, r.s[idx], mask=road)
+                merge = (j >= 0) & geo._merging(r, idx, j, t)
+                todo[idx[merge]] = False
+                hit = (j >= 0) & ~merge
+                gap[idx[hit]] = t
+                todo[idx[hit]] = False
+            out[(r.index, side)] = {"gap": gap}
+    return out
+
+
 def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict) -> None:
     """Kerbs, track limits and barriers as on real circuits (Chris, 2026-10-19): kerbs only at corners (apex
     and exit), green strips only beside kerbs and flush; barriers not round the whole lap; a continuous
@@ -312,6 +346,11 @@ def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict) -> None:
     holes = roadside_cover.uncovered_runs(geo, meshes, lambda p: to_scene(p, manifest))
     check(not holes, "base: road edge, kerb, green strip and verge continuous along every edge (no bare terrain "
           f"beside the road over {roadside_cover.MAX_RUN_M} m)", f"{len(holes)} holes: {holes[:4]}")
+    # --- ground: no trench or hole beside a road edge (junction gores, close parallel sections)
+    dips = [d for d in geo.ground_dips() if d["depthM"] > 0.1]
+    check(len(dips) <= 2, f"base: ground beside the road edges no more than {C.GROUND_DIP_MAX + 0.1:.2f} m below them "
+          "(beyond the natural ground): no trenches in junction gores or between close sections",
+          f"{len(dips)} edge samples dip, deepest {max([d['depthM'] for d in dips], default=0):.2f} m: {dips[:4]}")
     # --- barriers: not round the whole lap (walls: none has none)
     plan = geo.wall_plan()
     if geo.walls != "none":
@@ -329,7 +368,13 @@ def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict) -> None:
         A = np.array([s[0] for s in segs]).reshape(-1, 2)
         B = np.array([s[1] for s in segs]).reshape(-1, 2)
         open_, pairs = [], 0
-        for (ri, side), g in geo.road_gaps().items():
+        gaps = geo.road_gaps()
+        if geo.imported:
+            # imported tracks: probe the gaps afresh, leaving out only the junction mouths and apron links
+            # themselves (12 m along the road), so a junction allowance grown too wide can't hide an undivided
+            # stretch (Cadwell Park's start straight beside the run to the Mountain, 2026-10-24)
+            gaps = _close_gaps(geo)
+        for (ri, side), g in gaps.items():
             r = geo.routes[ri]
             edge = r.left if side > 0 else r.right
             for i in np.nonzero(np.isfinite(g["gap"]))[0][::2]:

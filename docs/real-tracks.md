@@ -142,6 +142,13 @@ Recipe extras (Anglesey, `tools/real_tracks/anglesey.json`):
   registration shift is held from their ends (it could pull the line towards a disused straight beside them); the
   rule radius still applies. Used for Oulton Park (Brittens, Hislop's), Donington Park (Fogarty Esses) and Anglesey
   (Bus Stop).
+- `roads` (2026-10-24, Oulton Park's old straight past Hislop's): real tarmac that is no layout's own branch,
+  `[{"id", "name", "lap", "source"}]`; `lap` is a whole lap through the road (the main lap with the road's ways in
+  place of the part it bypasses), fitted and cut like a layout branch and written to `sketch.imported.roads`. It is
+  built as road with collision whether or not a layout drives it; a layout that does lists it in
+  `altLayouts[].roads` and its lap names the road's ways (its own branch is then found with the road counted as
+  shared). geom chains the branch, the roads and the main line; a road may leave the main line up to 30 m before
+  the previous piece rejoins it, and the lap hands over where the two lines come closest. `source` is required.
 - `widths`: `"measured"` reads `tools/real_tracks/widths/<slug>.json` (measured tarmac widths, see "Widths"): the line
   moves onto the tarmac's middle and every centreline point gets `widthM`; `widthM` stays the nominal width for the
   registration. Every circuit except Anglesey (no open point cloud in Wales).
@@ -177,7 +184,7 @@ chicanes in `sharpWays`; tightest radius before / after:
 | Circuit | Chicane (OSM way) | Before | After | Layouts using it |
 |---|---|---|---|---|
 | Oulton Park | Brittens (820427208), start of the Hill straight | 16.3 m | 12.7 m | International (Island bypasses it via the Island Hairpin) |
-| Oulton Park | Hislop's (820427209), 135 m before Knickerbrook | 20.1 m | 14.9 m | International, Island; Fosters too in our build (see oultonpark.md) |
+| Oulton Park | Hislop's (820427209), 135 m before Knickerbrook | 20.1 m | 14.9 m | International, Island; the Fosters takes the old straight beside it (built since 2026-10-24, see oultonpark.md) |
 | Donington Park | Fogarty Esses (28381201) | 21.3 m | 17.7 m | Grand Prix, National |
 | Anglesey | Bus Stop (892471229) | 28.8 m | 13.6 m | all four |
 
@@ -192,6 +199,48 @@ service, emergency and paddock roads. Brands Hatch (no chicane), Snetterton (Bom
 the 300/200/100), Cadwell Park (none for cars), Bedford (none on GT/SW/West/SEN) and Navarra (numbered turns, no
 named chicane; their tightest S-bends follow OSM) need no change. Donington's old Esses were replaced by the Fogarty
 Esses; the Melbourne Hairpin and Goddards are hairpins (15.9 m, 22.2 m), not chicanes.
+
+## Straights, junction ground and dividers (2026-10-24, second pass)
+
+Chris drove the eight circuits after the audit; fixes (shared code, every circuit re-imported and rebuilt):
+
+- **Snaking straights (importer `straighten`).** Cadwell Park's start straight towards Coppice wiggled left-right-left
+  (R 205-240 m alternating over 100 m, 1.4 m off its mean). The OSM nodes themselves snake there (R 130-150 m between
+  nodes 30 m apart) and the measured-width move kept it: the point cloud gave no confident edges beside the hairpin
+  links (confidence 0-0.3), so the measured middle followed the line it was measured from. The fitted line, and again
+  after the width move, gets bi-Laplacian smoothing on a 10 m grid (changes of curvature even out; straights and
+  constant-radius arcs stay; at most 1.2 m of move; held at corners tighter than R 250 m over 20 m and at
+  `sharpWays`). Cadwell's stretch now bends no tighter than R 600 m; lap lengths move by under 1 m on every layout;
+  the sample tests pass unchanged. Plan view `.local\audit\cadwellpark\coppice-after.png`. The width there
+  stays at the measurement's fill (8.0-8.5 m, against 9.1-9.5 m where measured on the straight); re-measuring with
+  better edge detection beside the links would fix that.
+- **Ground between close roads (builder `TerrainField`).** The terrain within 6 m of two roads took the lower road's
+  surface right up to the higher road's edge, so a junction gore or a narrow gap between two sections at different
+  heights showed a dark trench or "hole" beside the higher road (Cadwell's start straight beside the run to the
+  Mountain, up to 1.06 m deep; Anglesey's Corkscrew split; Brands Hatch after Surtees and at Clearways; Oulton's
+  Island link). A lower road now pulls the ground to its surface only within 1.5 m of its own edge, fading out over
+  2.5 m, so the ground slopes across the gap. New `check_scene` check `ground_dips`: no ground more than 0.25 m below
+  a road edge 1-3 m out beyond the natural ground; the old code failed it on Cadwell (73 edge samples), Anglesey
+  (32), Brands Hatch (33) and Oulton (26), the new code passes on all eight. The verge in junction gores (shoulders
+  dropped where another road is within the strip) is the kerb/verge fix's part.
+- **Dividers beside short links.** Imported tracks left the divider open 40 m either side of every junction mouth and
+  apron link, which removed it along the whole start straight / Mountain approach at Cadwell (the two sections 9.5 m
+  apart between the Club and Woodlands links). It is now open only at the mouth or apron itself plus 4 m; the
+  `check_scene` divider check probes the gaps afresh on imported tracks (the old code fails it, 34 open probes).
+- **Junction mouths (builder `_stitch`).** A mouth's sides were straight chords from the branch's cut to the main
+  road's edge, which paved a large triangle outside a curving branch at a fork (Donington's National split). They
+  now follow the branch's own edges back to the main road (a third road beside it, as at Anglesey's Bus Stop, keeps
+  the chord), so the paved fork is the union of the two roads as OSM and the LIDAR show them; no overlapping road
+  faces on any circuit.
+
+**Straight-beside-chicane survey** (every `highway=raceway` way no layout or road drives, from the cached OSM plus the
+connected ways): Oulton Park's Hislop's straight was the only one; now built. Brands Hatch, Snetterton (Bomb Hole,
+Coram: pit lane only) and Cadwell Park have none (Cadwell's 92 m `access=private` way inside Woodland, 396424045, is
+a service loop, not on any map). Donington's Melbourne Loop (Grand Prix) and the National's straight across are both
+built. Anglesey's Corkscrew link is the Coastal (built). Oulton's 37 m stub of the old straight past Brittens isn't
+on MSV's maps, so it isn't built. Bedford has five unbuilt links of the North, South and East circuits MSV no longer
+lists (27782783, 1558089016, 449592528, 449588233, 27811905 "North"): real tarmac that `roads` could add if wanted;
+none is a straight beside a chicane.
 
 ## Audit notes (2026-10-24)
 

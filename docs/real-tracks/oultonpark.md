@@ -11,22 +11,25 @@ enabled as "Oulton Park".
 The current official layouts are exactly three: MSV's circuit-layouts page (oultonpark.co.uk/about/circuit-layouts)
 lists International, Island and Fosters; Wikipedia and racingcircuits.info give the same three (2003 to date). No
 "Island Historic" is on MSV's list: it is a sim-racing variant (iRacing), not an official layout, so it isn't built.
-OSM also maps the old line past Hislops (way 27299256, the pre-chicane road); no current layout uses it.
+OSM also maps the old straight past Hislop's (way 27299256, the pre-chicane road): the Fosters drives it (MSV's
+current Fosters map), the International and Island take the chicane; both are built side by side (see "Hislop's: the
+straight and the chicane").
 
 | | International | Island | Fosters |
 |---|---|---|---|
 | Layout source | MSV map "Oulton Park International Circuit" (`OP Map_International Circuit.pdf`) | MSV map "Oulton Park Island Circuit" | MSV map "Oulton Park Fosters Circuit" |
-| Route | Old Hall, The Avenue, Dentons, Cascades, Lakeside, Island Bend, Shell Oils Corner, Brittens, Hilltop, Hislops, Knickerbrook, Clay Hill, (Water Tower), Druids, Warwick Bridge, Lodge, Deer Leap | Lakeside straight into the Island Hairpin (OSM 27299255 + 820427876) straight onto Hilltop: no Island Bend, Shell Oils or Brittens | Cascades into Fosters (OSM 29187915 "Foster's") across to Hislops and Knickerbrook |
-| Lap (built, 2026-10-24 audit) | 4,320.2 m (4,316.9 before the chicanes) | 3,566.6 m (was 3,564.0) | 2,679.2 m (was 2,676.4) |
-| Published | 4,307 m (Wikipedia; MSV 4.30 km, 2.69 mi; racingcircuits.info 4,333 m): +0.31 % (was +0.23) | 3,616 m (MSV 2.26 mi, Wikipedia; racingcircuits.info 3,637 m): −1.37 % (was −1.44) | 2,656 m (MSV 1.66 mi, Wikipedia; racingcircuits.info 2,662 m): +0.87 % (was +0.77) |
-| OSM polyline | 4,325 m | 3,573 m | 2,670 m |
+| Route | Old Hall, The Avenue, Dentons, Cascades, Lakeside, Island Bend, Shell Oils Corner, Brittens, Hilltop, Hislops, Knickerbrook, Clay Hill, (Water Tower), Druids, Warwick Bridge, Lodge, Deer Leap | Lakeside straight into the Island Hairpin (OSM 27299255 + 820427876) straight onto Hilltop: no Island Bend, Shell Oils or Brittens | Cascades into Fosters (OSM 29187915 "Foster's") across to the foot of Hilltop, then the old straight past Hislop's (OSM 27299256) to Knickerbrook |
+| Lap (built, 2026-10-24, Hislop's straight) | 4,320.1 m (4,320.4 before) | 3,568.2 m (3,568.4) | 2,657.0 m (2,679.4 through the chicane) |
+| Published | 4,307 m (Wikipedia; MSV 4.30 km, 2.69 mi; racingcircuits.info 4,333 m): +0.30 % | 3,616 m (MSV 2.26 mi, Wikipedia; racingcircuits.info 3,637 m): −1.32 % | 2,656 m (MSV 1.66 mi, Wikipedia; racingcircuits.info 2,662 m): +0.04 % (was +0.88) |
+| OSM polyline | 4,325 m | 3,573 m | 2,649 m (2,670 m through the chicane) |
 | Direction | clockwise: the MSV map arrow by the flag points down the pit straight to Old Hall; coachdaveacademy.com / driver61.com guides (Old Hall turn 1, Deer Leap last) | clockwise (MSV Island map) | clockwise (MSV Fosters map; racingcircuits.info "off after Cascades to a tight right-hander leading to Knickerbrook") |
 | Start/finish | pit straight just after Deer Leap: OSM node 235311718 (`raceway=start-finish`), the MSV maps' chequered flag | shares the International line and grid | shares the International line and grid |
 | Grid | 24 slots, max grade 1.8 % | the International grid | the International grid |
 
 MSV lists pole on the left for all three; the builder puts pole on the inside of Old Hall (a right-hander), i.e. on
 the right. The Island branch (133 m) leaves at s 1,286 and rejoins on Hilltop at s 2,173; the Fosters branch
-(182 m) leaves at Cascades (s 790) and rejoins before Hislops (s 2,613).
+(183 m) leaves at Cascades (s 792) and hands over to Hislop's straight (171 m, from s 2,600 to Knickerbrook,
+s 2,792) at the foot of Hilltop (since 2026-10-24).
 
 ## Numbers (International, from the importer report)
 
@@ -92,7 +95,7 @@ registration held through them): Brittens 16.3 → 12.7 m, Hislop's 20.1 → 14.
 builder finds both corners of each chicane and kerbs each (apex inside, exit outside), so both sides are red/white;
 the recipe's guide data (apex + exit, green at Brittens) applies to the corner nearest the label.
 
-**Fosters (open):** Wikipedia describes the Fosters as "half of Cascades followed by the Hislop's chicane", which we
+**Fosters (resolved 2026-10-24, see below):** Wikipedia describes the Fosters as "half of Cascades followed by the Hislop's chicane", which we
 build. MSV's current Fosters map instead draws Hislop's in grey and the Fosters link joining the old straight
 (27299256) to Knickerbrook; that lap measures 2,649 m on OSM against MSV's 2,656 m (through Hislop's 2,670 m), so
 the map is probably right. It crosses the International's line at the chicane entry, a flat crossing that imported
@@ -117,7 +120,7 @@ Pre-Workshop accuracy audit (method and the shared importer change: `docs/real-t
 | Camber elsewhere | ≤ 4.5°; on straights within 0.6° of the 25 m mean, no flip-flop | None |
 | Width | Not published, no OSM `width`. LIDAR flush-surface bounds 9.0-10.5 m on the narrow parts (Lakeside, Shell Oils, Warwick Bridge) | None: 10 m kept |
 | Environment | 4 lakes (Oulton Lake etc.) and 49 woods, none on the road; crowds at the three MSV grandstands (Lodge, Old Hall, Knickerbrook) and Druids | None |
-| Fosters route (open, unchanged) | MSV's current Fosters map joins the old straight to Knickerbrook (2,649 m on OSM vs MSV 2,656 m); we drive Hislop's (Wikipedia) | Needs flat crossings for imported layouts; left as documented above |
+| Fosters route | MSV's current Fosters map joins the old straight to Knickerbrook (2,649 m on OSM vs MSV 2,656 m); we drove Hislop's (Wikipedia) | Resolved 2026-10-24: the straight is built and the Fosters drives it (below) |
 
 Lap lengths: International 4,320.3 → 4,320.2 m (published 4,307 m, +0.31 %); Island 3,566.1 → 3,566.6 m (3,616 m,
 −1.37 %; the OSM polyline is 3,573 m, so the gap is OSM's line through the Island Hairpin); Fosters 2,679.0 → 2,679.2 m
@@ -138,3 +141,38 @@ Source: EA National LIDAR Programme point cloud, tiles SJ5560 and SJ5565 (flown 
 | Spec | `options.widthM` 9.1 |
 
 Before Deer Leap and past the line the pit exit's hatched merge is paved: the painted line is taken as the edge.
+
+## Hislop's: the straight and the chicane (2026-10-24)
+
+Chris: at Hislop's there are two pieces of tarmac side by side, the old straight from the foot of Hilltop down to
+Knickerbrook and the chicane bulging off it (his reference: Wikipedia's turn diagram, 10 the straight, 11 the
+Hislop's loop, 12 Knickerbrook); we built only the chicane.
+
+**Who drives which (official maps first).** MSV's three current maps (`maps\{International,Island,Fosters}.pdf`,
+zoomed on Hislop's at 400 dpi): the International and Island maps draw Hislop's chicane in red and the straight beside
+it in grey; the Fosters map draws the Fosters link joining the straight at the foot of Hilltop, the straight in red to
+Knickerbrook and the chicane in grey. The Fosters on the straight measures 2,649 m on OSM against MSV's 2,656 m
+(2,670 m through the chicane); Wikipedia's "half of Cascades followed by the Hislop's chicane" predates MSV's map.
+So: International and Island through the chicane, Fosters on the straight.
+
+**OSM.** The straight is way 27299256 (`highway=raceway`, asphalt) from node 235311818 (6 m into Hislop's way
+820427209, just after the foot of Hilltop, node 299689548, where the Fosters link 29187915 ends) to node 235311822
+(Hislop's end, the start of Knickerbrook). The chicane bulges about 30 m east of it; the two run within a few metres
+of each other only at their ends.
+
+**Built.** The recipe's new `roads` entry `hislopsstraight` (lap: the International with Hislop's replaced by the
+straight) is fitted like a layout branch and written to `sketch.imported.roads`; the Fosters lists it
+(`altLayouts[].roads`), so its lap is the Fosters link, the straight and the main line (geom chains the pieces;
+the link joins the main line 18 m after the straight leaves it, so the lap hands over where the two lines meet,
+0.7 m apart and 3° off). Builder: two ordinary junctions (the straight's mouth on the main road's left edge, the
+Fosters link's on its right), a grass island between straight and chicane with a divider wall, kerbs on both
+corners of the chicane, the straight unkerbed; no overlapping road faces, no crossing. Plan:
+`.local\audit\oultonpark\overlay-after.png` (every layout's lap and all built tarmac, inset of Hislop's); renders
+`.local\renders\oultonpark-hislops-v2-driver-{straight,chicane,fosters,fromknickerbrook}.png`.
+
+Lap lengths after (all three re-imported with the straightening fix, `docs/real-tracks.md`): International
+4,320.1 m (+0.30 %), Island 3,568.2 m (−1.32 %), Fosters 2,657.0 m against MSV's 2,656 m (+0.04 %, was +0.88 %).
+
+**Brittens** has the same shape in OSM: the old straight from Brittens' entry (450023909, 37 m) to where the Island
+Hairpin joins it (then 820427876, which the Island drives). MSV's maps draw no tarmac there besides Brittens and the
+Island Hairpin, so the 37 m stub isn't built.

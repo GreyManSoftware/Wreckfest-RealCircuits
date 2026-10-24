@@ -360,9 +360,39 @@
           "maxItems": 5000,
           "items": { "$ref": "#/$defs/ImportedPoint" }
         },
+        "roads": {
+          "description": "Ids of extra roads (imported.roads) this layout drives besides its own branch, e.g. Oulton Park's Fosters on the old straight past Hislop's. The lap chains the branch, the roads and the main centreline between them in driving order (each piece leaves the main centreline after the previous one rejoins it, or overlaps it by a few metres at a shared junction).",
+          "type": "array",
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^(?!main$)[a-z][a-z0-9_]{0,23}$" },
+          "default": []
+        },
         "startFinish": {
           "$ref": "#/$defs/MetrePoint",
           "description": "The layout's own start/finish line (some circuits time each layout at a different line): the point is projected onto the layout's lap, the grid starts there and the lap is counted from it. Omit it to share the main line."
+        }
+      }
+    },
+    "ImportedRoad": {
+      "title": "Imported extra road",
+      "description": "Real tarmac that is not part of the main centreline nor a layout's own branch, built as road with collision: e.g. an old straight beside a chicane, both ends on the main centreline. Open, in driving order, its first and last points snapped to the nearest main points like a layout branch. Only layouts that list it (altLayouts[].roads) drive it; with none it has no AI route.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "centreline"],
+      "properties": {
+        "id": {
+          "description": "Road id, unique among the layouts and roads; not main.",
+          "type": "string",
+          "pattern": "^(?!main$)[a-z][a-z0-9_]{0,23}$"
+        },
+        "name": { "description": "Display name, e.g. Hislop's straight.", "type": "string", "minLength": 1, "maxLength": 40 },
+        "centreline": {
+          "description": "The road from where it leaves the main centreline to where it rejoins it, points about 1-10 m apart.",
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 5000,
+          "items": { "$ref": "#/$defs/ImportedPoint" }
         }
       }
     },
@@ -426,6 +456,13 @@
           "type": "array",
           "maxItems": 4,
           "items": { "$ref": "#/$defs/ImportedAltLayout" },
+          "default": []
+        },
+        "roads": {
+          "description": "Extra real roads sharing the base scene that are no layout's own branch (ImportedRoad): built as tarmac with collision; layouts that drive one list it in altLayouts[].roads.",
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/ImportedRoad" },
           "default": []
         },
         "seaLevelM": {

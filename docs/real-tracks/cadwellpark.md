@@ -43,3 +43,20 @@ Source: EA National LIDAR Programme point cloud, tile TF2580 (flown 2019-03-29, 
 Not published (sources only call it "narrow", "about half Silverstone's width"); the recipe's 9.5 m was an estimate,
 1.7 m wider than the tarmac. The pit lane beside the start straight is separated only by paint: the line rule keeps it
 out. The 7 m clamp holds at Park Straight and Hall Bends (raw 6.5-7.0 m in places).
+
+## Start straight, Coppice and the Mountain divider (2026-10-24)
+
+Chris drove the Full layout: the road snaked left-right-left leaving the start straight towards Coppice, there was
+no divider between the start straight and the run to the Mountain, and the ground showed holes where the divider
+had been. Causes and fixes (shared code, `docs/real-tracks.md`, "Straights, junction ground and dividers"):
+
+- **Snake:** OSM's nodes snake there (R 130-150 m between nodes 30 m apart) and the measured width had no confident
+  edges beside the Club and Woodlands links (confidence 0-0.3), so its tarmac middle followed the old line. The
+  importer's new `straighten` takes it out: s 150-260 bent at R 205-240 m alternating, now no tighter than R 600 m;
+  the line moves by up to 0.6 m. Plan `.local\audit\cadwellpark\coppice-after.png` (red before, green after, blue OSM
+  over the LIDAR hillshade). Lap 3,486.5 m (was 3,486.8). The width there is still the measurement's fill (8.0-8.5 m).
+- **Divider:** open only at the two links themselves now (it was open 40 m either side of each, i.e. the whole
+  stretch). The wall runs mid-gap (4.8 m out) along the start straight between the links.
+- **Holes:** the ground between the two sections took the lower road's height up to the higher one's edge (a trench
+  up to 1.06 m deep along the start straight); it now slopes across the gap (`ground_dips` 73 edge samples → 0).
+- Renders: `.local\renders\cadwellpark-divider-{before,after}-driver-{startstraight,mountain}.png`.

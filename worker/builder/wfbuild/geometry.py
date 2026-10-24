@@ -230,6 +230,16 @@ def dist_to_polyline(pts: np.ndarray, poly: np.ndarray) -> np.ndarray:
     return np.sqrt(((p - q) ** 2).sum(2)).min(1)
 
 
+def _project_polyline(p: np.ndarray, poly: np.ndarray, max_dist: float = 3.0) -> float | None:
+    """The nearest point of an open polyline to p, as a fractional vertex index (None beyond ``max_dist``)."""
+    a, b = poly[:-1], poly[1:]
+    e = b - a
+    t = np.clip(np.sum((p - a) * e, axis=1) / np.maximum(np.sum(e * e, axis=1), 1e-12), 0.0, 1.0)
+    d = np.hypot(*(a + e * t[:, None] - p).T)
+    k = int(np.argmin(d))
+    return None if d[k] > max_dist else float(k + t[k])
+
+
 def _ray_polyline(p0: np.ndarray, d: np.ndarray, poly: np.ndarray, max_len: float) -> float | None:
     """First hit of the ray p0 + t*d (t in [0, max_len]) on an open polyline, as a fractional vertex index."""
     best = None
@@ -421,9 +431,16 @@ class TerrainField:
             dxy = np.hypot(self.xy[None, :, 0] - self.xy[k][:, None, 0], self.xy[None, :, 1] - self.xy[k][:, None, 1])
             other = band & ((self.ri[None, :] != self.ri[k][:, None]) | (sd > 1.5 * dxy + 4.0))
             if other.any():
+                # a lower road nearby pulls the ground down to its surface only close to its own edge (fully
+                # within TERRAIN_PULL_FULL, fading out over TERRAIN_PULL_FADE), so between two roads at different
+                # heights the ground slopes across the gap instead of dropping to the lower one right at the
+                # higher one's edge: that drop showed as dark trenches and holes beside junction gores and close
+                # parallel sections (Cadwell Park's start straight, Anglesey's Corkscrew split, Brands Hatch,
+                # Donington; Chris 2026-10-24)
                 rows, cols = np.nonzero(other)
+                pull = 1.0 - smoothstep((e[rows, cols] - C.TERRAIN_PULL_FULL) / C.TERRAIN_PULL_FADE)
                 zo = np.full(len(p), np.inf)
-                np.minimum.at(zo, rows, self.road_height(p[rows], cols))
+                np.minimum.at(zo, rows, zr[rows] + pull * (self.road_height(p[rows], cols) - zr[rows]))
                 zr = np.minimum(zr, zo)
             # full sink under the road (more on steep grades: a 4 m terrain cell spanning a curving road can't
             # follow it exactly), easing to flush by 1.5 m out
@@ -803,12 +820,44 @@ class TrackGeometry:
         side = float(np.dot(c - wpts[jc], t.nl[win[jc]]))
         col = 0 if side > 0 else t.m
         edge = (t.left if side > 0 else t.right)[win, :2]
-        # Extend this road's two edge lines back to the target's edge: the mouth spans the target-edge
-        # vertices between the two hits, so the corners between the roads are filled too.
+        # The mouth's sides follow this road's own edges back from the cut to where they enter the target road
+        # (a junction mouth: the fork keeps the real outline of both roads), then on to the target's edge; the
+        # mouth spans the target-edge vertices between the two hits. Straight chords from the cut (as for a
+        # flat crossing's hole) filled a large triangular apron outside a curving branch's edge (Donington's
+        # National split; Chris 2026-10-24).
         away = r.tangent[cut.sample] * (1.0 if np.dot(r.tangent[cut.sample], c - wpts[jc]) >= 0 else -1.0)
+        step_k = -1 if cut.sample < r.n // 2 else 1  # towards the junction
+        hw_t = float(np.max(t.w[win])) / 2.0
+        chains: list[list[int]] = [[], []]
         ends = []
-        for p0 in (cross[0, :2], cross[-1, :2]):
-            hit = _ray_polyline(p0, -away, edge, 40.0)
+        for n_c, (p0, ecol) in enumerate(((cross[0, :2], r.left), (cross[-1, :2], r.right))):
+            start, d = p0, -away
+            if cut.kind == "mouth":
+                k = cut.sample + step_k
+                last = p0
+                while 0 <= k < r.n and len(chains[n_c]) < 60:
+                    q = ecol[k, :2]
+                    if float(np.min(dist_to_polyline(q[None, :], wpts))) <= hw_t:
+                        break
+                    # on a third road (another junction right beside this one, Anglesey's Bus Stop): that one's
+                    # mouth paves it, so this side keeps the plain chord
+                    mask = self.index.ri != t.index
+                    if self.index.near_other(ecol[k:k + 1], np.array([r.index]), r.s[k:k + 1], 0.0, mask=mask)[0]:
+                        chains[n_c] = []
+                        break
+                    chains[n_c].append(k)
+                    last = q
+                    k += step_k
+                if 0 <= k < r.n and chains[n_c]:
+                    dv = ecol[k, :2] - last
+                    if float(np.hypot(*dv)) > 1e-6:
+                        start, d = last, dv / float(np.hypot(*dv))
+            hit = _ray_polyline(start, d, edge, 40.0)
+            if hit is None and chains[n_c]:  # a shallow merge: the edges run side by side; the nearest edge point
+                hit = _project_polyline(start, edge)
+            if hit is None and chains[n_c]:  # back to the plain chord from the cut
+                chains[n_c] = []
+                hit = _ray_polyline(p0, -away, edge, 40.0)
             ends.append(hit if hit is not None else float(np.argmin(np.hypot(*(wpts - p0).T))))
         ja, jb = ends
         lo, hi = math.floor(min(ja, jb)), math.ceil(max(ja, jb))
@@ -829,7 +878,14 @@ class TrackGeometry:
         edge_ids = [vid(t, win[k], col) for k in range(lo, hi + 1)]
         blocked = self.mouth_samples.setdefault((t.index, 1 if side > 0 else -1), set())
         blocked.update(win[k] for k in range(max(0, lo - 1), min(len(win), hi + 2)))
-        tail = cross_ids[::-1] if jb >= ja else cross_ids
+        # around the polygon: the target edge (lo -> hi), the side reaching hi (from the target edge to the cut),
+        # the cut's cross-section, then the other side back towards lo
+        side_a = [vid(r, k, 0) for k in chains[0]]      # from the cut corner (left) towards the target
+        side_b = [vid(r, k, r.m) for k in chains[1]]    # from the cut corner (right) towards the target
+        if jb >= ja:
+            tail = side_b[::-1] + cross_ids[::-1] + side_a
+        else:
+            tail = side_a[::-1] + cross_ids + side_b
         poly_ids = edge_ids + tail
         if len(set(poly_ids)) != len(poly_ids):
             self.warnings.append(f"stitch-degenerate: {r.id}@{cut.sample} -> {t.id}")
@@ -840,6 +896,7 @@ class TrackGeometry:
         for a, b, cc in ear_clip(xy):
             ids = (poly_ids[a], poly_ids[b], poly_ids[cc])
             mesh.face(ids, mat, [(mesh.verts[i][0] / tile, mesh.verts[i][1] / tile) for i in ids])
+        self.__dict__.setdefault("stitch_polys", []).append(xy)
         self.stitched = getattr(self, "stitched", [])
         self.stitched.append({"route": r.id, "sample": cut.sample, "target": t.id,
                               "edgeVertices": [list(mesh.verts[i]) for i in edge_ids]})
@@ -1369,10 +1426,33 @@ class TrackGeometry:
         for r in self.routes:
             skip = ~self.svalid[r.index] | self.structure[r.index]
             meet = [c.sample for c in self.cuts if c.route is r]
-            meet += [c.target_sample for c in self.cuts if c.target is r]
+            # Imported tracks: where a branch's mouth meets this road, only the mouth itself (plus a few metres) is
+            # left open; probes that see the branch beyond it are its merge (_merging), and a wall line never
+            # crosses another road (_edge_ok). Leaving DIVIDER_JUNCTION_CLEAR open on both sides lost the divider
+            # between two other sections of road beside a short link (Cadwell Park's start straight and the run
+            # to the Mountain beside the Woodlands and Club links; Chris 2026-10-24: cars could cut across).
+            # Drawn tracks keep the wide clearance.
+            near_mouth = []
+            for c in self.cuts:
+                if c.target is r:
+                    if self.imported and c.kind == "mouth":
+                        near_mouth.append((float(r.s[c.target_sample]), 0.75 * c.route.width + C.DIVIDER_APRON_CLEAR))
+                    else:
+                        meet.append(c.target_sample)
+            joined = {(c.route.index, c.target.index) for c in self.cuts if c.kind == "mouth"}
             meet += [int(j["sampleIndex"]) for a in self.routes for j in (a.start_join, a.end_join)
-                     if j and j["route"] == r.id]
-            meet += [k for _, chains in self.aprons for t, _, run in chains if t is r for k in run]
+                     if j and j["route"] == r.id and a.index not in self.apron_routes
+                     and not (self.imported and (a.index, r.index) in joined)]
+            for s_m, clear in near_mouth:
+                skip |= r.s_dist(r.s, s_m) < clear
+            # an apron link (a U-turn paved across the gap between two sections) opens the divider only where it
+            # crosses: its paved run plus a few metres
+            for _, chains in self.aprons:
+                for t, _, run in chains:
+                    if t is r and run:
+                        lo, hi = float(r.s[run[0]]), float(r.s[run[-1]])
+                        mid, half = 0.5 * (lo + hi), 0.5 * abs(hi - lo)
+                        skip |= r.s_dist(r.s, mid) < half + C.DIVIDER_APRON_CLEAR
             for b in self.bridges:
                 if b.under is r:
                     meet.append(r.index_at(b.s_under))
@@ -1571,6 +1651,61 @@ class TrackGeometry:
                                          "ai_margin": np.maximum(self._cone(r, np.ones(r.n, bool), margin, 0.5), 0.5)}
         self._wall_plan = plan
         return plan
+
+    def _on_stitch(self, pts: np.ndarray) -> np.ndarray:
+        """Points (2D) inside a junction mouth's paving (``_stitch`` polygons), by ray casting."""
+        out = np.zeros(len(pts), dtype=bool)
+        for poly in self.__dict__.get("stitch_polys", []):
+            lo, hi = poly.min(0), poly.max(0)
+            sel = np.flatnonzero((pts[:, 0] >= lo[0]) & (pts[:, 0] <= hi[0]) & (pts[:, 1] >= lo[1]) & (pts[:, 1] <= hi[1]))
+            if not len(sel):
+                continue
+            x, y = pts[sel, 0], pts[sel, 1]
+            ins = np.zeros(len(sel), dtype=bool)
+            for (x1, y1), (x2, y2) in zip(poly, np.roll(poly, -1, axis=0)):
+                dy = (y2 - y1) if y2 != y1 else 1e-12
+                ins ^= ((y1 > y) != (y2 > y)) & (x < (x2 - x1) * (y - y1) / dy + x1)
+            out[sel] |= ins
+        return out
+
+    def ground_dips(self, offsets=(1.0, 2.0, 3.0), floor: float = C.GROUND_DIP_MAX) -> list[dict]:
+        """Artificial dips in the ground beside the road edges: points ``offsets`` metres out from every built edge
+        sample (not on another road, a bridge or a jump) where the terrain lies more than ``floor`` below the edge
+        and below the natural ground there (a real bank or ditch beside the road doesn't count, nor does ground
+        falling away at the cambered edge's runout). Junction gores and close parallel sections showed these as
+        dark trenches and holes when the terrain between two roads took the lower one's height up to the higher
+        one's edge (Cadwell Park, Anglesey, Donington, Brands Hatch; Chris 2026-10-24). Returns one entry per
+        dipping sample: route, side, s, depth (m below the allowed floor)."""
+        out = []
+        # only built road counts as road: a branch's samples beyond its junction cut aren't paved unless the mouth
+        # stitch covers them (Brands Hatch's Indy split: its edge ran 2 m outside the main road for 40 m, unpaved,
+        # with the ground sunk under it)
+        built = np.concatenate([self.svalid[q.index] | (q.index in self.apron_routes) for q in self.routes])
+        if getattr(self, "road_vids", None) is None:
+            self.build_road()  # the junction mouths' paving
+        paved = True
+        for r in self.routes:
+            if r.index in self.apron_routes:
+                continue
+            ok = self.svalid[r.index] & ~self.structure[r.index] & ~self.jump_zone[r.index]
+            for side in (1, -1):
+                edge = r.left if side > 0 else r.right
+                worst = np.zeros(r.n)
+                for t in offsets:
+                    pts = edge.copy()
+                    pts[:, :2] += r.nl * side * t
+                    on_road = self.index.near_other(pts, np.full(r.n, r.index), r.s, 0.0, mask=built)
+                    if paved is not None:  # or on a junction mouth's paving
+                        on_road |= self._on_stitch(pts[:, :2])
+                    drop = edge[:, 2] - self.terrain(pts)
+                    natural = np.maximum(edge[:, 2] - self.ground(pts[:, :2]), 0.0)
+                    runout = np.where(r.slope * side < 0, np.abs(r.slope) * min(t, C.CAMBER_RUNOUT), 0.0)
+                    excess = drop - floor - natural - runout
+                    worst = np.maximum(worst, np.where(ok & ~on_road, excess, 0.0))
+                for i in np.flatnonzero(worst > 0.0):
+                    out.append({"route": r.id, "side": "l" if side > 0 else "r", "s": round(float(r.s[i]), 1),
+                                "depthM": round(float(worst[i]), 2)})
+        return out
 
     def _cone(self, r: Route, mask: np.ndarray, value: np.ndarray, slope: float) -> np.ndarray:
         """min over masked samples j of value[j] + slope * |s_i - s_j| (inf without any): a value that changes by

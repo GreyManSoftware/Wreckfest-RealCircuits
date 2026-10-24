@@ -87,6 +87,12 @@ National on its own straight) it has its own line and a grid ahead of it. The ge
 alternative route (`aiIndex` -1, -2, ...) and lists every layout in the TrackModel's `layouts` (lap length,
 sections in driving order from its line, and for an own line `startFinish` {route, s, position, heading} and its
 own `grid`); the builder makes one layout per entry. `firstSectorLengthM` and `gridMaxGradePct` cover every grid.
+**Extra roads** (`imported.roads`, 2026-10-24): real tarmac that is no layout's own branch, e.g. Oulton Park's old
+straight beside Hislop's chicane. Each is an open centreline with both ends on the main one, built as a route (road
+with collision, aiIndex after the branches) that no layout drives unless it lists it in `altLayouts[].roads`. Such a
+layout's lap chains its branch, its roads and the main centreline between them in driving order; a road may leave
+the main centreline up to 30 m before the previous piece rejoins it (one junction): the lap then hands over where
+the two lines come closest (Oulton's Fosters link onto the old straight).
 A real track's corners need only `widthM / 2 + importedMinInnerEdgeRadiusM` (2 m) of radius (`min-corner-radius`):
 real hairpins are kept, and junctions with other layouts' branches don't end the main first sector. Ids are unique
 (`imported-alt-layout-ids-unique`) and not `main`. `imported.seaLevelM` (datum-relative) marks ground below it as

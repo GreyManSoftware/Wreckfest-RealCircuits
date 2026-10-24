@@ -243,6 +243,21 @@ def _unique_by_id(
     return out
 
 
+def _handover(a: "_Route", b: "_Route", overlap: float) -> tuple[float, float]:
+    """Where an imported layout's lap leaves piece ``a`` (an open route) for piece ``b`` when ``b`` leaves the
+    main route ``overlap`` metres before ``a`` rejoins it (one junction: Oulton Park's Fosters link turning onto
+    the old straight): the s along each, within overlap + 30 m of a's end and b's start, where the two lines
+    are closest and run most nearly the same way (distance + 0.1 m per degree), so the lap's line doesn't jump
+    across."""
+    reach = overlap + 30.0
+    ia = np.flatnonzero(a.s >= a.length - reach)
+    ib = np.flatnonzero(b.s <= reach)
+    d = np.hypot(a.pts[ia, None, 0] - b.pts[None, ib, 0], a.pts[ia, None, 1] - b.pts[None, ib, 1])
+    dh = np.abs((a.heading[ia, None] - b.heading[None, ib] + math.pi) % (2.0 * math.pi) - math.pi)
+    k = np.unravel_index(int(np.argmin(d + 0.1 * np.degrees(dh))), d.shape)
+    return float(a.s[ia[k[0]]]), float(b.s[ib[k[1]]])
+
+
 def _half_footprint(width: float, angle_deg: float) -> float:
     """Half the length of road a branch needs clear at a crossing (other road's width plus margins)."""
     a = math.radians(angle_deg)
@@ -370,13 +385,27 @@ class _Builder:
         self.alt_gaps = {}
         self.by_id_all = {"main": self.main}
         alts = _unique_by_id(self.imported.get("altLayouts") or [], "imported-layout", self.warnings)
+        branches = []
         for k, alt in enumerate(alts):
             r = self._imported_branch(alt, -(k + 1))
             if r is None:
                 continue
             self.routes.append(r)
             self.by_id_all[r.id] = r
+            branches.append((alt, r))
+        # extra roads (imported.roads): real tarmac built like a branch, driven only by the layouts that list it
+        for rd in _unique_by_id(self.imported.get("roads") or [], "imported-road", self.warnings):
+            if rd["id"] in self.by_id_all:
+                self.warn("imported-road-duplicate-id", f"Road {rd['id']} has a layout's id; it is left out.")
+                continue
+            r = self._imported_branch(rd, -len(self.routes), road=True)
+            if r is not None:
+                self.routes.append(r)
+                self.by_id_all[r.id] = r
+        for alt, r in branches:
             sections = self._layout_sections(alt, r)
+            if sections is None:
+                continue
             self.layouts.append(LayoutRecord(alt["id"], alt["name"], sum(x["toS"] - x["fromS"] for x in sections),
                                              sections))
         if self.layouts:
@@ -384,14 +413,67 @@ class _Builder:
             self.layouts.insert(0, LayoutRecord("main", name, self.lap, [{"route": "main", "fromS": 0.0, "toS": self.lap}]))
         self.by_id = {r.id: r for r in self.routes}
 
-    def _layout_sections(self, alt: Mapping[str, Any], r: _Route) -> list[dict[str, Any]]:
-        """An alternative layout's lap as sections in driving order from its start/finish line: the branch, then
-        the main route from the branch end round to the branch start (through main s = 0 when the branch rejoins
-        later than it leaves). Without ``startFinish`` the line is the main one (main s = 0, which that lap then
-        passes: _imported_branch checks it); with it, the point projected onto the nearest section."""
-        s0, s1 = float(self.main.s[r.start_join]), float(self.main.s[r.end_join])
-        cycle = [(r.id, 0.0, r.length)]
-        cycle += [("main", s1, s0)] if s1 < s0 else [("main", s1, self.lap), ("main", 0.0, s0)]
+    def _layout_sections(self, alt: Mapping[str, Any], r: _Route) -> list[dict[str, Any]] | None:
+        """An alternative layout's lap as sections in driving order from its start/finish line: the branch, the
+        extra roads it drives (``roads``) and the main route between them, round to the branch start (through
+        main s = 0 when the lap passes the main line). Each piece leaves the main route after the previous one
+        rejoins it, or up to IMPORTED_PIECE_OVERLAP_M before (one junction where both meet the main road: the
+        previous piece is cut short there). Without ``startFinish`` the line is the main one (main s = 0, which
+        the lap must pass on the main route); with it, the point projected onto the nearest section. None (with
+        a warning) when the pieces don't chain round one lap."""
+        L = self.lap
+        pieces = [r]
+        for rid in alt.get("roads") or []:
+            road = self.by_id_all.get(rid)
+            if road is None or road.closed or rid in [a.get("id") for a in (self.imported.get("altLayouts") or [])]:
+                self.warn("imported-layout-unsupported", f"Layout {alt['id']}: no road {rid}; it is left out.")
+                return None
+            pieces.append(road)
+
+        def s_of(p: _Route, start: bool) -> float:
+            return float(self.main.s[p.start_join if start else p.end_join])
+
+        def gap(a: float, b: float) -> float:  # forward along main from a to b, a small overlap negative
+            d = (b - a) % L
+            return d - L if d > L - C.IMPORTED_PIECE_OVERLAP_M else d
+
+        cycle: list[list[Any]] = [[r.id, 0.0, r.length]]
+        pos, todo, travel = s_of(r, False), pieces[1:], (s_of(r, False) - s_of(r, True)) % L
+        while True:
+            nxt = min(todo, key=lambda p: gap(pos, s_of(p, True))) if todo else r
+            g = gap(pos, s_of(nxt, True))
+            if g < 0.0:  # the previous piece runs on beside the main road past where the next one leaves
+                prev = self.by_id_all[cycle[-1][0]]
+                a_cut, b_from = _handover(prev, nxt, -g)
+                cycle[-1][2] = a_cut
+                if cycle[-1][2] - cycle[-1][1] < 1.0:
+                    self.warn("imported-layout-unsupported", f"Layout {alt['id']}: its pieces overlap; it is left out.")
+                    return None
+                if nxt is r:
+                    cycle[0][1] = b_from
+                else:
+                    todo.remove(nxt)
+                    cycle.append([nxt.id, b_from, nxt.length])
+                    travel += g + (s_of(nxt, False) - s_of(nxt, True)) % L
+                    pos = s_of(nxt, False)
+                    continue
+                travel += g
+                break
+            elif pos + g <= L:
+                cycle.append(["main", pos, pos + g])
+            else:
+                cycle += [["main", pos, L], ["main", 0.0, pos + g - L]]
+            travel += g
+            if nxt is r:
+                break
+            todo.remove(nxt)
+            cycle.append([nxt.id, 0.0, nxt.length])
+            travel += (s_of(nxt, False) - s_of(nxt, True)) % L
+            pos = s_of(nxt, False)
+        if abs(travel - L) > 2.0 * C.IMPORTED_PIECE_OVERLAP_M * len(pieces):
+            self.warn("imported-layout-unsupported",
+                      f"Layout {alt['id']}'s branch and roads don't chain round the main route once; it is left out.")
+            return None
         if alt.get("startFinish"):
             q = np.array([float(alt["startFinish"]["x"]), float(alt["startFinish"]["y"])])
             best: tuple[float, int, float] | None = None
@@ -406,17 +488,23 @@ class _Builder:
             _, k, sl = best
             self.own_line[alt["id"]] = (cycle[k][0], sl)
         else:
-            k = next(k for k, c in enumerate(cycle) if c[0] == "main" and c[1] == 0.0)
+            k = next((k for k, c in enumerate(cycle) if c[0] == "main" and c[1] == 0.0), None)
+            if k is None:
+                self.warn("imported-layout-unsupported",
+                          f"Layout {alt['id']} must pass the main start/finish line on the main centreline "
+                          "(or have its own startFinish); it is left out.")
+                return None
             sl = 0.0
         rid, a, b = cycle[k]
-        rot = [(rid, sl, b)] + cycle[k + 1:] + cycle[:k] + [(rid, a, sl)]
+        rot = [(rid, sl, b)] + [tuple(c) for c in cycle[k + 1:] + cycle[:k]] + [(rid, a, sl)]
         return [{"route": x, "fromS": y, "toS": z} for x, y, z in rot if z - y > 1e-6]
 
-    def _imported_branch(self, alt: Mapping[str, Any], ai_index: int) -> _Route | None:
-        """An imported alternative layout's branch: an open route whose ends are snapped to the nearest main
-        centreline points (used as given otherwise). Without its own start/finish line (``startFinish``) the
-        branch must leave and rejoin the main route after the main line in driving order, so the layout shares
-        the line and the grid."""
+    def _imported_branch(self, alt: Mapping[str, Any], ai_index: int, road: bool = False) -> _Route | None:
+        """An imported alternative layout's branch (or an extra road, ``road``): an open route whose ends are
+        snapped to the nearest main centreline points (used as given otherwise). Without its own start/finish
+        line (``startFinish``) or extra roads, a layout's branch must leave and rejoin the main route after the
+        main line in driving order, so the layout shares the line and the grid (with roads, _layout_sections
+        checks the whole lap)."""
         pts = np.array([[p["x"], p["y"]] for p in alt["centreline"]], dtype=np.float64)
         z = np.array([p["z"] for p in alt["centreline"]], dtype=np.float64)
         bank = np.radians([p["bankDeg"] for p in alt["centreline"]])
@@ -425,9 +513,11 @@ class _Builder:
         i0 = int(np.argmin(np.hypot(*(m.pts - pts[0]).T)))
         i1 = int(np.argmin(np.hypot(*(m.pts - pts[-1]).T)))
         gap0, gap1 = float(np.hypot(*(m.pts[i0] - pts[0]))), float(np.hypot(*(m.pts[i1] - pts[-1])))
-        if i0 == i1 or (not m.s[i0] < m.s[i1] and not alt.get("startFinish")):
+        free = road or alt.get("startFinish") or alt.get("roads")
+        if i0 == i1 or (not m.s[i0] < m.s[i1] and not free):
+            what = "Road" if road else "Layout"
             self.warn("imported-layout-unsupported",
-                      f"Layout {alt['id']} must leave and rejoin the main centreline after the start/finish line "
+                      f"{what} {alt['id']} must leave and rejoin the main centreline after the start/finish line "
                       "(or have its own startFinish); it is left out.")
             return None
         pts[0], pts[-1] = m.pts[i0], m.pts[i1]
@@ -446,7 +536,8 @@ class _Builder:
         r.imported_z = z
         r.bank = bank
         r.w = w if (m.w is not None or any("widthM" in p for p in alt["centreline"])) else None
-        self.alt_gaps[alt["id"]] = (gap0, gap1)
+        if not road:
+            self.alt_gaps[alt["id"]] = (gap0, gap1)
         return r
 
     def _routes(self) -> None:
