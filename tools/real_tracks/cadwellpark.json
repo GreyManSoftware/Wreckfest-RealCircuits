@@ -60,6 +60,8 @@
     { "corner": "Hall Bends", "entry": true, "apex": true, "source": "motorbikestoday.com Cadwell guide: riders go over the entry kerbs to straight-line Hall Bends" }
   ],
   "kerbsNote": "OSM has no kerb or run-off features at Cadwell (Overpass 2026-10-19: barrier=kerb, kerb=*, area:highway=*, racing:kerb none) and the 1 m DTM can't resolve 5 cm kerbs; these overrides come from track guides, every other corner (the Club Hairpin and the Woodlands hairpin too) gets the geometric apex/exit kerbs.",
+  "brakeBoards": {"add": ["Mansfield"], "remove": ["The Mountain"]},
+  "brakeBoardsNote": "Braking boards at Park and Mansfield (downhill after the Gooseneck; its 150 m from the Gooseneck's exit is short for the rule). The Mountain is a climb, not a stop. Coppice was checked: the start straight has no room for a set (another road beside its right edge, the barrier within 3 m on its left). The Hairpin has under 60 m from Hall Bends, too short for a 150/100/50 set.",
   "runoff": "measured",
   "runoffNote": "Run-off surfaces, barriers (type, offset, debris fences) and trees measured from open LIDAR and OSM plus published sources: tools/real_tracks/runoff|vegetation/<slug>.json (tools/real_tracks_data/measure_runoff.py, runoff_evidence.json); docs/real-tracks.md, Run-off and foliage.",
   "options": {
