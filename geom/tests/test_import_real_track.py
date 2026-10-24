@@ -277,6 +277,9 @@ def test_recipe_slug_is_the_plain_track_name() -> None:
 def test_recipe_without_verified_sources_fails() -> None:
     ok = {k: "an official circuit map" for k in irt.SOURCE_KEYS}
     assert irt.source_problems({**ok, "altLayouts": [{"id": "club", **ok}]}) == []
+    # an extra road (real tarmac no layout's own branch covers) names where it comes from too
+    assert irt.source_problems({**ok, "roads": [{"id": "old", "source": "an official circuit map"}]}) == []
+    assert irt.source_problems({**ok, "roads": [{"id": "old"}]}) == ["road old: no source"]
     probs = irt.source_problems({**ok, "directionSource": "", "altLayouts": [{"id": "club", "layoutSource": "x" * 20}]})
     assert probs == ["main layout: no directionSource", "layout club: no directionSource",
                      "layout club: no startFinishSource"]
@@ -390,7 +393,8 @@ def test_imported_sample_has_no_profile_artefacts(recipe_path: Path) -> None:
     im = spec["sketch"]["imported"]
     if recipe.get("widths"):
         _check_measured_widths(im, spec["options"]["widthM"])
-    lines = [("main", im["centreline"], True)] + [(a["id"], a["centreline"], False) for a in im.get("altLayouts", [])]
+    pieces = im.get("altLayouts", []) + im.get("roads", [])  # branches and extra roads (Oulton's old straight)
+    lines = [("main", im["centreline"], True)] + [(a["id"], a["centreline"], False) for a in pieces]
     for name, cl, closed in lines:
         c = np.array([[p["x"], p["y"], p["z"], p["bankDeg"]] for p in cl])
         m = irt.profile_artefacts(c[:, :2], c[:, 2], c[:, 3], closed)
@@ -400,7 +404,7 @@ def test_imported_sample_has_no_profile_artefacts(recipe_path: Path) -> None:
     # a branch meets the main line along it, not at a kink (Navarra Short's hook ended at 47 degrees, Bedford SEN's
     # ends at 43 and 27: fillet_ends); over its last 6 m, at most 25 degrees off the main line's direction
     main = np.array([[p["x"], p["y"]] for p in im["centreline"]])
-    for a in im.get("altLayouts", []):
+    for a in pieces:
         b = np.array([[p["x"], p["y"]] for p in a["centreline"]])
         for end, chord in ((0, b[3] - b[0]), (-1, b[-1] - b[-4])):
             j = int(np.argmin(np.hypot(*(main - b[end]).T)))
@@ -411,8 +415,9 @@ def test_imported_sample_has_no_profile_artefacts(recipe_path: Path) -> None:
 
 def _check_measured_widths(im: dict, options_width: float) -> None:
     main = np.array([[p["x"], p["y"]] for p in im["centreline"]])
-    ends = np.array([[a["centreline"][k]["x"], a["centreline"][k]["y"]] for a in im.get("altLayouts", []) for k in (0, -1)])
-    lines = [("main", im["centreline"], True)] + [(a["id"], a["centreline"], False) for a in im.get("altLayouts", [])]
+    pieces = im.get("altLayouts", []) + im.get("roads", [])
+    ends = np.array([[a["centreline"][k]["x"], a["centreline"][k]["y"]] for a in pieces for k in (0, -1)])
+    lines = [("main", im["centreline"], True)] + [(a["id"], a["centreline"], False) for a in pieces]
     for name, cl, closed in lines:
         assert all("widthM" in p for p in cl), name
         xy = np.array([[p["x"], p["y"]] for p in cl])

@@ -672,6 +672,61 @@ def test_imported_alt_layout_shares_the_base_as_a_branch() -> None:
     assert on_branch.sections[0]["route"] == "short" and on_branch.start_finish["route"] == "short"
 
 
+def test_imported_extra_roads_are_built_and_chained_into_the_layouts_that_list_them() -> None:
+    """imported.roads: real tarmac besides the layouts' own branches (Oulton Park's old straight past Hislop's).
+    Every road is a route (built road, no layout drives an unlisted one); a layout listing roads drives its branch,
+    the roads and the main route between them in driving order, and a road may leave the main route a few metres
+    before the previous piece rejoins it (one junction): that piece is cut short there."""
+    spec = imported_vector("imported-alt-layouts-valid")
+    imp = spec["sketch"]["imported"]
+    main_pts = imp["centreline"]
+
+    def chord(a: int, b: int, n: int = 13) -> list[dict[str, float]]:
+        p, q = main_pts[a], main_pts[b]
+        return [{"x": p["x"] + (q["x"] - p["x"]) * t, "y": p["y"] + (q["y"] - p["y"]) * t,
+                 "z": p["z"] + (q["z"] - p["z"]) * t, "bankDeg": 0.0} for t in np.linspace(0.0, 1.0, n)]
+
+    imp["roads"] = [{"id": "far", "name": "Far chord", "centreline": chord(72, 88)},
+                    {"id": "spare", "centreline": chord(100, 112)}]
+    imp["altLayouts"][0]["roads"] = ["far"]
+    result = build_track_model(spec)
+    assert result.valid, [v.message for v in result.rule_result.violations]
+    m = result.model
+    assert [r.id for r in m.routes] == ["main", "short", "far", "spare"]
+    assert [lay.id for lay in m.layouts] == ["main", "short"]
+    lay = m.layouts[1]
+    br, far = m.route("short"), m.route("far")
+    assert [s["route"] for s in lay.sections] == ["main", "short", "main", "far", "main"]
+    assert lay.lap_length_m == pytest.approx(
+        m.lap_length_m - (far.end_join.s - far.start_join.s) - (br.end_join.s - br.start_join.s)
+        + br.length_m + far.length_m, abs=1e-6)
+    assert all(s["route"] != "spare" for x in m.layouts for s in x.sections)  # built, never driven
+    # the next piece leaving 4 samples before the branch rejoins: the branch is cut short, no main section
+    k_end = m.route("short").end_join.sample_index
+    imp["roads"][0]["centreline"] = chord(k_end - 2, 88)
+    m2 = build_track_model(spec).model
+    lay = m2.layouts[1]
+    assert [s["route"] for s in lay.sections] == ["main", "short", "far", "main"]
+    assert lay.sections[1]["toS"] < m.route("short").length_m - 5.0
+
+    def at(rid: str, s: float) -> np.ndarray:
+        q = min(m2.route(rid).samples, key=lambda p: abs(p.s - s))
+        return np.array([q.x, q.y])
+
+    # the hand-over is where the two lines come closest (here no nearer than the two joins on the main line)
+    hand = float(np.hypot(*(at("short", lay.sections[1]["toS"]) - at("far", lay.sections[2]["fromS"]))))
+    joins = float(np.hypot(main_pts[k_end]["x"] - main_pts[k_end - 2]["x"], main_pts[k_end]["y"] - main_pts[k_end - 2]["y"]))
+    assert hand <= joins + 0.5
+    # an unknown road, or pieces that can't chain round one lap, leave the layout out
+    imp["altLayouts"][0]["roads"] = ["nowhere"]
+    bad = build_track_model(spec)
+    assert "imported-layout-unsupported" in [w.code for w in bad.warnings] and bad.model.layouts == []
+    imp["altLayouts"][0]["roads"] = ["far"]
+    imp["roads"][0]["centreline"] = chord(88, 72)  # driven backwards against the lap
+    bad = build_track_model(spec)
+    assert "imported-layout-unsupported" in [w.code for w in bad.warnings] and bad.model.layouts == []
+
+
 def test_steep_imported_road_fails_the_imported_grade_rule() -> None:
     spec = imported_vector()
     for k, p in enumerate(spec["sketch"]["imported"]["centreline"]):

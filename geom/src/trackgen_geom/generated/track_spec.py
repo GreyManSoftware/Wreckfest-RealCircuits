@@ -596,6 +596,7 @@ class ImportedAltLayout:
     id: str
     name: str
     centreline: list[ImportedPoint]
+    roads: list[str] | None = None
     start_finish: MetrePoint | None = None
 
     @classmethod
@@ -604,6 +605,7 @@ class ImportedAltLayout:
             id=str(data["id"]),
             name=str(data["name"]),
             centreline=[ImportedPoint.from_dict(v0) for v0 in data["centreline"]],
+            roads=None if data.get("roads") is None else [str(v0) for v0 in data["roads"]],
             start_finish=None if data.get("startFinish") is None else MetrePoint.from_dict(data["startFinish"]),
         )
 
@@ -612,8 +614,35 @@ class ImportedAltLayout:
         out["id"] = self.id
         out["name"] = self.name
         out["centreline"] = [v0.to_dict() for v0 in self.centreline]
+        if self.roads is not None:
+            out["roads"] = [v0 for v0 in self.roads]
         if self.start_finish is not None:
             out["startFinish"] = self.start_finish.to_dict()
+        return out
+
+
+@dataclass(kw_only=True)
+class ImportedRoad:
+    """Real tarmac that is not part of the main centreline nor a layout's own branch, built as road with collision: e.g. an old straight beside a chicane, both ends on the main centreline. Open, in driving order, its first and last points snapped to the nearest main points like a layout branch. Only layouts that list it (altLayouts[].roads) drive it; with none it has no AI route."""
+
+    id: str
+    name: str | None = None
+    centreline: list[ImportedPoint]
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> ImportedRoad:
+        return cls(
+            id=str(data["id"]),
+            name=None if data.get("name") is None else str(data["name"]),
+            centreline=[ImportedPoint.from_dict(v0) for v0 in data["centreline"]],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["id"] = self.id
+        if self.name is not None:
+            out["name"] = self.name
+        out["centreline"] = [v0.to_dict() for v0 in self.centreline]
         return out
 
 
@@ -632,6 +661,7 @@ class ImportedTrack:
     kerbs: list[KerbOverride] | None = None
     main_layout_name: str | None = None
     alt_layouts: list[ImportedAltLayout] | None = None
+    roads: list[ImportedRoad] | None = None
     sea_level_m: float | None = None
     horizon: HorizonProfile | None = None
 
@@ -649,6 +679,7 @@ class ImportedTrack:
             kerbs=None if data.get("kerbs") is None else [KerbOverride.from_dict(v0) for v0 in data["kerbs"]],
             main_layout_name=None if data.get("mainLayoutName") is None else str(data["mainLayoutName"]),
             alt_layouts=None if data.get("altLayouts") is None else [ImportedAltLayout.from_dict(v0) for v0 in data["altLayouts"]],
+            roads=None if data.get("roads") is None else [ImportedRoad.from_dict(v0) for v0 in data["roads"]],
             sea_level_m=None if data.get("seaLevelM") is None else float(data["seaLevelM"]),
             horizon=None if data.get("horizon") is None else HorizonProfile.from_dict(data["horizon"]),
         )
@@ -675,6 +706,8 @@ class ImportedTrack:
             out["mainLayoutName"] = self.main_layout_name
         if self.alt_layouts is not None:
             out["altLayouts"] = [v0.to_dict() for v0 in self.alt_layouts]
+        if self.roads is not None:
+            out["roads"] = [v0.to_dict() for v0 in self.roads]
         if self.sea_level_m is not None:
             out["seaLevelM"] = self.sea_level_m
         if self.horizon is not None:
@@ -983,6 +1016,7 @@ __all__ = [
     "HorizonProfile",
     "ImportedAltLayout",
     "ImportedPoint",
+    "ImportedRoad",
     "ImportedTrack",
     "Jump",
     "JumpSize",
