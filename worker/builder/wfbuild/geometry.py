@@ -520,6 +520,8 @@ class TrackGeometry:
                                     berm=0.0 if self.real_ground else C.BERM_H)
         if not self.real_ground:  # an imported track's DTM already has whatever bank divides close sections
             self.terrain.banks = self._divider_banks()
+        from . import pits as pits_mod  # an imported track's real pit lane, wall, buildings and gantries
+        self.pits = pits_mod.Pits(self) if pits_mod.present(self) else None
 
     def _divider_banks(self) -> list[tuple[np.ndarray, np.ndarray]]:
         """Grass banks under the dividers between close sections of a drawn track (where the gap leaves room):
@@ -1431,6 +1433,8 @@ class TrackGeometry:
                 plan[(r.index, side)] = {"route": r, "side": side, "offset": offset, "line": line,
                                          "out": r.nl * side, "ok": ok, "divider": div & ok,
                                          "ai_margin": np.maximum(self._cone(r, np.ones(r.n, bool), margin, 0.5), 0.5)}
+        if self.pits is not None:  # the pit wall is the containment on its stretch (pits.Pits.wall_hook)
+            self.pits.wall_hook(plan)
         self._wall_plan = plan
         return plan
 
@@ -1632,5 +1636,7 @@ class TrackGeometry:
                    if not m.empty]
         meshes += self.build_walls()
         meshes += self.build_bridges()
+        if self.pits is not None:
+            meshes += self.pits.meshes(self.road_material(self.main, 0))
         meshes += self.build_terrain()
         return meshes

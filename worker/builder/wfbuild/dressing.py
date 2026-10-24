@@ -469,14 +469,16 @@ class Planner:
         return sorted(out, key=lambda t: -t[1])
 
     # ----------------------------------------------------------------------------------- start/finish
-    def start_finish(self) -> int:
+    def start_finish(self, gantry: bool = True, grandstand: bool = True) -> int:
+        """The start/finish gantry, a grandstand, flags and staff by the line. An imported track with real pits
+        (pits.py) has its own start lights and grandstands: then ``gantry`` / ``grandstand`` are False."""
         r = self.main
         i0 = 0  # the start/finish line is at s = 0 (layout.py)
         p, t = r.p[i0, :2], r.tangent[i0]
         hw = r.w[i0] / 2.0
         scale = max(1.0, (hw + C.WALL_OFFSET + 1.5) / 16.0)
         legs = np.array([p + r.nl[i0] * 16.35 * scale, p - r.nl[i0] * 16.35 * scale])
-        if (self.field.dist(legs) > 1.5).all():
+        if gantry and (self.field.dist(legs) > 1.5).all():
             # spans the road (the only asset allowed on it); exempt from the road clearance
             self.sc.placements.append(Placement("prop_start_startlights1", "gantry", float(p[0]), float(p[1]), 0.0,
                                                 yaw_to(t), scale))
@@ -486,8 +488,8 @@ class Planner:
             room.append((float(self.field.dist(q)[0]), side))
         room.sort(reverse=True)
         g_side = room[0][1]
-        placed = False
-        for asset in self.common["grandstand"]:
+        placed = not grandstand
+        for asset in ([] if placed else self.common["grandstand"]):
             info = envs.asset_info(asset)
             depth = float(info.get("depth", 8.0))
             for shift in (12.0, 30.0, -10.0, 50.0):
@@ -1128,14 +1130,21 @@ class Planner:
     def plan(self) -> Scenery:
         corners = self.corners()
         straights = self.straights()
-        paddock_side = self.start_finish()
+        pits = getattr(self.geo, "pits", None)  # an imported track's real pits (pits.py): reserved before anything else is placed
+        if pits is not None:
+            pits.reserve(self)
+        paddock_side = self.start_finish(gantry=pits is None or not any(g["kind"] == "startLights" for g in pits.gantries),
+                                         grandstand=pits is None or not pits.grandstands)
         self.brake_boards()
         self.corner_markers(corners)
         self.barriers()
         self.viewing_spots(corners)
         self.sponsor_billboards(straights)
         self.ad_fences(straights)
-        self.paddock(paddock_side)
+        if pits is not None:
+            pits.place(self)
+        if pits is None or not pits.paddocks:  # the generic paddock beside the start, unless the real one is known
+            self.paddock(paddock_side)
         self.lights()
         self.buildings()
         self.stone_walls()
@@ -1143,6 +1152,9 @@ class Planner:
         self.gorse()
         self.foliage()
         self._heights()
+        if pits is not None:
+            pits.after_heights(self)
+            self.sc.info["pits"] = pits.report
         self.sc.info.update({"corners": len(corners), "straights": len(straights), "edgeMinM": self.edge_min,
                              # categories allowed closer to a road edge than edgeMinM: [min, max] metres (the
                              # barrier row on the wall line, corner markers in front of it; under bridge decks
@@ -1150,6 +1162,10 @@ class Planner:
                              "nearRoadM": {"barriers": [C.DIVIDER_MIN - 1.0,
                                                         max(C.CROWD_WALL, C.FAST_CORNER_WALL) + 2.0],
                                            "cornerMarkers": [C.SHOULDER_W, None],
+                                           # real pits (pits.py): the pit wall beside the track, the pit buildings
+                                           # behind the lane, bridges over the road
+                                           **({"pitWall": [0.0, None], "pitBuildings": [2.0, None], "pitPaddock": [2.0, None],
+                                               "bridges": [None, None]} if pits is not None else {}),
                                            "brakeBoards": [BRAKE_GAP + BRAKE_HALF - 0.8,
                                                            BRAKE_GAP + BRAKE_HALF + C.KERB_W + C.GREEN_W + 0.8]},
                              "treeThreshold": round(self.tree_thr, 4)})
