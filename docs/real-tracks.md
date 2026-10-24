@@ -338,7 +338,7 @@ and enabled as "Anglesey".
 
 | | International | Coastal | National | Club |
 |---|---|---|---|---|
-| Lap (built) / published | 3,286.5 / 3,380 m (−2.8 %; Bus Stop sharpened 2026-10-24) | 2,463.2 / 2,494 m (−1.2 %) | 1,899.7 / 1,931 m (−1.6 %) | 1,272.1 / 1,287 m (−1.2 %) |
+| Lap (built) / published | 3,286.8 / 3,380 m (−2.8 %; Bus Stop sharpened 2026-10-24) | 2,463.4 / 2,494 m (−1.2 %) | 1,898.9 / 1,931 m (−1.7 %) | 1,272.4 / 1,287 m (−1.1 %) |
 | Route | full lap | Corkscrew link (OSM 108374690) | School Corner (OSM 108374691) from the end of the return straight, Rocket, Peel, Seamans, Tom Pryce Straight, Hairpin, return straight | start straight, Target, Banking, Church, Club Hairpin (OSM 264840722) |
 | Direction | clockwise (racingcircuits.info arrows; BRSCC notes) | clockwise | clockwise (ACU 2012: first corner the uphill right School Corner) | clockwise |
 | Start/finish | OSM "Start/Finish" node by the 2007 pits | shares International | own: the return straight beside the National pit lane, 62 % along it (ACU 2012: the original pre-2007 line and pit lane; map flag) | own: 22 m after the Club Hairpin joins the start straight (map flag; the International line is 34 m before that junction) |
@@ -396,7 +396,7 @@ date); the 2010 Tilke GP extension was never built.
 | | Grand Prix | National |
 |---|---|---|
 | Source of the layout | MSV GP Circuit map (donington-park.co.uk/about/circuit-layouts): 2.49 mi / 4.02 km, 12 corners | MSV National Circuit map: 1.98 mi / 3.186 km, 10 corners; the Roberts chicane (OSM 27131003, "short cut used on National circuit") in place of the Melbourne Loop |
-| Lap (built) / published | 4,000.9 / 4,020 m (−0.5 %; Fogarty Esses sharpened 2026-10-24) | 3,184.0 / 3,186 m (−0.1 %; Wikipedia 3,149 m: +1.1 %) |
+| Lap (built) / published | 3,999.4 / 4,020 m (−0.5 %; Fogarty Esses sharpened, re-imported 2026-10-24) | 3,182.5 / 3,186 m (−0.1 %; Wikipedia 3,149 m: +1.1 %) |
 | OSM polyline | 4,006 m | 3,180 m |
 | Direction | clockwise: the MSV map's start/finish chevrons point down the Wheatcroft Straight towards Redgate; guides (driver61.com, oversteer48.com) start the lap at Redgate, a right-hander | clockwise (same map and guides) |
 | Start/finish | on the Wheatcroft Straight 197 m from Goddards, beside the middle of the pit lane (driver61.com coordinates 52°49′47.3″N 1°22′46.4″W; MSV maps) | shares the GP line and grid (same chevrons on the MSV National map) |
@@ -442,7 +442,7 @@ corner over an airfield service road (OSM 449592525, paved between the mapped gr
 | | GT | SW | West | SEN |
 |---|---|---|---|---|
 | Source of the layout | MSV GT map (3.8 mi / 6.11 km, 10 left + 8 right corners); racingcircuits.info GT map T1–T18 | MSV SW map (2.8 mi / 4.50 km); racingcircuits.info South West map | MSV West map (1.87 mi / 3 km); OSM's West circuit way, matching the maps turn for turn | MSV SEN map (2.3 mi / 3.70 km); racingcircuits.info SEN map |
-| Lap (built) / published | 5,880.8 / 6,110 m (−3.8 %) | 4,585.3 / 4,500 m (+1.9 %) | 2,798.4 / 3,000 m (−6.7 %) | 3,593.7 / 3,700 m (−2.9 %) |
+| Lap (built) / published | 5,880.8 / 6,110 m (−3.8 %) | 4,585.3 / 4,500 m (+1.9 %) | 2,798.4 / 3,000 m (−6.7 %) | 3,595.3 / 3,700 m (−2.8 %; junctions filleted 2026-10-24) |
 | OSM polyline | 5,899 m | 4,592 m | 2,806 m | 3,592 m |
 | Direction | anticlockwise (racingcircuits.info turn numbering; evo.co.uk: the Hangar Hairpin first) | anticlockwise | anticlockwise (lapmeta: counter-clockwise) | anticlockwise |
 | Start/finish | inner (pit) straight before T1, OSM node 305063847, 159 m before the pit lane merges (racingcircuits.info flag, mapped by an affine fit of the West loop) | shares the GT line | shares the GT line | own: the south straight where the South pit lane rejoins, after the small west loop (racingcircuits.info SEN flag) |
@@ -489,7 +489,7 @@ Turns 11-14). racingcircuits.info's "Bike" Long and Medium are bike-only and not
 | | Main Track | Medium | Short |
 |---|---|---|---|
 | Source of the layout | MSV Main Track map (2.679 mi / 4.313 km, 6 left + 11 right); racingcircuits.info Speed Circuit Long 2024 (T1-T17) | MSV Medium map (1.673 mi / 2.693 km); the diagonal link (OSM 103746068) from T5 to T14 | MSV Short map (0.864 mi / 1.391 km); the Main Track's T8-T11 and the hook from the T11 hairpin's exit back to the T7-T8 road (OSM 1539678089, joined to the lap by `nodeJoins`: it ends 2.3 m off it) |
-| Lap (built) / published | 4,280.0 / 4,313 m (−0.8 %) | 2,637.4 / 2,693 m (−2.1 %) | 1,347.7 / 1,391 m (−3.1 %; OSM's hook is coarse, `lapLengthNote`) |
+| Lap (built) / published | 4,280.0 / 4,313 m (−0.8 %) | 2,637.4 / 2,693 m (−2.1 %) | 1,349.3 / 1,391 m (−3.0 %; OSM's hook is coarse, `lapLengthNote`) |
 | Direction | clockwise (racingcircuits.info arrows; MSV's 11 right / 6 left fit only clockwise) | clockwise | clockwise |
 | Start/finish | main straight opposite the middle of the pit building, 263 m from T17 (MSV map line; OSM pit building 121-402 m along the straight; racingcircuits.info draws its flag ~160 m further on) | shares the Main Track line | own: the T10-T11 straight 70 m after T10 (racingcircuits.info Short flag on that straight; placed where the 24-car grid stays under 4 %) |
 

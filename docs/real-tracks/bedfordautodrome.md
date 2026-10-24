@@ -6,7 +6,7 @@ GT, SW, West and SEN. Build, sources and layouts: `docs/real-tracks.md`, "Bedfor
 ## Audit 2026-10-24
 
 Plots: `.local\audit\bedfordautodrome\bedfordautodrome-{gt,sw,west,sen}.png`; hillshade of the EA DTM with the
-lines: `shade-all.png`. No change to the recipe or the sample.
+lines: `shade-all.png`. The recipe is unchanged; the sample was re-imported for the junction fillet below.
 
 | Check | Evidence | Verdict |
 |---|---|---|
@@ -17,5 +17,6 @@ lines: `shade-all.png`. No change to the recipe or the sample.
 | Lap lengths | GT 5,881 m vs MSV 3.8 mi / 6.11 km (−3.8 %), SW 4,585 vs 4,500 (+1.9 %), West 2,798 vs MSV 1.87 mi / 3.0 km (−6.7 %; lapmeta 2.89 km: −3.2 %), SEN 3,594 vs 3,700 (−2.9 %). MSV's own page (re-read 2026-10-24) still gives these figures and 12 corners (7 L, 5 R) for the West, lapmeta 10. The SW, from the same OSM ways, is over MSV's figure, so OSM isn't uniformly short; the GT/West gaps stay unexplained (MSV's figures may predate the 2015 changes). | Unchanged; the `lapLengthNote`s stand |
 | Start/finish, direction | racingcircuits.info flags fitted to OSM; anticlockwise. | OK |
 | Width | Not published; the 1 m DTM shows no edge on the flat asphalt. | 12 m kept, unverified |
+| SEN junction kinks | The SEN branch met the main line at 43° (leaving) and 27° (rejoining) within 2 m: `joinWithinM` trims the shallow merge, and the ends were moved onto the main line without turning. | `fillet_ends` (importer): curved onto the main line over 30 m; SEN 3,595.3 m (was 3,593.7). |
 
 Uncertain: the GT and West lap-length gaps, the width.
