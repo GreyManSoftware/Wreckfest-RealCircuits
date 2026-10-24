@@ -434,7 +434,10 @@ def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict) -> None:
                 close &= geo.separate_part(r, g)
                 p = plan.get((ri, side))
                 if p is not None:
-                    wrong = p["divider"] & ~geo.separate_part(r, geo.road_gaps()[(ri, side)])
+                    ok_ = geo.separate_part(r, geo.road_gaps()[(ri, side)])
+                    for k in range(1, C.DIVIDER_OVERRUN + 1):  # the divider runs on a few samples past its gap
+                        ok_ = ok_ | np.roll(ok_, k) | np.roll(ok_, -k)
+                    wrong = p["divider"] & ~ok_
                     bad_div += [f"{r.id}:{'l' if side > 0 else 'r'}@{r.s[i]:.0f}m" for i in np.nonzero(wrong)[0][:2]]
             for i in np.nonzero(close)[0][::2]:
                 ends = np.array([edge[i, :2] + r.nl[i] * side * 0.3, edge[i, :2] + r.nl[i] * side * (g["gap"][i] - 0.3)])

@@ -297,7 +297,7 @@ def main() -> None:
     for lay in layouts:
         bscene.reset()
         bpy.context.scene.name = lay.name
-        bscene.empty_object(next(e for e in lay.empties if e.name.startswith("#xref")), bscene.collection("base"))
+        bscene.empty_object(next(e for e in lay.empties if is_base_xref(e)), bscene.collection("base"))
         ai = bscene.collection("airoutes")
         cps = bscene.collection("checkpoints")
         jumps = bscene.collection("jumps")
@@ -305,9 +305,13 @@ def main() -> None:
             target = {"ai": ai, "checkpoint": cps}.get(m.kind) or (bscene.collection("bounds") if m.kind == "bounds" else jumps)
             bscene.mesh_object(m, target)
         sp = bscene.collection("startpoints")
+        lp = None
         for e in lay.empties:
             if not e.name.startswith("#xref"):
                 bscene.empty_object(e, sp)
+            elif not is_base_xref(e):  # this layout's own props (e.g. coneOffMain's traffic cones)
+                lp = lp or bscene.collection("props")
+                bscene.empty_object(e, lp)
         ed = bscene.collection("editing#exclude")  # Toolbox skips collections ending in #exclude
         for c in lay.curves:
             bscene.curve_object(c, ed)

@@ -436,6 +436,11 @@
         "startFinish": {
           "$ref": "#/$defs/MetrePoint",
           "description": "The layout's own start/finish line (some circuits time each layout at a different line): the point is projected onto the layout's lap, the grid starts there and the lap is counted from it. Omit it to share the main line."
+        },
+        "coneOffMain": {
+          "description": "Block the main centreline with a row of traffic cones (in this layout's scene only) where this layout's branch leaves it, so drivers take the branch: e.g. Oulton Park's trackday layout through Hislop's chicane beside the straight the International drives.",
+          "type": "boolean",
+          "default": false
         }
       }
     },
