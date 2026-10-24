@@ -5,7 +5,7 @@
   "visibility": "public",
   "homepage": "https://git.greymansoftware.com",
   "tracks": ["cadwellpark", "brandshatch", "oultonpark", "snetterton", "doningtonpark", "bedfordautodrome", "navarra", "anglesey"],
-  "intro": "[h1]MSV + Anglesey Tracks[/h1]\nThe seven MotorSport Vision circuits plus Anglesey Circuit (Trac Mon), rebuilt from open map and LIDAR data: {circuits} circuits, {layouts} layouts. Each circuit has its current official layouts with the real racing direction and start/finish lines, real elevation and camber, a 24-car grid, AI and the in-race minimap.",
+  "intro": "[h1]MSV + Anglesey Tracks[/h1]\nThe seven MotorSport Vision circuits plus Anglesey Circuit (Trac Mon), rebuilt from open map and LIDAR data: {circuits} circuits, {layouts} layouts. Each circuit has its current official layouts with the real racing direction and start/finish lines, real elevation and camber, measured track widths, a 24-car grid, AI and the in-race minimap.",
   "lapNote": "Lap lengths are as built in the game.",
   "usage": [
     "Subscribe, then enable [b]MSV + Anglesey Tracks[/b] in the Mods menu and restart the game. Each layout is an event, e.g. \"Brands Hatch Indy\".",
@@ -18,13 +18,15 @@
     "Circuit layouts and woodland: © OpenStreetMap contributors, ODbL 1.0",
     "Heights in England: Environment Agency LIDAR Composite DTM, © Environment Agency copyright and/or database right, Open Government Licence v3.0",
     "Heights in Wales: Natural Resources Wales / Welsh Government LIDAR, contains Natural Resources Wales information © Natural Resources Wales and database right, Open Government Licence v3.0",
-    "Heights in Spain: IGN/CNIG PNOA MDT05, © Instituto Geográfico Nacional de España, CC BY 4.0"
+    "Track widths in England: Environment Agency National LIDAR Programme point cloud, © Environment Agency copyright and/or database right, Open Government Licence v3.0",
+    "Heights and widths in Spain: Gobierno de Navarra 2024 LIDAR (DTM 2 m and point cloud) via IDENA, © Gobierno de Navarra, CC BY 4.0"
   ],
   "creditsLong": [
     "Circuit layouts (highway=raceway ways) and woodland: © OpenStreetMap contributors, Open Database Licence 1.0 (https://www.openstreetmap.org/copyright).",
     "Heights, camber and terrain in England (Cadwell Park, Brands Hatch, Oulton Park, Snetterton, Donington Park, Bedford Autodrome): Environment Agency LIDAR Composite DTM 1 m. © Environment Agency copyright and/or database right 2022. Open Government Licence v3.0.",
     "Heights, camber and terrain in Wales (Anglesey): Welsh Government / Natural Resources Wales LIDAR composite DTM 1 m. Contains Natural Resources Wales information © Natural Resources Wales and database right. Open Government Licence v3.0.",
-    "Heights, camber and terrain in Spain (Circuito de Navarra): MDT05 from the PNOA LIDAR, © Instituto Geográfico Nacional de España (IGN/CNIG). CC BY 4.0.",
+    "Track widths in England (Cadwell Park, Brands Hatch, Oulton Park, Snetterton, Donington Park, Bedford Autodrome): measured from the Environment Agency National LIDAR Programme point cloud. © Environment Agency copyright and/or database right. Open Government Licence v3.0. Anglesey uses its published 12 m width.",
+    "Heights, camber, terrain and track widths in Spain (Circuito de Navarra): Gobierno de Navarra 2024 LIDAR flight, MDT 2 m and point cloud, via IDENA (idena.navarra.es). © Gobierno de Navarra. CC BY 4.0.",
     "The tracks are derived data (centrelines, a terrain grid, simplified woods); the game's own textures and objects are referenced, not included."
   ],
   "disclaimer": "Unofficial fan-made tracks, not affiliated with or endorsed by MotorSport Vision or the circuits; circuit names are trademarks of their owners."
