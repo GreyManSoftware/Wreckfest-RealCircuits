@@ -25,7 +25,7 @@ layouts; lengths from Wikipedia unless noted, to verify per circuit under the st
 | 4 | Snetterton (`snetterton`) | 300 4.779 km, 200 3.219 km, 100 1.577 km (MSV) | built 2026-10-20: 4,789 m (+0.2 %), 3,195 m (−0.8 %), 1,556 m (−1.3 %); the 100's own line is estimated; [details](real-tracks/snetterton.md) |
 | 5 | Donington Park (`doningtonpark`) | Grand Prix 4.020 km, National 3.186 km (MSV; Wikipedia 3.149 km) | built 2026-10-20 |
 | 6 | Bedford Autodrome (`bedfordautodrome`) | GT 6.11 km, SW 4.50 km, West 3.0 km, SEN 3.70 km (MSV's circuit-layouts page; North, South and East no longer listed) | built 2026-10-20 |
-| 7 | Circuito de Navarra (`navarra`) | Main Track 4.313 km, Medium 2.693 km, Short 1.391 km (MSV, since September 2024) | built 2026-10-20 (IGN MDT05 heights, UTM 30N) |
+| 7 | Circuito de Navarra (`navarra`) | Main Track 4.313 km, Medium 2.693 km, Short 1.391 km (MSV, since September 2024) | built 2026-10-20; heights from Navarre's 2024 2 m LIDAR since the 2026-10-24 audit ([details](real-tracks/navarra.md)) |
 
 **Standing requirements (Chris, 2026-10-20), for every circuit in the pack:**
 
@@ -115,7 +115,13 @@ Recipe extras (Anglesey, `tools/real_tracks/anglesey.json`):
   30N: the importer then projects WGS84 (taken as ETRS89, under 1 m apart) to UTM 30N with the same transverse
   Mercator formulae on GRS80, and the local frame uses the UTM scale factor. On a coarser DTM the heights and camber
   are smoothed more (sigma max(4 m, 2 cells) and max(10 m, 3 cells)). An explicit `slug` may also be the default of
-  the name's last words ("Circuito de Navarra" -> `navarra`).
+  the name's last words ("Circuito de Navarra" -> `navarra`). **The IDEE WCS serves the MDT05 in whole metres**
+  (1 m terraces; the report's `dtmWholeMetreFraction` is 0.2-0.45 on it, about 0.01 on a LIDAR DTM in cm): don't use
+  it where a better DTM exists.
+- `"dtm": "es-navarra"` (Navarre): the Gobierno de Navarra's 2 m DTM from the 2024 LIDAR flight (IDENA WCS
+  `idena.navarra.es/ogc/wcs`, coverage `IDENA.WCS__ELEVAC_Ras_MDT_2M`, centimetre heights, CC BY 4.0, "Servicio
+  proporcionado por el Gobierno de Navarra"), UTM 30N, 1 km tiles cached as `dtm/idena2m_*.npz` (Circuito de Navarra
+  since 2026-10-24).
 - `altLayouts[].joinWithinM`: a branch that runs beside the main road before it merges (Bedford SEN) joins where it
   first comes within this distance of the main line, instead of overlapping it.
 - `lapLengthTolerancePct` + `lapLengthNote` (main or per layout): a larger gap to the published length than the
@@ -184,6 +190,25 @@ the 300/200/100), Cadwell Park (none for cars), Bedford (none on GT/SW/West/SEN)
 named chicane; their tightest S-bends follow OSM) need no change. Donington's old Esses were replaced by the Fogarty
 Esses; the Melbourne Hairpin and Goddards are hairpins (15.9 m, 22.2 m), not chicanes.
 
+## Audit notes (2026-10-24)
+
+Accuracy audit before the Workshop release (this agent: Donington Park, Bedford Autodrome, Circuito de Navarra,
+Anglesey; findings tables in `real-tracks/<slug>.md`, "Audit 2026-10-24"). Shared changes, for the other circuits too:
+
+- **`tools/audit_real_track.py`** (system Python: numpy + Pillow): per-layout PNGs of curvature, height, 10/50 m
+  grade, vertical curvature, camber, straight ripple and wobble against distance with the corner labels (`--before`
+  overlays an earlier sample), plus `<slug>-artefacts.json`.
+- **`profile_artefacts`** (importer): straight wobble, grade ripple on straights (10 m grade minus its 15 m
+  smoothing), camber flips and rate, tightest crest and dip. In every import report (`artefacts`, per alt layout
+  too) and checked on every committed sample by `test_imported_sample_has_no_profile_artefacts` (limits: ripple
+  RMS ≤ 0.4 %, wobble ≤ 0.5 m, camber rate ≤ 0.35°/m, vertical radius ≥ 75 m; the worst real values when set were
+  0.31 %, 0.34 m, 0.27°/m and 93 m). All eight samples pass; Navarra's MDT05 build read 0.53 %.
+- **`dtmWholeMetreFraction`** in the report: a terraced (whole-metre) DTM shows 0.2-0.45.
+- **`join_blend`:** an alternative layout's branch ends take the main road's height and camber, the mismatch faded
+  over at least 30 m (more for a large height step, at most 1.5 % grade); geom only blends heights over 20 m.
+  Samples of other circuits change only when re-imported.
+- No height de-noising was needed on the 1 m EA / Welsh DTMs: their straights show 0.08-0.31 % ripple RMS.
+
 ## Data sources and attribution
 
 | Data | Source | Licence | Attribution (in the spec's `sketch.imported.source`) |
@@ -191,7 +216,8 @@ Esses; the Melbourne Hairpin and Goddards are hairpins (15.9 m, 22.2 m), not chi
 | Layout (raceway ways), woodland polygons | OpenStreetMap via the Overpass API | ODbL 1.0 | © OpenStreetMap contributors |
 | Heights, camber, terrain (Wales) | Welsh Government / NRW LIDAR composite DTM, 1 m (COG on DataMapWales) | Open Government Licence v3.0 | Contains Natural Resources Wales information © Natural Resources Wales and database right |
 | Heights, camber, terrain | Environment Agency LIDAR Composite DTM, 1 m (bare earth; WCS `environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs`) | Open Government Licence v3.0 | © Environment Agency copyright and/or database right 2022 |
-| Heights, camber, terrain (Spain) | IGN MDT05, 5 m, from the PNOA LIDAR (WCS `servicios.idee.es/wcs-inspire/mdt`, coverage `Elevacion25830_5`, ETRS89 / UTM 30N) | CC BY 4.0 | MDT05 © Instituto Geográfico Nacional de España (IGN), derived from PNOA LIDAR |
+| Heights, camber, terrain (Spain) | IGN MDT05, 5 m, from the PNOA LIDAR (WCS `servicios.idee.es/wcs-inspire/mdt`, coverage `Elevacion25830_5`, ETRS89 / UTM 30N); no track uses it since 2026-10-24 | CC BY 4.0 | MDT05 © Instituto Geográfico Nacional de España (IGN), derived from PNOA LIDAR |
+| Heights, camber, terrain (Navarre) | Gobierno de Navarra MDT 2 m, 2024 LIDAR (IDENA WCS, coverage `IDENA.WCS__ELEVAC_Ras_MDT_2M`, ETRS89 / UTM 30N) | CC BY 4.0 | Servicio proporcionado por el Gobierno de Navarra (IDENA) |
 
 The committed sample (`geom/tests/samples/cadwellpark.json`) is derived data (a 2 m centreline, a 6 m grid and
 simplified woods), not the raw downloads. A published mod that uses it should carry the same attribution.
@@ -433,13 +459,14 @@ Turns 11-14). racingcircuits.info's "Bike" Long and Medium are bike-only and not
 Corner labels are racingcircuits.info's turn numbers ("Turn 1" … "Turn 17", `cornerLabels` at OSM nodes); Navarra's
 corners have no published names. The OSM lap has exactly MSV's 11 right and 6 left corners.
 
-- **Heights:** Spain's IGN MDT05 (5 m, from the PNOA LIDAR, CC BY 4.0, "© Instituto Geográfico Nacional"), from the
-  IDEE INSPIRE WCS in ETRS89 / UTM 30N; the importer now projects to UTM 30N for it (`"dtm": "es-mdt05"`). Road
-  heights 427-447 m (range 20.3 m), climb 45 m per lap, +9.3 % / −13.5 % over 10 m (the back straight between T8
-  and T9 crosses a 3 m hump), camber up to 7.4° (T11 is banked). The 5 m grid is too coarse to register the OSM
-  line to (with 3 m allowed the three layouts' fits drifted apart), so the line is used as mapped; heights and
-  camber are smoothed over 10 m and 15 m. Fit to the DTM: centre RMS 0.13 m (max 0.7 m at the hump).
-- **Width:** not published; 12 m.
+- **Heights (since the 2026-10-24 audit, `real-tracks/navarra.md`):** the Gobierno de Navarra's 2 m DTM from the
+  2024 LIDAR (IDENA WCS, CC BY 4.0, `"dtm": "es-navarra"`), in UTM 30N. Road heights 427-448 m (range 20.3 m), climb
+  42 m per lap, +6.8 % / −9.6 % over 10 m, camber up to 3.0° (p95 1.4°; T11 2.4° into the hairpin); fit to the DTM
+  0.019 m. The line is used as mapped (the orthophoto puts it mid-road; registration only added wobble). Until then
+  the IGN MDT05, which the IDEE WCS serves in whole metres: its 1 m terraces made every straight wavy, gave the
+  main straight a false 4° camber, and its older flight showed the 2024 extension (T11-T14) as the ground before it
+  was built (the "3 m hump", 7.4° camber and −13.5 % grade were there, not on the back straight).
+- **Width:** 12 m (published: 12 m, 15 m on the main straight; one width per track).
 - **Kerbs:** OSM has none and no track guide with kerb detail for the 2024 layout was found: geometric kerbs.
 - **Environment:** the new `arid` preset: the stock sandpit03 palette (sand, pebbles, dry ground, sandpit3 dry-grass
   clutter, the landscape1 vista), low scrub, rocks and a few pines, bare rolling hills on the far ground; light

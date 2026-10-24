@@ -204,3 +204,18 @@ Stock assets from `worker/docs/visual-assets.md`:
 - no water or sea material is documented.
 
 Both should be checked in the game's `data/art/objects` and `levels/*/textures` before the build.
+
+## Audit 2026-10-24
+
+Plots: `.local\audit\anglesey\anglesey-{international,coastal,national,club}.png` (`python tools/audit_real_track.py`).
+No change to the recipe or the sample.
+
+| Check | Evidence | Verdict |
+|---|---|---|
+| Corners | International curvature: Target L (75 m), the Banking R 172° (32 m), Church R (68 m), Rocket L-R (15 m / 26 m), Peel R (33 m), the Corkscrew L (36 m), the Hairpin R 174° (24 m), the Bus Stop (`sharpWays`, 13.6 m at its tightest). Handedness as the racingcircuits.info maps, clockwise. | OK |
+| Straights | Wales 1 m DTM, registered (shifts −1.5…+0.5 m): wobble ≤ 0.22 m, grade ripple RMS 0.14 %. The one camber "flip" on a straight is the steady change from Target's camber to the Banking's, not flicking. | OK |
+| Elevation | 11.1-29.8 m ODN (18.8 m range), the climb to Rocket +8.1 %, Peel (28.8 m) down to the Corkscrew (18.6 m): the 10 m Corkscrew drop at up to −8.2 % (Coastal's link −9.7 %). Crests ≥ 650 m (Coastal ≥ 254 m), no steps; fit RMS 0.013 m. | OK |
+| Camber | The Banking 5.7° into the right-hander (its name), Target −1.6° into the left, p95 3.9°. | OK |
+| Lap lengths | International 3,286.5 vs 3,380 m (−2.8 %), Coastal −1.2 %, National −1.6 %, Club −1.2 %. OSM `width` 12 m on three ways and the registered line agree with the DTM; the International's extra gap (the Tom Pryce Straight-Hairpin-Bus Stop part) has no source to check against. | Unchanged (within 3 %) |
+| Start/finish | International/Coastal: OSM "Start/Finish" node; National: ACU 2012 + map flag; Club: map flag 22 m after the Club Hairpin joins. No better source found for the Club line. | Unchanged, Club estimated |
+| Environment | Sea plane below 0 m ODN to the W/S (no-data cells of the Welsh DTM), coastal rocks on the shore, crowds at the Corkscrew, Rocket, Banking. | OK |
