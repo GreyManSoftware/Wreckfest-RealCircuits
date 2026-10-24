@@ -918,6 +918,8 @@ def ease_vertical(z: np.ndarray, step: float, closed: bool = True, r_min: float 
 
 JOIN_BLEND_MIN_M = 30.0       # a branch end's height/camber mismatch with the main road fades out over at least this
 JOIN_BLEND_MAX_GRADE = 0.015  # ... and long enough that it adds at most this to the grade
+MERGE_FADE_MIN_M = 20.0       # merge_onto_main: the main road's surface fades out along a branch over at least this ...
+MERGE_MAX_BANK_RATE = 0.15    # ... and slowly enough that the camber it takes over changes by at most this (deg/m)
 
 
 def merge_onto_main(xy_b: np.ndarray, z_b: np.ndarray, bank_b: np.ndarray, xy_m: np.ndarray, z_m: np.ndarray,
@@ -926,26 +928,49 @@ def merge_onto_main(xy_b: np.ndarray, z_b: np.ndarray, bank_b: np.ndarray, xy_m:
     width): moved onto the main road's cambered surface there, fully where the centrelines meet and fading out
     where the roads only touch. Two roads meeting at a shallow angle are one paved surface; fitted separately they
     differed by up to 16 cm side by side (Navarra Short's hook merging onto the T7-T8 road: the AI racing strip left
-    the road surface by 5.7 cm)."""
+    the road surface by 5.7 cm). The camber fades out along the branch more slowly (MERGE_FADE_MIN_M,
+    MERGE_MAX_BANK_RATE), and a run onto one part of the main road stops where the nearest main road changes."""
     z_b, bank_b = z_b.astype(np.float64).copy(), bank_b.astype(np.float64).copy()
     _, nl_m = normals(xy_m)
     near = [int(np.argmin(np.hypot(*(xy_m - q).T))) for q in xy_b]
     dist = np.array([float(np.hypot(*(xy_m[j] - q))) for j, q in zip(near, xy_b)])
     s = arc(xy_b)
-    # only the merges at the branch's ends: the runs from each end while the roads overlap, within 80 m
-    zone = np.zeros(len(xy_b), dtype=bool)
-    for idx in (range(len(xy_b)), range(len(xy_b) - 1, -1, -1)):
-        for i in idx:
-            if dist[i] >= width or min(s[i], s[-1] - s[i]) > 80.0:
-                break
-            zone[i] = True
-    for i in np.flatnonzero(zone):
-        q, j = xy_b[i], near[i]
-        w = float(np.clip((width - dist[i]) / (0.5 * width), 0.0, 1.0))
+    n_m, n = len(xy_m), len(xy_b)
+    z_surf, b_surf = z_b.copy(), bank_b.copy()
+    for i, (q, j) in enumerate(zip(xy_b, near)):
         lat = float(np.dot(q - xy_m[j], nl_m[j]))  # to the left of the main road
-        z_surf = z_m[j] + math.tan(math.radians(bank_m[j])) * lat
-        z_b[i] = w * z_surf + (1.0 - w) * z_b[i]
-        bank_b[i] = w * bank_m[j] + (1.0 - w) * bank_b[i]
+        z_surf[i] = z_m[j] + math.tan(math.radians(bank_m[j])) * lat
+        b_surf[i] = bank_m[j]
+    lateral = np.clip((width - dist) / (0.5 * width), 0.0, 1.0)
+    # only the merges at the branch's ends: the runs from each end while the roads overlap, within 80 m, and on
+    # the same part of the main road (a hairpin between two roads side by side overlaps the one, then the other)
+    taken = np.zeros(n, dtype=bool)
+    w_z, w_b = np.zeros(n), np.zeros(n)
+    for idx in (range(n), range(n - 1, -1, -1)):
+        run = []
+        for i in idx:
+            jump = run and min((near[i] - near[run[-1]]) % n_m, (near[run[-1]] - near[i]) % n_m) > 10
+            if dist[i] >= width or min(s[i], s[-1] - s[i]) > 80.0 or taken[i] or jump:
+                break
+            run.append(i)
+        if not run:
+            continue
+        taken[run] = True
+        # The lateral weight fades over half a width sideways, which a branch leaving at an angle crosses in a few
+        # metres (the camber went from the one road's to the branch's own at 0.40 deg/m on Oulton's Fosters link;
+        # on Cadwell Woodlands' hairpin from the start straight's to the other road's at 0.77). Along the branch
+        # it fades over at least MERGE_FADE_MIN_M, slowly enough that the camber it takes over changes by at most
+        # MERGE_MAX_BANK_RATE per metre: w(s) <= w(t) + |s - t| / L, 0 off the run (pulled back towards the end,
+        # never past where the roads overlap; join_blend matches what is left at the end itself).
+        L = max(MERGE_FADE_MIN_M, float(np.abs(b_surf - bank_b)[run].max()) / MERGE_MAX_BANK_RATE)
+        w_run = np.zeros(n)
+        w_run[run] = lateral[run]
+        w_z = np.maximum(w_z, w_run)
+        w_b = np.maximum(w_b, np.min(w_run[None, :] + np.abs(s[:, None] - s[None, :]) / L, axis=1))
+    # heights take the lateral weight (side by side the surfaces match within a few mm; a height step over a few
+    # metres is a gentle grade change), the camber the slower one
+    z_b = w_z * z_surf + (1.0 - w_z) * z_b
+    bank_b = w_b * b_surf + (1.0 - w_b) * bank_b
     return z_b, bank_b
 
 

@@ -246,6 +246,20 @@ values, so they stay.
   2 m kink (Navarra Short 47°, Bedford SEN 43° and 27°); the sample test checks every branch end is within 25°.
 - No other height de-noising was needed on the 1 m EA / Welsh DTMs: their straights show 0.08-0.31 % ripple RMS.
 
+**Reconciling A and B (all eight re-imported on the merged importer).** Re-importing audit A's circuits with B's
+`merge_onto_main` failed the camber-rate checks: Cadwell Woodlands 0.77°/m (lap 0.76 at s ≈ 297 m), Oulton Fosters
+0.40°/m. Cause: `merge_onto_main` faded the main road's camber over half a road width *sideways*, which a branch
+leaving at an angle crosses in 4-10 m (a 3.5° mismatch in 10 m on Fosters), and on Woodlands' hairpin (from the start
+straight onto the run to the Mountain, a few metres apart) the nearest main road switched from the one to the other
+inside one merge run (−1.9° to −4.1° in 4 m). `join_blend` and `fillet_ends` were not involved. Now each end gets its
+own run, which stops where the nearest main point jumps; heights keep the lateral weight (side by side within 1 mm,
+as before), and the camber weight fades along the branch over at least 20 m and at most 0.15°/m of mismatch
+(`MERGE_FADE_MIN_M`, `MERGE_MAX_BANK_RATE`); `join_blend` matches any rest at the end. New test
+`test_branch_joins_take_the_main_surface_without_a_camber_flick` (hairpin and steep-departure cases; the old code read
+0.56 and 0.75°/m). Branch camber rates after: Woodlands 0.28, Fosters 0.23, all others ≤ 0.19°/m (Brands Indy 0.31
+→ 0.18, Navarra Short 0.25 → 0.16, Anglesey Coastal 0.28 → 0.19). Lap lengths unchanged on every layout (only branch
+heights and camber near the joins move).
+
 ## Data sources and attribution
 
 | Data | Source | Licence | Attribution (in the spec's `sketch.imported.source`) |
