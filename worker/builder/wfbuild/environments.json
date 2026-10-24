@@ -153,12 +153,15 @@
                      "c": "fields:decal_asphalt_sand_transition_fields13_c5", "ao": "fields:decal_asphalt_sand_transition_fields13_ao",
                      "n": "fields:decal_asphalt_sand_transition_fields13_n", "s": "fields:decal_asphalt_sand_transition_fields13_s"},
  "sponsor": {
-  "_comment": "Our own sponsor boards (wfbuild/sponsor.py, category sponsorBoards): ad-fence panels replacing fenceShare of the stock ad-fence blocks, and up to billboards billboards on posts at the start/finish straight, the outside of the biggest braking zones and facing the grandstand. Textures are rendered by the builder (handle text in bold, our own camera glyph). Override with the JSON file named in TRACKGEN_SPONSOR; enabled false turns them off.",
+  "_comment": "Our own sponsor boards (wfbuild/sponsor.py, category sponsorBoards): ad-fence panels replacing fenceShare of the stock ad-fence blocks, and up to billboards billboards on posts at the start/finish straight, the outside of the biggest braking zones and facing the grandstand; every layout is guaranteed at least one handle board in view of its grid or start straight (fallbacks may add a few beyond the cap). Textures are rendered by the builder (handle text in bold, our own camera glyph). Override with the JSON file named in TRACKGEN_SPONSOR; enabled false turns them off.",
   "enabled": true,
   "text": "@flatshiftcars",
   "tagline": "FOLLOW ON INSTAGRAM",
   "fenceShare": 0.4,
   "billboards": 6,
+  "credit": {"_comment": "A subtle credit on every circuit (sponsor.credit): style plaque = one small muted plaque near the start/finish line on the paddock side, line = small type along the bottom of the billboards (also the fallback when the plaque finds no room). enabled false (or credit false) turns it off.",
+             "enabled": true, "text": "GreyManSoftware", "prefix": "track by", "style": "plaque",
+             "colourway": {"background": [52, 56, 60], "text": [176, 180, 178], "accent": [96, 100, 104], "back": [60, 62, 66]}},
   "colourways": [
    {"name": "black", "background": [18, 18, 22], "text": [255, 255, 255], "accent": [228, 34, 58], "back": [44, 44, 48]},
    {"name": "red", "background": [200, 24, 42], "text": [255, 255, 255], "accent": [255, 204, 0], "back": [62, 62, 66]},
