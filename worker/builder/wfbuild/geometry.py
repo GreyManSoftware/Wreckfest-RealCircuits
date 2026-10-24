@@ -79,6 +79,48 @@ class Mesh:
         return not self.faces
 
 
+class TriIndex:
+    """2D point-in-triangle queries over a mesh's faces (fan-triangulated; grid hash)."""
+
+    def __init__(self, tris: np.ndarray, cell: float = 6.0):
+        self.t = np.asarray(tris, dtype=np.float64).reshape(-1, 3, 3)[:, :, :2]
+        self.cell = cell
+        self.grid: dict[tuple[int, int], list[int]] = {}
+        if not len(self.t):
+            return
+        lo = np.floor(self.t.min(1) / cell).astype(np.int64)
+        hi = np.floor(self.t.max(1) / cell).astype(np.int64)
+        for k in range(len(self.t)):
+            for gx in range(lo[k, 0], hi[k, 0] + 1):
+                for gy in range(lo[k, 1], hi[k, 1] + 1):
+                    self.grid.setdefault((gx, gy), []).append(k)
+
+    @staticmethod
+    def of(*meshes: "Mesh") -> "TriIndex":
+        out = []
+        for m in meshes:
+            v = np.array(m.verts, dtype=np.float64).reshape(-1, 3)
+            for f in m.faces:
+                for k in range(1, len(f) - 1):
+                    out.append(v[[f[0], f[k], f[k + 1]]])
+        return TriIndex(np.array(out))
+
+    def covered(self, p, tol: float = 0.02) -> bool:
+        """Is 2D point p on a triangle (with ``tol`` slack, relative, for points on a shared edge)?"""
+        ks = self.grid.get((int(np.floor(p[0] / self.cell)), int(np.floor(p[1] / self.cell))))
+        if not ks:
+            return False
+        t = self.t[ks]
+        a, b, c = t[:, 0], t[:, 1], t[:, 2]
+
+        def cross(o, u, v):
+            return (u[:, 0] - o[:, 0]) * (v[..., 1] - o[:, 1]) - (u[:, 1] - o[:, 1]) * (v[..., 0] - o[:, 0])
+
+        d1, d2, d3 = cross(a, b, p), cross(b, c, p), cross(c, a, p)
+        e = tol * np.sqrt(np.abs(cross(a, b, c)) + 1e-12)
+        return bool(np.any(((d1 < e) & (d2 < e) & (d3 < e)) | ((d1 > -e) & (d2 > -e) & (d3 > -e))))
+
+
 def _newell(pts: np.ndarray) -> np.ndarray:
     n = np.zeros(3)
     for a, b in zip(pts, np.roll(pts, -1, axis=0)):
@@ -688,6 +730,8 @@ class TrackGeometry:
 
     # ----------------------------------------------------------------------------------------- road
     def build_road(self) -> Mesh:
+        if self.__dict__.get("_road_mesh") is not None:
+            return self._road_mesh
         mesh = Mesh("track_surface", "col = true", kind="road")
         vids: dict[tuple[int, int, int], int] = {}
 
@@ -720,6 +764,7 @@ class TrackGeometry:
         for alt, chains in self.aprons:
             self._pave_apron(mesh, vid, alt, chains)
         self.road_vids = vids
+        self._road_mesh = mesh
         return mesh
 
     def _pave_apron(self, mesh: Mesh, vid, alt: Route, chains) -> None:
@@ -808,10 +853,85 @@ class TrackGeometry:
         p[:, :2] += out * np.asarray(offset, dtype=np.float64).reshape(-1, 1)
         return p
 
-    def _edge_ok(self, r: Route, pts: np.ndarray, clearance) -> np.ndarray:
+    def _edge_ok(self, r: Route, pts: np.ndarray, clearance, side: int | None = None) -> np.ndarray:
+        """Samples whose roadside point (``pts``, one per sample) is clear of every other road, on valid road
+        away from bridges. With ``side``, another road's samples whose surface stays inside this road on that
+        side don't count (``_inside_own``): a branch leaving across the other edge of a junction must not take
+        this edge's kerb and verge (Oulton Park, Chris 2026-10-24: a dark wedge of bare terrain and a kerb cut
+        short opposite the Island and Fosters junctions)."""
         own_ri = np.full(len(pts), r.index)
-        bad = self.index.near_other(pts, own_ri, r.s, clearance)
+        mask = None if side is None else ~self._inside_own(r, side)
+        bad = self.index.near_other(pts, own_ri, r.s, clearance, mask=mask)
         return ~bad & self.svalid[r.index] & ~self.structure[r.index]
+
+    def _free_width(self, r: Route, side: int, idx: np.ndarray, full: np.ndarray, road: "TriIndex | None" = None,
+                    step: float = 0.25) -> np.ndarray:
+        """For samples ``idx`` of r: how far out from the road edge on ``side`` (up to ``full`` per sample) the
+        ground is clear of another road's surface (as _edge_ok, without clearance) and, with ``road`` (the built
+        road mesh), of any road face (junction stitches included) met after leaving this road."""
+        edge = (r.left if side > 0 else r.right)[idx]
+        free = np.asarray(full, dtype=np.float64)[idx].copy()
+        todo = np.ones(len(idx), dtype=bool)
+        mask = ~self._inside_own(r, side)
+        cleared = np.zeros(len(idx), dtype=bool)
+        t = 0.0
+        while todo.any() and t <= float(free.max()):
+            k = np.nonzero(todo & (t <= free))[0]
+            if not len(k):
+                break
+            pts = edge[k].copy()
+            pts[:, :2] += r.nl[idx[k]] * side * t
+            hit = self.index.near_other(pts, np.full(len(k), r.index), r.s[idx[k]], 0.0, mask=mask)
+            if road is not None:  # road faces once clear of this edge (a stitch's sliver along it doesn't count)
+                on = np.array([road.covered(p) for p in pts[:, :2]], dtype=bool)
+                hit |= on & cleared[k]
+                cleared[k] |= ~on
+            free[k[hit]] = t
+            todo[k[hit]] = False
+            t += step
+        return free
+
+    def _built_samples(self, r: Route) -> np.ndarray:
+        """Samples of r next to at least one built road segment (``qkeep``)."""
+        q = self.qkeep[r.index]
+        b = np.zeros(r.n, dtype=bool)
+        b[:len(q)] |= q
+        b[1:len(q) + 1] |= q[:r.n - 1]
+        if r.closed and len(q):
+            b[0] |= q[-1]
+        return b
+
+    def _inside_own(self, r: Route, side: int) -> np.ndarray:
+        """Index samples of other routes (or of this one further along) whose road surface lies within route r's
+        road on ``side``: beside a centreline sample of r (within 1.5 m along it, 3 m in height) and either not
+        built there (the stitched overlap of a branch, ``qkeep``) or not reaching past r's edge on that side
+        (lateral offset towards the side + their half width <= r's half width + 0.6 m). Such a road can't take
+        r's verge on that side."""
+        cache = self.__dict__.setdefault("_inside_own_cache", {})
+        if (r.index, side) in cache:
+            return cache[(r.index, side)]
+        ix = self.index
+        out = np.zeros(len(ix.xy), dtype=bool)
+        cand = np.arange(len(ix.xy))
+        built = np.concatenate([self._built_samples(q) for q in self.routes])
+        c = r.p[:, :2]
+        hw = r.w / 2.0
+        for a in range(0, len(cand), 512):
+            k = cand[a:a + 512]
+            d = np.hypot(ix.xy[k, None, 0] - c[None, :, 0], ix.xy[k, None, 1] - c[None, :, 1])
+            j = np.argmin(d, axis=1)
+            rel = ix.xy[k] - c[j]
+            along = np.abs(np.sum(rel * r.tangent[j, :2], axis=1))
+            lat = np.sum(rel * r.nl[j], axis=1) * side
+            dz = np.abs(ix.z[k] - r.p[j, 2])
+            # this route's own samples nearby are its own road, not another (near_other skips them anyway)
+            sd = np.abs(ix.s[k] - r.s[j])
+            if r.closed:
+                sd = np.minimum(sd, r.length - sd)
+            other = (ix.ri[k] != r.index) | (sd > C.OTHER_ROUTE_S)
+            out[k] = other & (along <= 1.5) & (dz < 3.0) & ((lat + ix.hw[k] <= hw[j] + 0.6) | ~built[k])
+        cache[(r.index, side)] = out
+        return out
 
     # ------------------------------------------------------------- corners, kerbs and track limits
     def corner_runs(self, r: Route, max_radius: float = C.KERB_CORNER_RADIUS,
@@ -901,7 +1021,7 @@ class TrackGeometry:
                 kerb, green = want[side]
                 kerb &= ~self.jump_zone[r.index]
                 outer = self._side_points(r, side, C.KERB_W + C.GREEN_W + C.SHOULDER_W)
-                kerb &= self._edge_ok(r, outer, 0.3)
+                kerb &= self._edge_ok(r, outer, 0.3, side)
                 kw = C.KERB_W * self._taper(r, kerb)
                 gw = C.GREEN_W * self._taper(r, green & kerb)
                 plan[(r.index, side)] = (kw, gw)
@@ -933,6 +1053,7 @@ class TrackGeometry:
         verge shoulders. Returns (kerbs, shoulders, limits)."""
         if getattr(self, "_roadside", None) is not None:
             return self._roadside
+        road = TriIndex.of(self.build_road())  # junction stitches and mouths are set while the road is built
         kerbs = Mesh("track_kerbs", "col = true", kind="kerb")
         limits = Mesh("track_limits", "col = true", kind="limits")
         shoulders = Mesh("track_shoulders", "col = true", kind="shoulder")
@@ -961,19 +1082,35 @@ class TrackGeometry:
                 green[:, 2] = np.where(gw > 0, np.minimum(inner[:, 2], gz), inner[:, 2])
                 outer = self._side_points(r, side, kw + gw + sw)
                 outer[:, 2] = np.minimum(green[:, 2] - drop, self.terrain(outer) - 0.3)
-                ok = self._edge_ok(r, outer, 0.3) & self._edge_ok(r, inner, 0.3)
+                ok = self._edge_ok(r, outer, 0.3, side) & self._edge_ok(r, inner, 0.3, side)
                 for i in self.mouth_samples.get((r.index, side), ()):
                     ok[i] = False
                 self.edge_ok[(r.index, side)] = ok & (kw <= 0)
+                # Where another road takes the full strip (a junction's gore, two roads converging), a narrower
+                # verge reaches half way to it (that road's own verge takes the other half), so no bare terrain
+                # shows between road and grass (Oulton Park, Chris 2026-10-24); none where the roads touch.
+                valid = self.svalid[r.index] & ~self.structure[r.index]
+                # (no kerb or green strip there: they need the full strip; the verge starts at the road edge)
+                narrow = np.nonzero(~ok & valid)[0]
+                width = np.where(ok, kw + gw + sw, 0.0)
+                if len(narrow):
+                    free = self._free_width(r, side, narrow, np.full(r.n, 2.0 * sw), road)
+                    w = np.clip(free / 2.0 - 0.05, 0.0, sw)
+                    w[w < 0.3] = 0.0
+                    width[narrow] = w
+                    green[narrow] = edge[narrow]
+                    o = self._side_points(r, side, width)[narrow]
+                    o[:, 2] = np.minimum(green[narrow, 2] - drop * w / sw, self.terrain(o) - 0.3)
+                    outer[narrow] = o
                 kv: dict[int, tuple[int, int]] = {}
                 gv: dict[int, tuple[int, int]] = {}
                 sv: dict[int, tuple[int, int]] = {}
                 for i in range(r.segs):
                     i2 = r.nxt(i)
-                    if not (q[i] and ok[i] and ok[i2]):
+                    if not (q[i] and valid[i] and valid[i2] and max(width[i], width[i2]) > 0):
                         continue
                     s0, s1 = r.s[i], r.s[i] + seg[i]
-                    if kw[i] > 0 or kw[i2] > 0:
+                    if ok[i] and ok[i2] and (kw[i] > 0 or kw[i2] > 0):
                         for k in (i, i2):
                             if k not in kv:
                                 e = kerbs.vert(edge[k])
@@ -982,7 +1119,7 @@ class TrackGeometry:
                         ids = (kv[i][0], kv[i2][0], kv[i2][1], kv[i][1])
                         uv = [(s0 / P, 0.0), (s1 / P, 0.0), (s1 / P, kw[i2] / C.KERB_W), (s0 / P, kw[i] / C.KERB_W)]
                         kerbs.oriented_face(ids, "kerb", up, uv)
-                    if gw[i] > 0 or gw[i2] > 0:
+                    if ok[i] and ok[i2] and (gw[i] > 0 or gw[i2] > 0):
                         for k in (i, i2):
                             if k not in gv:
                                 a = limits.vert(inner[k])
@@ -993,7 +1130,8 @@ class TrackGeometry:
                         limits.oriented_face(ids, "limits", up, uv)
                     for k in (i, i2):
                         if k not in sv:
-                            sv[k] = (shoulders.vert(green[k]), shoulders.vert(outer[k]))
+                            g = shoulders.vert(green[k])
+                            sv[k] = (g, shoulders.vert(outer[k]) if width[k] > 0 else g)
                     ids = (sv[i][0], sv[i2][0], sv[i2][1], sv[i][1])
                     shoulders.oriented_face(ids, smat, up)  # world-space UV1, as the terrain
         if self.options.get("kerbs", False):
