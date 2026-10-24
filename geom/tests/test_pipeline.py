@@ -501,7 +501,8 @@ def test_grid_slots_are_ahead_of_the_line(path: Path, built: dict[str, Any]) -> 
             a, b = pair
             assert {a.side, b.side} == {"left", "right"}
             gap = math.hypot(a.position[0] - b.position[0], a.position[1] - b.position[1])
-            assert gap == pytest.approx(RULE_CONSTANTS["gridSlotWidthM"], abs=1e-6)
+            slot_w = RULE_CONSTANTS["importedGridSlotWidthM" if spec["sketch"].get("imported") else "gridSlotWidthM"]
+            assert gap == pytest.approx(slot_w, abs=1e-6)
     assert grid.car_change.name == "#startpointcarchange"
     # Every slot sits on the road surface, also across a cambered road (imported tracks).
     main = model.route("main")

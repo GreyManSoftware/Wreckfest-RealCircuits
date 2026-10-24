@@ -91,6 +91,7 @@ class _Route:
         self.z = np.zeros(len(pts))
         self.m = np.zeros(len(pts))  # height-marker profile (custom: the road; presets: the bumps)
         self.bank = np.zeros(len(pts))  # cross-slope, radians; positive raises the left edge (imported tracks)
+        self.w: np.ndarray | None = None  # road width per vertex (imported tracks with widthM); None: options.widthM
         self.start_join: int | None = None  # main-loop vertex index (alt routes)
         self.end_join: int | None = None
 
@@ -111,6 +112,13 @@ class _Route:
 
     def bank_at(self, s: float) -> float:
         return float(pl.interp_at(self.cum, self.bank, self.closed, s))
+
+    def widths(self, default: float) -> np.ndarray:
+        """Road width at every vertex."""
+        return self.w if self.w is not None else np.full(len(self.pts), default)
+
+    def w_at(self, s: float, default: float) -> float:
+        return default if self.w is None else float(pl.interp_at(self.cum, self.w, self.closed, s))
 
     def surface_z(self, s: float, offset: float) -> float:
         """Road surface height ``offset`` metres left of the centreline (negative: right), on the camber."""
@@ -338,8 +346,9 @@ class _Builder:
         pts = np.array([[p["x"], p["y"]] for p in self.imported["centreline"]], dtype=np.float64)
         z = np.array([p["z"] for p in self.imported["centreline"]], dtype=np.float64)
         bank = np.radians([p["bankDeg"] for p in self.imported["centreline"]])
+        w = np.array([float(p.get("widthM", self.width)) for p in self.imported["centreline"]])
         keep = np.hypot(*(np.roll(pts, -1, axis=0) - pts).T) > 1e-6  # drop repeats (and a repeated first point)
-        pts, z, bank = pts[keep], z[keep], bank[keep]
+        pts, z, bank, w = pts[keep], z[keep], bank[keep], w[keep]
         if len(pts) < 3:
             raise GeometryError("The imported centreline needs at least three distinct points.", "main-loop-degenerate")
         ignored = [k for k in ("mainLoop", "startFinish", "altRoutes", "crossings", "elevationMarkers") if self.sketch.get(k)]
@@ -352,6 +361,7 @@ class _Builder:
         self.main.finalize()
         self.main.imported_z = z
         self.main.bank = bank
+        self.main.w = w if any("widthM" in p for p in self.imported["centreline"]) else None
         self.lap = self.main.length
         want = float(self.options["lapLengthKm"]) * 1000.0
         if abs(want - self.lap) > C.IMPORTED_LAP_TOLERANCE * self.lap:
@@ -410,6 +420,7 @@ class _Builder:
         pts = np.array([[p["x"], p["y"]] for p in alt["centreline"]], dtype=np.float64)
         z = np.array([p["z"] for p in alt["centreline"]], dtype=np.float64)
         bank = np.radians([p["bankDeg"] for p in alt["centreline"]])
+        w = np.array([float(p.get("widthM", self.width)) for p in alt["centreline"]])
         m = self.main
         i0 = int(np.argmin(np.hypot(*(m.pts - pts[0]).T)))
         i1 = int(np.argmin(np.hypot(*(m.pts - pts[-1]).T)))
@@ -422,8 +433,10 @@ class _Builder:
         pts[0], pts[-1] = m.pts[i0], m.pts[i1]
         z[0], z[-1] = m.imported_z[i0], m.imported_z[i1]
         bank[0], bank[-1] = m.bank[i0], m.bank[i1]
+        mw = m.widths(self.width)
+        w[0], w[-1] = mw[i0], mw[i1]  # the branch meets the main road at its width there
         keep = np.concatenate([[True], np.hypot(*np.diff(pts, axis=0).T) > 1e-6])
-        pts, z, bank = pts[keep], z[keep], bank[keep]
+        pts, z, bank, w = pts[keep], z[keep], bank[keep], w[keep]
         if len(pts) < 3:
             self.warn("imported-layout-unsupported", f"Layout {alt['id']}'s branch is degenerate; it is left out.")
             return None
@@ -432,6 +445,7 @@ class _Builder:
         r.finalize()
         r.imported_z = z
         r.bank = bank
+        r.w = w if (m.w is not None or any("widthM" in p for p in alt["centreline"])) else None
         self.alt_gaps[alt["id"]] = (gap0, gap1)
         return r
 
@@ -993,7 +1007,7 @@ class _Builder:
     def _layout_route(self, lay: LayoutRecord) -> _Route:
         """An imported layout's lap as one closed route from its start/finish line (its sections joined, about
         every SAMPLE_SPACING_M), with the heights (also as the marker profile) and camber of its sources."""
-        pts, z, bank = [], [], []
+        pts, z, bank, w = [], [], [], []
         for sec in lay.sections:
             src = self.by_id_all[sec["route"]]
             a, b = float(sec["fromS"]), float(sec["toS"])
@@ -1001,12 +1015,20 @@ class _Builder:
             pts += [src.at(v) for v in ss]
             z += [src.z_at(v) for v in ss]
             bank += [src.bank_at(v) for v in ss]
+            w += [src.w_at(v, self.width) for v in ss]
         r = _Route(lay.id, np.array(pts), True, 0)
         r.finalize()
         r.z = np.array(z)
         r.m = r.z.copy()
         r.bank = np.array(bank)
+        r.w = np.array(w) if self.main.w is not None else None
         return r
+
+    def _grid_width(self, route: _Route | None = None) -> float:
+        """Narrowest road along a grid: from its line to the first checkpoint past the pole row."""
+        m = route or self.main
+        end = min(self._grid_zone_end(), m.length)
+        return min(m.w_at(v, self.width) for v in np.arange(0.0, end + 1e-9, C.SAMPLE_SPACING_M))
 
     def _layout_first_sector(self, r: _Route, lay: LayoutRecord) -> float:
         """_first_sector on an imported layout's own lap: up to its first tight corner, big turn or junction
@@ -1049,7 +1071,7 @@ class _Builder:
         n = int(self.options["gridSize"])
         rows = math.ceil(n / 2)
         spacing = float(self.consts["gridRowSpacingM"])
-        slot_w = float(self.consts["gridSlotWidthM"])
+        slot_w = float(self.consts["importedGridSlotWidthM" if self.imported else "gridSlotWidthM"])
         k = pl.signed_curvature(m.pts, True, C.RADIUS_WINDOW)
         in_sector = m.s <= max(first_sector, C.SAMPLE_SPACING_M)
         pole_left = float(np.sum(k[in_sector])) >= 0.0
@@ -1074,7 +1096,8 @@ class _Builder:
     def _checkpoint(self, r: _Route, index: int, s: float, finish: bool = False) -> Checkpoint:
         p = r.at(s)
         return Checkpoint(
-            r.id, index, s, [p[0], p[1], r.z_at(s)], r.heading_at(s), self.width + 2 * C.CHECKPOINT_MARGIN_M, finish
+            r.id, index, s, [p[0], p[1], r.z_at(s)], r.heading_at(s), r.w_at(s, self.width) + 2 * C.CHECKPOINT_MARGIN_M,
+            finish
         )
 
     def _checkpoints(self) -> list[Checkpoint]:
@@ -1105,12 +1128,13 @@ class _Builder:
         self._layout_grids()
         checkpoints = self._checkpoints()
 
-        half_w = self.width / 2.0
         routes: list[Route] = []
         edges = []
         min_radius = math.inf
         for r in self.routes:
-            normal = np.column_stack([-np.sin(r.heading), np.cos(r.heading)]) * half_w
+            w = r.widths(self.width)
+            half_w = w / 2.0
+            normal = np.column_stack([-np.sin(r.heading), np.cos(r.heading)]) * half_w[:, None]
             left, right = r.pts + normal, r.pts - normal
             edges += [left, right]
             min_radius = min(min_radius, float(np.min(pl.radii(r.pts, r.closed, C.RADIUS_WINDOW))))
@@ -1118,9 +1142,9 @@ class _Builder:
             rise = half_w * np.tan(r.bank)  # camber: the left edge is this much above the centre, the right below
             zl, zr = (r.z + rise).tolist(), (r.z - rise).tolist()
             samples = [
-                Sample(x, y, zz, s, h, b, self.width)
-                for (x, y), zz, s, h, b in zip(
-                    r.pts.tolist(), z, r.s.tolist(), r.heading.tolist(), r.bank.tolist(), strict=True
+                Sample(x, y, zz, s, h, b, ww)
+                for (x, y), zz, s, h, b, ww in zip(
+                    r.pts.tolist(), z, r.s.tolist(), r.heading.tolist(), r.bank.tolist(), w.tolist(), strict=True
                 )
             ]
             joins = (None, None)
@@ -1132,7 +1156,7 @@ class _Builder:
                     r.ai_index,
                     r.closed,
                     r.length,
-                    self.width,
+                    self.width if r.w is None else float(np.median(w)),
                     samples,
                     [[x, y, zz] for (x, y), zz in zip(left.tolist(), zl, strict=True)],
                     [[x, y, zz] for (x, y), zz in zip(right.tolist(), zr, strict=True)],
@@ -1261,6 +1285,8 @@ class _Builder:
                 }
                 for m in self.markers
             },
+            **({"gridWidthM": _round(min([self._grid_width()] + [self._grid_width(r) for r in self.layout_routes.values()]))}
+               if self.main.w is not None else {}),
             "gridMaxGradePct": _round(min(100.0 * max([self._grid_max_grade()] + [
                 self._grid_max_grade(r) for r in self.layout_routes.values()]), C.MAX_REPORTED_GRADE_PCT)),
             "heightRangeM": _round(float(all_z.max() - all_z.min())),
