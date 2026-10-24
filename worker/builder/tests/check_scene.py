@@ -25,6 +25,7 @@ from mathutils.bvhtree import BVHTree
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 from wfbuild import config as C
+from wfbuild import dressing as D
 from wfbuild import envs
 from wfbuild.layout import composite_route
 
@@ -87,12 +88,14 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
     # the barrier row stands on the wall line and the corner markers in front of it; everything else behind
     lanes = {"gantry": (-np.inf, np.inf),
              "barriers": (C.DIVIDER_MIN - 1.0, max(C.CROWD_WALL, C.FAST_CORNER_WALL) + 2.0),
-             "cornerMarkers": (C.SHOULDER_W, np.inf)}
+             "cornerMarkers": (C.SHOULDER_W, np.inf),
+             "brakeBoards": (D.BRAKE_GAP + D.BRAKE_HALF - 0.8, D.BRAKE_GAP + D.BRAKE_HALF + C.KERB_W + C.GREEN_W + 0.8)}
     on_road = [f"{p['asset']} {d[k]:.1f} m" for k, p in enumerate(P)
                if not (lanes.get(p["category"], (pl.edge_min - 1.3, np.inf))[0] <= d[k]
                        <= lanes.get(p["category"], (0, np.inf))[1])]
-    check(not on_road, "scenery: nothing but the gantry, the barrier row (on the wall line) and corner markers "
-          "within the road/run-off clearance", f"clearance {pl.edge_min - 1.0:.1f} m; {on_road[:3]}")
+    check(not on_road, "scenery: nothing but the gantry, the barrier row (on the wall line), corner markers and "
+          "braking boards within the road/run-off clearance", f"clearance {pl.edge_min - 1.0:.1f} m; {on_road[:3]}")
+    check_brake_boards(geo, pl, sc)
     barriers = [k for k, c in enumerate(cats) if c == "barriers"]
     row = set(envs.barrier_row(pl.env_name, geo.walls))
     check(bool(barriers) == bool(row) and {P[k]["asset"] for k in barriers} <= row,
@@ -124,6 +127,77 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
               f"{bad} of {len(sp)} facing away")
     check(len(gantry) <= 1, "scenery: at most one start/finish gantry", f"{len(gantry)}")
     print(f"INFO scenery: {sc['total']} placements {sc['counts']}")
+
+
+def check_brake_boards(geo, pl, sc: dict) -> None:
+    """Braking boards (category brakeBoards, dressing.brake_boards): every braking corner of every layout
+    (recomputed with dressing.brake_zones) has its 150/100/50 m boards or a recorded reason for each missing
+    one; each board stands its distance before the turn-in along that layout's route in its driving direction,
+    furthest first, on the outside of the corner, its numbered face (local +X) towards the oncoming cars, its
+    near end clear of every road edge; the counts stay sensible."""
+    from wfbuild.fields import exact_edge_distance
+
+    P = sc["placements"]
+    info = sc["info"].get("brakeBoards") or {"zones": []}
+    boards = [k for k, p in enumerate(P) if p["category"] == "brakeBoards"]
+    allowed = {f"gameplay_distanceboard{m}" for m in D.BRAKE_BOARDS}
+    if not (allowed <= pl.allowed):
+        check(not boards, "brake boards: none where the environment has no boards")
+        return
+    routes = {key: (r, d) for key, r, d in D.layout_routes(geo)}
+    want = {(key, round(z["s_in"], 1)) for key, (r, d) in routes.items() for z in D.brake_zones(geo, r, d)
+            if z["approach"] >= D.BRAKE_MIN_APPROACH}
+    got = {(z["layout"], z["turnInS"]) for z in info["zones"]}
+    check(want == got, "brake boards: every braking corner of every layout has a braking zone",
+          f"{len(want)} corners; missing {sorted(want - got)[:3]}, extra {sorted(got - want)[:3]}")
+    reasons = {"approach", "otherRoad", "wall", "noGo", "terrain", "occupied"}
+    incomplete = [f"{z['layout']} s{z['turnInS']}" for z in info["zones"]
+                  if {b["m"] for b in z["boards"]} | {int(m) for m in z["skipped"]} != set(D.BRAKE_BOARDS)
+                  or not set(z["skipped"].values()) <= reasons]
+    check(not incomplete, "brake boards: each zone has its 150/100/50 m boards or a reason for each missing one",
+          ", ".join(incomplete[:3]))
+    empty = sum(1 for z in info["zones"] if not z["boards"])
+    check(empty <= max(1, len(info["zones"]) // 4), "brake boards: most braking zones have boards",
+          f"{empty} of {len(info['zones'])} zones without any")
+    used = {b["placement"] for z in info["zones"] for b in z["boards"]}
+    check(used == set(boards), "brake boards: every board belongs to a braking zone",
+          f"{len(boards)} boards, {len(used)} referenced")
+    bad_order, bad_face, bad_side, bad_asset = [], [], [], []
+    for z in info["zones"]:
+        r, direction = routes[z["layout"]]
+        side = 1 if z["side"] == "left" else -1
+        before = {}
+        for b in z["boards"]:
+            p = P[b["placement"]]
+            q = np.array(p["position"][:2])
+            if p["asset"] != f"gameplay_distanceboard{b['m']}":
+                bad_asset.append(p["asset"])
+            i = int(np.argmin(np.hypot(*(r.p[:, :2] - q).T)))
+            before[b["m"]] = ((z["turnInS"] - float(r.s[i])) * direction) % r.length
+            fx = np.array([math.cos(p["yaw"]), math.sin(p["yaw"])])
+            if float(np.dot(fx, -r.tangent[i] * direction)) < 0.9:
+                bad_face.append(f"{p['asset']} at s{r.s[i]:.0f}")
+            if float(np.dot(q - r.p[i, :2], r.nl[i])) * side <= 0:
+                bad_side.append(f"{p['asset']} at s{r.s[i]:.0f}")
+        ms = sorted(before, reverse=True)
+        if any(abs(before[m] - m) > 4.0 for m in ms) or any(before[a] <= before[b] for a, b in zip(ms, ms[1:])):
+            bad_order.append(f"{z['layout']} s{z['turnInS']}: {[(m, round(before[m])) for m in ms]}")
+    check(not bad_order, "brake boards: 150, 100 and 50 m before the turn-in along the layout's driving direction, "
+          "furthest first", "; ".join(bad_order[:3]))
+    check(not bad_face, "brake boards: numbered face (local +X) towards the oncoming cars", ", ".join(bad_face[:3]))
+    check(not bad_side, "brake boards: on the outside of the corner (the braking side)", ", ".join(bad_side[:3]))
+    check(not bad_asset, "brake boards: the stock board matches its distance", ", ".join(bad_asset[:3]))
+    if boards:
+        xy = np.array([P[k]["position"][:2] for k in boards])
+        across = np.array([[-math.sin(P[k]["yaw"]), math.cos(P[k]["yaw"])] for k in boards])  # local +Y
+        ends = np.vstack([xy - across * D.BRAKE_HALF, xy + across * D.BRAKE_HALF])
+        near = float(exact_edge_distance(geo, ends).min())
+        check(near >= D.BRAKE_GAP - 0.6, "brake boards: both ends clear of every road edge",
+              f"nearest end {near:.2f} m (gap {D.BRAKE_GAP} m)")
+    lap = sum(r.length for r, _ in routes.values())
+    check(len(boards) <= 3 * len(info["zones"]) and len(boards) <= 12 * lap / 1000.0 + 3,
+          "brake boards: sensible count", f"{len(boards)} boards, {len(info['zones'])} zones, {lap / 1000:.1f} km of laps")
+    print(f"INFO brake boards: {len(boards)} boards in {len(info['zones'])} zones, skipped {info.get('skipped')}")
 
 
 def _segments_cross(p0, p1, a, b) -> np.ndarray:
