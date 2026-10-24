@@ -28,7 +28,7 @@ ALONG_M = (35.0, 45.0, 28.0, 55.0, 65.0, 80.0)   # ahead of the pole along the l
 BEYOND_EDGE_M = (9.0, 13.0, 6.0, 18.0, 24.0)     # beyond the road edge
 PROP_CLEAR_M = 2.0                   # clearance around a prop's footprint
 TALL = ("trees", "buildings", "grandstand", "paddock", "lights", "cameras", "gantry", "foliage",
-        "pitBuildings", "pitPaddock", "bridges", "pitWall")  # pitWall etc.: real pits (pits.py)
+        "pitBuildings", "pitPaddock", "bridges", "pitWall", "realGrandstand")  # pitWall etc.: real pits (pits.py)
 FALLBACK_HEIGHT_M = 15.0
 FOV_DEG = 58.0
 TARGET_LIFT_M = 1.0                  # look at the cars, not the tarmac

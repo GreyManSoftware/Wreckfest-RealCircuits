@@ -1164,7 +1164,7 @@ class Planner:
                                            "cornerMarkers": [C.SHOULDER_W, None],
                                            # real pits (pits.py): the pit wall beside the track, the pit buildings
                                            # behind the lane, bridges over the road
-                                           **({"pitWall": [0.0, None], "pitBuildings": [2.0, None], "pitPaddock": [2.0, None],
+                                           **({"pitWall": [0.0, None], "pitBuildings": [2.0, None], "pitPaddock": [2.0, None], "realGrandstand": [1.0, None],
                                                "bridges": [None, None]} if pits is not None else {}),
                                            "brakeBoards": [BRAKE_GAP + BRAKE_HALF - 0.8,
                                                            BRAKE_GAP + BRAKE_HALF + C.KERB_W + C.GREEN_W + 0.8]},

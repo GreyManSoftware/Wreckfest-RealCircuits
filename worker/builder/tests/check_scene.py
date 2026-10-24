@@ -34,7 +34,7 @@ WF = os.environ.get("WRECKFEST_DIR", "/wreckfest")
 failures: list[str] = []
 ENGINE_TAGS = {"blend", "decal", "noshadow", "lofi", "horizon", "xtree"}  # shader / render tags used here
 GRID_EXEMPT = {"gantry", "flags", "staff", "grandstand",
-               "pitWall", "pitBuildings", "pitPaddock", "bridges"}  # real pits (wfbuild/pits.py) stand where they are
+               "pitWall", "pitBuildings", "pitPaddock", "bridges", "realGrandstand"}  # real pits (wfbuild/pits.py) stand where they are
 
 
 def no_collision(name: str) -> bool:
@@ -94,7 +94,7 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
              "cornerMarkers": (C.SHOULDER_W, np.inf),
              # real pits (wfbuild/pits.py; check_pits.py checks them): the pit wall beside the track, bridges over it
              "pitWall": (-0.5, np.inf), "bridges": (-np.inf, np.inf), "pitBuildings": (1.0, np.inf),
-             "pitPaddock": (1.0, np.inf),
+             "pitPaddock": (1.0, np.inf), "realGrandstand": (1.0, np.inf),
              "brakeBoards": (D.BRAKE_GAP + D.BRAKE_HALF - 0.8, D.BRAKE_GAP + D.BRAKE_HALF + C.KERB_W + C.GREEN_W + 0.8)}
     on_road = [f"{p['asset']} {d[k]:.1f} m" for k, p in enumerate(P)
                if not (lanes.get(p["category"], (pl.edge_min - 1.3, np.inf))[0] <= d[k]

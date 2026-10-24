@@ -386,18 +386,25 @@ class Pits:
         _, asset, lm, dm, hm, fside, n, s = best
         # the front of the props on the footprint's front edge (towards the road), tiles along the long axis
         front = c + ay * (D / 2.0)
-        # OSM footprints often reach the pit lane: move the row back until its front clears the lane by 0.5 m
-        lanes = [ln.polygon() for ln in self.lanes if ln.b1 > ln.b0]
-        span = np.array([front + ax * (k * L / 8.0 - L / 2.0) for k in range(9)])
-        back = 0.0
-        while lanes and back < D + 6.0 and any(point_in_poly(span - ay * back + ay * 0.5, lp).any() for lp in lanes):
-            back += 0.5
-        front = front - ay * back
-        centre_line = front - ay * (dm * s / 2.0)
         yaw = yaw_to(ay) if fside == "+y" else yaw_to(-ay)
-        cat = "grandstand" if kind == "grandstand" else "pitBuildings"
-        for k in range(n):
-            q = centre_line + ax * ((k + 0.5) * lm * s - n * lm * s / 2.0)
+        cat = "realGrandstand" if kind == "grandstand" else "pitBuildings"
+        lanes = [ln.polygon() for ln in self.lanes if ln.b1 > ln.b0]
+
+        def tiles(back: float) -> list[np.ndarray]:
+            cl = front - ay * (back + dm * s / 2.0)
+            return [cl + ax * ((k + 0.5) * lm * s - n * lm * s / 2.0) for k in range(n)]
+
+        def hits(back: float) -> bool:
+            # every tile's corners and centre, grown 0.5 m, off the pit lane (OSM footprints often reach it)
+            hw, hd = lm * s / 2.0 + 0.5, dm * s / 2.0 + 0.5
+            pts = np.array([q + ax * u + ay * v for q in tiles(back) for u, v in
+                            ((hw, hd), (-hw, hd), (-hw, -hd), (hw, -hd), (0, 0), (0, hd), (0, -hd))])
+            return any(point_in_poly(pts, lp).any() for lp in lanes)
+
+        back = 0.0
+        while lanes and back < D + 15.0 and hits(back):
+            back += 0.5
+        for q in tiles(back):
             add(asset, cat, q, yaw, s)
         return True
 

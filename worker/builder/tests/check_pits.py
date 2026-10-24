@@ -68,8 +68,7 @@ def check_pits_base(check, geo, sc: dict, obs: dict, manifest: dict, to_scene, w
         bad = int(np.sum(reach[on] > lane_near - lane.w / 2.0 + 0.05))
         check(bad == 0, f"pits: {lane.id} the AI route's run-off stops in front of the pit lane", f"{bad} samples reach it")
     # buildings, grandstands, paddock props: off the roads and off the lane
-    sel = [p for p in P if p["category"] in ("pitBuildings", "pitPaddock") or
-           (p["category"] == "grandstand" and pits.grandstands)]
+    sel = [p for p in P if p["category"] in ("pitBuildings", "pitPaddock", "realGrandstand")]
     worst, on_lane = np.inf, []
     lane_polys = [ln.polygon() for ln in pits.lanes if ln.b1 > ln.b0]
     for p in sel:

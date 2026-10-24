@@ -496,7 +496,7 @@ def main() -> None:
                 # real pits (wfbuild/pits.py): every planned pit prop exported as its stock subscene, resolving
                 with open(sc_path, encoding="utf-8") as f:
                     pit = sorted(p["asset"] for p in json.load(f)["placements"]
-                                 if p["category"] in ("pitWall", "pitBuildings", "pitPaddock", "bridges"))
+                                 if p["category"] in ("pitWall", "pitBuildings", "pitPaddock", "bridges", "realGrandstand"))
                 if pit:
                     names = sorted(o.xref.split("/")[-1][:-4] for o in props)
                     missing = [a for a in set(pit) if names.count(a) < pit.count(a)

@@ -69,7 +69,7 @@ The same slug always gives the same file (seeded by the slug).
   garages and buildings tiled along the real footprints, front towards the road), `pitPaddock` (trucks, tents and crew
   buses on the real paddock), `bridges` (`prop_bridge03_green` over the road at a real bridge, footbridge or gantry,
   `face: "x"`); the start lights are the `gantry` (`prop_forest5_startlight01`, a cantilever on the pit wall, its arm
-  along local +X over the track). Real grandstands use `grandstand`. `info.pits` reports the lanes (`wallSM`,
+  along local +X over the track). Real grandstands are `realGrandstand` (at their real positions, which may be nearer the road than edgeMinM). `info.pits` reports the lanes (`wallSM`,
   `wallFromEdgeM`, `builtLengthM`), counts, and per gantry the `scale`, `clearanceM` over the road and any `problems`;
   `info.nearRoadM` lists the pit categories. Zones of kind `paved` (the pit lane) carry no clutter grass.
 
