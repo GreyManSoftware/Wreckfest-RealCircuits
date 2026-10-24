@@ -55,7 +55,7 @@ Write-Host "Note   : $($info.changeNote)"
 if (-not $Publish) { Write-Host 'Dry run: add -Publish to upload.'; return }
 
 Write-Host 'Uploading via the running Steam client...'
-$proc = Start-Process -FilePath $uploader -ArgumentList "-uploadmod=$modDir" -WorkingDirectory (Split-Path $uploader) -PassThru
+$proc = Start-Process -FilePath $uploader -ArgumentList "-uploadmod=$modDir" -WorkingDirectory $GameDir -PassThru
 if (-not $proc.WaitForExit($TimeoutMinutes * 60 * 1000)) { $proc.Kill(); throw "Uploader timed out after $TimeoutMinutes min" }
 Write-Host "Uploader exit code $($proc.ExitCode)"
 
