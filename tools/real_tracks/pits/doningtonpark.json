@@ -1,0 +1,90 @@
+{
+ "select": {
+  "pitLanes": [
+   {
+    "id": "pit",
+    "ways": [90102737],
+    "widthM": 10.0,
+    "mode": "drivable",
+    "centreFromTrackM": 13.0,
+    "taperM": 70,
+    "modeReason": "a straight, parallel lane beside the Wheatcroft Straight; entry after Goddards, exit on the straight; no short cut (4 m longer than the track)",
+    "widthSource": "estimated from the gap between the track's edge and the pit garages (OSM 'Pit Garages 1-38' 410366924, LIDAR)"
+   }
+  ],
+  "buildings": [
+   {
+    "way": 410366924,
+    "kind": "garages"
+   },
+   {
+    "way": 1356209374,
+    "kind": "control"
+   },
+   {
+    "way": 1276960990,
+    "kind": "other"
+   },
+   {
+    "way": 841515295,
+    "kind": "other"
+   },
+   {
+    "way": 841515302,
+    "kind": "hospitality"
+   },
+   {
+    "way": 410366925,
+    "kind": "garages"
+   },
+   {
+    "way": 410366927,
+    "kind": "other"
+   },
+   {
+    "way": 410366926,
+    "kind": "hospitality"
+   }
+  ],
+  "grandstands": [
+   {
+    "way": 841515344
+   }
+  ],
+  "paddocks": [
+   {
+    "kind": "paddock",
+    "name": "Paddock (behind the pit garages)",
+    "polygon": [
+     [-640, -110],
+     [-560, -85],
+     [-470, -112],
+     [-300, -140],
+     [-262, -150],
+     [-270, -168],
+     [-560, -168]
+    ],
+    "source": "hand-drawn over the LIDAR relief and the OSM service roads: the ground behind the pit garages (OSM 410366924), the scrutineering bay (410366927) and the Redgate Suites, inside the Melbourne loop; OSM has no paddock polygon"
+   }
+  ],
+  "gantries": [
+   {
+    "kind": "startLights",
+    "name": "start/finish line",
+    "sM": 0.0,
+    "source": "the recipe's line (driver61.com coordinates; MSV maps), beside the middle of the pit lane"
+   },
+   {
+    "kind": "footbridge",
+    "name": "footbridge before the line",
+    "sM": 3914.0,
+    "source": "LIDAR (EA NLP 2022, SK4025): a span across the road at s 3912-3916 m, top 8.0-8.8 m, between Goddards and the line"
+   }
+  ]
+ },
+ "sources": {
+  "osm": "OpenStreetMap (c) OpenStreetMap contributors, ODbL 1.0: Overpass over the recipe bbox, 2026-10-24 (tools/real_tracks_data/fetch_pits_osm.py)",
+  "lidar": "Environment Agency National LIDAR Programme point cloud 2022 (SK4025) minus the LIDAR Composite DTM 1 m, OGL v3",
+  "maps": "MSV GP map (.local/realtracks/doningtonpark/maps/gp.jpg): pit lane on the inside of the Wheatcroft Straight from Goddards"
+ }
+}

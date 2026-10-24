@@ -1,0 +1,79 @@
+{
+ "select": {
+  "pitLanes": [
+   {
+    "id": "pit",
+    "ways": [721714385],
+    "widthM": 10.0,
+    "mode": "closed",
+    "centreFromTrackM": 14.0,
+    "taperM": 70,
+    "modeReason": "the lane is 15 m shorter than the track between its ends (it cuts inside the kink after Deer Leap), and the entry sits under the footbridge on a fast curve",
+    "widthSource": "estimated from the gap between the track's edge and the pit garages (OSM 721714388, LIDAR)"
+   }
+  ],
+  "buildings": [
+   {
+    "way": 721714388,
+    "kind": "garages",
+    "name": "Pit garages"
+   },
+   {
+    "way": 1266582611,
+    "kind": "other"
+   },
+   {
+    "way": 1266582604,
+    "kind": "control"
+   },
+   {
+    "way": 108809522,
+    "kind": "other"
+   },
+   {
+    "way": 108809458,
+    "kind": "paddock",
+    "name": "Paddock building"
+   }
+  ],
+  "grandstands": [],
+  "paddocks": [
+   {
+    "way": 108809520,
+    "kind": "paddock",
+    "name": "Paddock"
+   }
+  ],
+  "gantries": [
+   {
+    "kind": "startLights",
+    "name": "start/finish line",
+    "sM": 0.0,
+    "source": "OSM raceway=start-finish node 235311718 (the recipe's line) on the pit straight"
+   },
+   {
+    "kind": "footbridge",
+    "name": "footbridge at Clay Hill",
+    "osmWay": 108784542,
+    "source": "OSM way 108784542 (highway=footway, bridge=yes, layer=1); LIDAR (EA NLP 2021) shows the span across the road, top 7.7-7.9 m"
+   },
+   {
+    "kind": "bridge",
+    "name": "Warwick Bridge",
+    "osmWay": 108809456,
+    "source": "OSM way 108809456 (highway=service, bridge=yes) and man_made=bridge 1265663578 at the corner OSM names Warwick Bridge; LIDAR (EA NLP 2021): deck across the road over 10 m, top 4.4-6.5 m"
+   },
+   {
+    "kind": "footbridge",
+    "name": "footbridge before Deer Leap",
+    "sM": 4184.0,
+    "source": "LIDAR (EA NLP 2021, SJ5565): a span across the track and the pit entry at s 4182-4186 m, top 7.0 m; not in OSM"
+   }
+  ]
+ },
+ "sources": {
+  "osm": "OpenStreetMap (c) OpenStreetMap contributors, ODbL 1.0: Overpass over the recipe bbox, 2026-10-24 (tools/real_tracks_data/fetch_pits_osm.py)",
+  "lidar": "Environment Agency National LIDAR Programme point cloud 2021 (SJ5560, SJ5565) minus the LIDAR Composite DTM 1 m, OGL v3",
+  "maps": "MSV International map (.local/realtracks/oultonpark/maps/International.pdf): pit lane on the inside of the pit straight from after Deer Leap, paddock behind it"
+ }
+}
