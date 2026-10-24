@@ -4,6 +4,7 @@
   "constants": {
     "gridRowSpacingM": 8,
     "gridSlotWidthM": 4.5,
+    "importedGridSlotWidthM": 4,
     "maxAbsCoordinateM": 2000,
     "minInnerEdgeRadiusM": 6,
     "importedMinInnerEdgeRadiusM": 2,
@@ -392,15 +393,35 @@
     {
       "id": "grid-width-two-abreast",
       "title": "Grid fits two abreast",
-      "description": "The grid is laid out in pairs, so the track must be wide enough for two slots side by side.",
+      "description": "The grid is laid out in pairs, so the track must be wide enough for two slots side by side: options.widthM, or the narrowest road along the grid (facts.gridWidthM) when the geometry core reports it (real tracks with per-point widths). A real track's slots are importedGridSlotWidthM wide.",
       "evaluatedBy": "engine",
-      "let": { "needM": { "*": [2, { "var": "constants.gridSlotWidthM" }] } },
+      "let": {
+        "needM": {
+          "*": [
+            2,
+            {
+              "if": [
+                { "exists": { "var": "sketch.imported" } },
+                { "var": "constants.importedGridSlotWidthM" },
+                { "var": "constants.gridSlotWidthM" }
+              ]
+            }
+          ]
+        },
+        "haveM": {
+          "if": [
+            { "exists": { "var": "facts.gridWidthM" } },
+            { "var": "facts.gridWidthM" },
+            { "var": "options.widthM" }
+          ]
+        }
+      },
       "effect": {
         "type": "require",
-        "assert": { ">=": [{ "var": "options.widthM" }, { "var": "$needM" }] },
+        "assert": { ">=": [{ "var": "$haveM" }, { "var": "$needM" }] },
         "severity": "error",
         "path": "/options/widthM",
-        "message": "The grid needs at least {$needM} m of width for two cars abreast; the track is {options.widthM} m."
+        "message": "The grid needs at least {$needM} m of width for two cars abreast; the track is {$haveM} m there."
       }
     },
     {

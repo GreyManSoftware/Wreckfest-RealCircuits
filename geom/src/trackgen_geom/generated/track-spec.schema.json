@@ -235,6 +235,13 @@
           "type": "number",
           "minimum": -30,
           "maximum": 30
+        },
+        "widthM": {
+          "title": "Road width (m)",
+          "description": "The tarmac's width at this point, centred on it (measured real widths; tools/real_tracks_data/measure_width.py). Without it the road is options.widthM wide.",
+          "type": "number",
+          "minimum": 5,
+          "maximum": 25
         }
       }
     },
@@ -706,6 +713,11 @@
           "description": "Per-height-marker facts, keyed by marker id (markers on a route that was built).",
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/ElevationMarkerFacts" }
+        },
+        "gridWidthM": {
+          "description": "Narrowest road width along the main grid (imported tracks with per-point widths; otherwise not reported and options.widthM applies).",
+          "type": "number",
+          "minimum": 0
         },
         "gridMaxGradePct": {
           "description": "Steepest grade (%) of the marker-defined height profile within the grid area (custom: the whole profile; presets: the markers' bumps; imported: the road).",

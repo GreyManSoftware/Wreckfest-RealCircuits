@@ -26,7 +26,8 @@ TrackSpec
 │  ├─ elevationMarkers[≤40]  { id, position, route? = "main", heightM (−30…+40) }
 │  └─ imported?    a real-world track (replaces mainLoop; tools/import_real_track.py)
 │     ├─ source (attribution) · datumM? (height above sea level of z = 0)
-│     ├─ centreline[16–10000] { x, y, z, bankDeg }  metres, x east, y north; closed; point 0 on the start line
+│     ├─ centreline[16–10000] { x, y, z, bankDeg, widthM? }  metres, x east, y north; closed; point 0 on the start line;
+│     │     widthM: the road's measured width there (5–25 m; without it options.widthM)
 │     ├─ terrain?   { originX, originY, cellM, nx, ny, z[(nx+1)(ny+1) ≤ 250000] }  ground heights (nodes)
 │     ├─ woodland[≤500] { points[3–2000] {x, y} } · corners[≤60], viewingSpots[≤20] { name, sM }
 │     ├─ kerbs[≤60] { corner, sM, entry?, apex?, exit?, green?, source }  real-data kerb overrides per corner
