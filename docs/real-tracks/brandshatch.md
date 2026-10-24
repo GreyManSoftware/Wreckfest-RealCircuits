@@ -103,3 +103,56 @@ Source: EA National LIDAR Programme point cloud, tile TQ5560 (flown 2018-01/02).
 | Spec | `options.widthM` 9.8 |
 
 The Indy part is markedly wider than the GP loop, as on the real circuit.
+
+## Run-off, barriers and trees (2026-10-24)
+
+Measured from open data (method: `docs/real-tracks.md`, "Run-off, barriers and foliage"): EA National LIDAR Programme point cloud (intensity, classes, heights);
+OSM run-off, barrier and woodland features; barrier types from `tools/real_tracks_data/runoff_evidence.json`.
+Data `tools/real_tracks/runoff/brandshatch.json`, `tools/real_tracks/vegetation/brandshatch.json`; overlays
+`.local\audit\brandshatch\runoff-*.png`, `vegetation-overview.png`.
+
+| | Before (builder until 2026-10-24) | Now (measured) |
+|---|---|---|
+| Run-off | grass everywhere (no traps or aprons); 386 stock barrier props (tyres: red/white tyre heaps prop_tirebarrier02/04) on 30 % / 18 % of the main lap's left / right sides | gravel 16 %, tarmac 1 %, grass 84 % of the main lap's sides; barriers armco 72 %, tyres 15 %, none 9 %, bank 3 %, concrete 1 %; debris fence on 53 %; built barrier line on 94 % / 85 % (left / right) |
+| Trees | 3155 trees: OSM woods plus seeded park trees and an edge belt | 67 measured woods (64.8 ha in the 450 m box), 3203 single trees, canopy 19.6 % of the box; 2600 trees placed (6963 candidates inside the terrain, cap 2600) |
+| Look | grass verges, red/white tyre heaps at fast corners; trees from OSM woods | gravel at Paddock Hill Bend, Druids, Hawthorn, Westfield, Stirlings and Clearways with black tyre walls (Paddock, Druids, Surtees) or Armco; Armco close to the track round the wooded GP loop; debris fencing where OSM maps fences on the barrier line (much of the Indy loop's spectator banks) |
+
+Evidence per corner (main lap; the zone that holds the corner label; offsets from the road edge):
+
+| Corner (sM) | Side | Run-off | Barrier | Source |
+|---|---|---|---|---|
+| Brabham Straight (30) | left | grass | armco at 6 m + debris fence | LIDAR, circuit default |
+| Paddock Hill Bend (335) | left | gravel trap 0-23 m | tyres at 24 m + debris fence | LIDAR, guide: brandshatch.co.uk winter works 2022 |
+| Paddock Hill Bend (335) | right | grass | armco at 49 m | LIDAR, circuit default |
+| Hailwoods Hill (509) | left | gravel trap 0-5 m | tyres at 6 m + debris fence | LIDAR, circuit default |
+| Hailwoods Hill (509) | right | grass | armco at 8 m + debris fence | LIDAR, circuit default |
+| Druids Bend (641) | left | gravel trap 0-4 m | tyres at 13 m + debris fence | LIDAR, guide: oversteer48.com/brands-hatch-corner-names/ |
+| Druids Bend (641) | right | grass | armco at 12 m | OSM, LIDAR, circuit default |
+| Graham Hill Bend (854) | left | grass | armco at 40 m | LIDAR, circuit default |
+| Graham Hill Bend (854) | right | grass | armco at 6 m | LIDAR, circuit default |
+| Cooper Straight (1044) | left | grass | armco at 14 m + debris fence | LIDAR, circuit default |
+| Cooper Straight (1044) | right | grass | armco at 6 m + debris fence | LIDAR, circuit default |
+| Surtees (1247) | left | grass | armco at 6 m + debris fence | LIDAR, circuit default |
+| Surtees (1247) | right | grass | none | LIDAR, guide: oversteer48.com/brands-hatch-track-day/ |
+| Pilgrims Drop (1463) | left | grass | armco at 16 m | LIDAR, circuit default |
+| Pilgrims Drop (1463) | right | grass | bank at 6 m | LIDAR |
+| Hawthorn Hill (1778) | left | grass | armco at 8 m + debris fence | LIDAR, circuit default |
+| Hawthorn Hill (1778) | right | grass | bank at 7 m | LIDAR, circuit default |
+| Hawthorn Bend (2052) | left | grass | armco at 14 m | LIDAR, circuit default |
+| Hawthorn Bend (2052) | right | grass | armco at 8 m + debris fence | LIDAR, circuit default |
+| Derek Minter Straight (2237) | left | grass | armco at 13 m | LIDAR, circuit default |
+| Derek Minter Straight (2237) | right | grass | armco at 8 m + debris fence | LIDAR, circuit default |
+| Westfield Bend (2405) | left | gravel trap 4-37 m | tyres at 38 m | LIDAR, circuit default |
+| Westfield Bend (2405) | right | grass | armco at 24 m | LIDAR, circuit default |
+| Dingle Dell (2609) | left | grass | armco at 12 m + debris fence | LIDAR, circuit default |
+| Dingle Dell (2609) | right | grass | armco at 8 m + debris fence | LIDAR, circuit default |
+| Sheene Curve (2804) | left | grass | none | LIDAR, guide: oversteer48.com |
+| Sheene Curve (2804) | right | grass | armco at 10 m + debris fence | LIDAR, circuit default |
+| Stirlings Bend (3002) | left | grass | armco at 10 m | LIDAR, circuit default |
+| Stirlings Bend (3002) | right | gravel trap 1-12 m | tyres at 13 m | LIDAR, circuit default |
+| Clearways (3377) | left | grass | armco at 11 m + debris fence | LIDAR, guide: classicbikehub.uk/?p=13232 |
+| Clearways (3377) | right | grass | none | LIDAR |
+| Clark Curve (3557) | left | gravel trap 2-18 m | tyres at 18 m + debris fence | LIDAR, circuit default |
+| Clark Curve (3557) | right | grass | none | LIDAR |
+
+Uncertain: the 2018 flight predates the 2019-2022 run-off works (Graham Hill, Hawthorns raised trap, Clearways); the fence share (about half the lap) follows OSM's spectator fences and may overstate debris fencing.

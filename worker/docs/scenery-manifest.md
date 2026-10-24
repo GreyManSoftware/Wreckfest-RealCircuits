@@ -64,6 +64,11 @@ The same slug always gives the same file (seeded by the slug).
   for colourway k; `face: "-y"`, `width` along local X). They are not stock objects: their `assets` entry has
   `"path": null` and `"mesh": true`, and the builder builds them as the base mesh `sponsor_boards` rather than
   `#xref` subscenes (see `worker/docs/visual-assets.md`). `info.sponsorBillboards` counts the billboards.
+  Also additive (2026-10-24): `sponsor_minibillboard<k>` (the half-size infield fallback board) and `sponsor_credit`
+  (the credit plaque); `info.sponsorGuarantee` (per layout: `placement` index of the handle board in view of its
+  start, `asset`, `how` = `placed` | `relaxed` | `along` | `fence` | `infield`, and the driver's `eye` that sees it),
+  `info.sponsorCleared` (props dropped from those sight lines) and `info.sponsorCredit` (`style` `plaque` | `line`,
+  `text`, `fallback` when the plaque found no room).
   Also additive (2026-10-24, imported tracks with `sketch.imported.pits`, `wfbuild/pits.py`): `pitWall` (stock
   `prop_concrete_element3` on the real pit wall and across both ends of a closed pit lane), `pitBuildings` (stock pit
   garages and buildings tiled along the real footprints, front towards the road), `pitPaddock` (trucks, tents and crew
@@ -86,6 +91,11 @@ The same slug always gives the same file (seeded by the slug).
   stacks and bales, at least 3 m out, in front of the near barrier) and the braking boards (breakable, 2-6 m out). `info.nearRoadM` lists these exceptions as
   `{category: [min, max]}` metres from the road edge (`max` null = unbounded); readers checking clearance should
   use it rather than `edgeMinM` alone.
+- An imported track with measured run-off (`sketch.imported.runoff`): no `barriers` or `cornerMarkers` placements
+  (its barriers are meshes in the base scene), and nothing but the gantry, flags, staff and start grandstand inside
+  a gravel trap, on a paved apron or between a road edge and its barrier; with measured vegetation (`trees`,
+  woodland `cover`) the `trees` are the measured ones only and `info.measuredTrees` reports `{placed, candidates,
+  cap}`.
 - No-go discs: bridge decks and ramps (+25 m), jump take-off to landing + 40 m, and the grid sector (line - 25 m to
   the back row + 15 m), where only the gantry, flags, staff and the start grandstand may stand. The barrier row is
   exempt (containment runs past jumps and the grid).
@@ -101,3 +111,16 @@ The same slug always gives the same file (seeded by the slug).
   to the oncoming cars. A board is left out when it would stand within 10 m of the previous corner's exit, near
   another road (a divider), across a wall line, in a no-go disc, off the terrain or on another placement. Layouts
   sharing a road share a board (same distance, within 6 m, same facing).
+- Sponsor guarantee (`dressing.sponsor_guarantee`, `layout_starts`, `sponsor.visible`): every layout has at least
+  one handle board (billboard, mini billboard or fence panel) in clear view of its start: from one of the driver's
+  eye points (1.2 m above its grid slots, or the road from 150 m before its line to 220 m past its front row), in
+  range (billboard 12-220 m, mini 10-150 m, fence 8-90 m), within 75° of the driving direction, the printed face
+  turned towards the eye, and two of three sight lines to the face clear of the terrain and the larger props
+  (not the low/thin categories: barriers, ad and crowd fences, markers, flags, people, cameras, gantry). Fallbacks
+  in order: a billboard at the start-straight spots in a relaxed band (12-50 m), anywhere along the start view, a
+  row of three fence panels just behind the clearance, a mini billboard on the infield facing the grid. Props
+  placed later across the chosen sight lines are dropped (`info.sponsorCleared`), except the gantry, grandstand
+  and sponsor boards.
+- Credit (`sponsor.credit`, `"sponsor": {"credit": ...}`): one plaque (`sponsor_credit`) behind the clearance 40-110
+  m before the start/finish line, paddock side first, square to the road; or, with style `line` or when no plaque
+  fits, a line of small type on the billboards.

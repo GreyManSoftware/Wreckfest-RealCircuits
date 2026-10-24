@@ -60,6 +60,8 @@
   ],
   "kerbsNote": "OSM has no kerb or run-off features here (the fetched raceway ways carry none); the 1 m DTM can't resolve kerbs; these come from the driver61.com track guide, every other corner gets the geometric apex/exit kerbs.",
   "environmentNote": "parkland: rolling Leicestershire parkland with the Donington Hall woods (OSM) round the Craner Curves and Coppice. East Midlands Airport lies about 1 km south, beyond the 400 m terrain margin, so it isn't modelled.",
+  "runoff": "measured",
+  "runoffNote": "Run-off surfaces, barriers (type, offset, debris fences) and trees measured from open LIDAR and OSM plus published sources: tools/real_tracks/runoff|vegetation/<slug>.json (tools/real_tracks_data/measure_runoff.py, runoff_evidence.json); docs/real-tracks.md, Run-off and foliage.",
   "options": {
     "surface": "tarmac",
     "kerbs": true,

@@ -33,6 +33,7 @@ from wfbuild import config as C
 from wfbuild.geometry import Mesh, TrackGeometry
 from wfbuild.layout import LayoutBuilder, strip_end_lines
 from wfbuild import backdrop as backdrop_mod
+from wfbuild import bounds as bounds_mod
 from wfbuild import cameras, dressing, maps, materials, sponsor, tcat
 from wfbuild.fields import DistanceField
 from wfbuild.layout import Empty
@@ -208,17 +209,28 @@ def main() -> None:
         if m.kind in C.BLEND_KINDS:
             m.set_map_uv(fr)
     base_meshes += backdrop_meshes
+    # out of bounds as stock: a #resetplayer wall + lid round each layout, collidable far ground, water resets and
+    # a kill floor (wfbuild/bounds.py)
+    bnd = bounds_mod.Bounds(geo, base_meshes)
+    for lay in layouts:
+        reset = bnd.layout_reset(lay)
+        if reset is not None:
+            lay.meshes.append(reset)
+    base_meshes += bnd.base_meshes(bd, base_meshes, rot, shift)
     generated = bd.textures(mod_root)
     specs = materials.build(geo.options.get("environment"), slug, map_info, bd.n_textures, generated)
     # our own sponsor boards: one mesh with our rendered textures (wfbuild/sponsor.py); the rest are stock props
     sponsor_mesh = sponsor.build_mesh(scenery.placements)
     if sponsor_mesh is not None:
         base_meshes.append(sponsor_mesh)
-        specs.update(sponsor.material_specs(sponsor.write_textures(mod_root, slug)))
+        specs.update(sponsor.material_specs(sponsor.write_textures(
+            mod_root, slug, (scenery.info.get("sponsorCredit") or {}).get("style"))))
     props = [Empty(f"#xref ob/{p.asset}.scne", (p.x, p.y, p.z), p.yaw, display="PLAIN_AXES", size=1.0,
                    scale=(p.scale, p.scale, p.scale)) for p in scenery.placements if not sponsor.is_mesh(p.asset)]
-    # the start camera per layout (the view while the race loads in; wfbuild/cameras.py), model coordinates
+    # cameras per layout (wfbuild/cameras.py): the start camera and the trackside cameras the race intro and
+    # replays cut between, model coordinates
     start_cams = {lay.name: cameras.start_camera(geo, lay, field, planner, scenery.placements) for lay in layouts}
+    side_cams = {lay.name: cameras.trackside_cameras(geo, lay, field, planner, scenery.placements) for lay in layouts}
     transform_info = {"rotateDeg": rot, "shift": [0.0, round(shift, 4), 0.0],
                       "note": "scene = rotate(model, rotateDeg about +z) + shift"}
     with open(os.path.join(args.out, "scenery.json"), "w", encoding="utf-8", newline="\n") as f:
@@ -238,14 +250,23 @@ def main() -> None:
     worst = check_bounds(base_meshes, "base")
     for lay in layouts:
         worst = max(worst, check_bounds(lay.meshes, lay.name))
-    for lay in layouts:  # track data (.tcat) per layout: minimap and start camera (wfbuild/tcat.py, cameras.py)
+    def to_scene(p):
+        return np.array([*_rot(p[0], p[1], rot), p[2]]) + np.array([0.0, shift, 0.0])
+
+    for lay in layouts:  # track data (.tcat) per layout: minimap and cameras (wfbuild/tcat.py, cameras.py)
         eye, target, note = start_cams[lay.name]
-        eye, target = (np.array([*_rot(p[0], p[1], rot), p[2]]) + np.array([0.0, shift, 0.0]) for p in (eye, target))
+        eye, target = to_scene(eye), to_scene(target)
         cam = tcat.Camera.looking_at(eye, target, cameras.FOV_DEG)
         lay.info["startCamera"] = {"position": [round(float(v), 2) for v in eye],
                                    "target": [round(float(v), 2) for v in target],
                                    "pitchDeg": round(cam.pitch_deg, 2), "yawDeg": round(cam.yaw_deg, 2), "note": note}
-        lay.info["minimap"] = write_tcat(lay, slug, mod_root, [cam])
+        cams = [cam]
+        for e, t, sectors, _note in side_cams[lay.name]:
+            cams.append(tcat.Camera.looking_at(to_scene(e), to_scene(t), cameras.FOV_DEG, tcat.CAM_ROTATING,
+                                               tcat.CAM_SECTOR, sectors))
+        fallback = sum(1 for c in side_cams[lay.name] if c[3].startswith("fallback"))
+        lay.info["tracksideCameras"] = {"count": len(cams) - 1, "fallback": fallback}
+        lay.info["minimap"] = write_tcat(lay, slug, mod_root, cams)
 
     import bpy
     from wfbuild import bscene
@@ -256,8 +277,9 @@ def main() -> None:
     bscene.set_specs(specs)
     bscene.MOD_ROOT[:] = [mod_root]
     bpy.context.scene.name = f"{slug}_base"
-    groups = {"road": ("road", "kerb", "limits", "shoulder", "decal", "pit"), "walls": ("wall",), "bridges": ("bridge",),
-              "terrain": ("terrain",), "backdrop": ("backdrop",), "helpers": ("helper",), "sponsor": ("sponsor",)}
+    groups = {"road": ("road", "kerb", "limits", "shoulder", "decal", "pit"), "walls": ("wall", "barrier"), "bridges": ("bridge",),
+              "terrain": ("terrain",), "backdrop": ("backdrop",), "helpers": ("helper",), "sponsor": ("sponsor",),
+              "bounds": ("bounds",)}
     for group, kinds in groups.items():
         coll = bscene.collection(group)
         for m in base_meshes:
@@ -280,7 +302,7 @@ def main() -> None:
         cps = bscene.collection("checkpoints")
         jumps = bscene.collection("jumps")
         for m in lay.meshes:
-            target = {"ai": ai, "checkpoint": cps}.get(m.kind, jumps)
+            target = {"ai": ai, "checkpoint": cps}.get(m.kind) or (bscene.collection("bounds") if m.kind == "bounds" else jumps)
             bscene.mesh_object(m, target)
         sp = bscene.collection("startpoints")
         for e in lay.empties:
@@ -321,7 +343,14 @@ def main() -> None:
         "barriers": {f"{p['route'].id}:{'l' if side > 0 else 'r'}": {
             "wallShare": round(float(p["ok"].mean()), 3), "dividerShare": round(float(p["divider"].mean()), 3)}
             for (_ri, side), p in geo.wall_plan().items()},
+        # measured run-off of an imported track (runoff.py): per route side, shares of surfaces and barrier types
+        "runoff": geo.runoff.summary(),
+        "barrierTypes": {f"{p['route'].id}:{'l' if side > 0 else 'r'}": {
+            str(t): round(float(np.mean([(x == t) and ok for x, ok in zip(p["type"], p["ok"])])), 3)
+            for t in sorted({str(x) for x, ok in zip(p["type"], p["ok"]) if ok})}
+            for (_ri, side), p in geo.wall_plan().items()},
         "props": len(props),
+        "bounds": bnd.info,
         "scenery": {"file": "scenery.json", "counts": scenery.counts(), "total": len(scenery.placements),
                     "info": scenery.info, "backdrop": backdrop_info},
         "maps": map_info,

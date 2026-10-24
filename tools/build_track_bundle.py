@@ -128,6 +128,17 @@ def translations(payload: bytes) -> list[tuple[str, str]]:
     return out
 
 
+# Event list order (Wreckfest_x64.exe, bgeventdb.cpp's sort): state class (Final 2 -> 0, Developer 1 -> 1,
+# Mod 4 -> 2, others 9), environment id, position in data/property/event/order.evol (none in stock), event id
+# (the .evse file name). The in-game picker lists an environment's events in that order.
+STATE_CLASS = {2: 0, 1: 1, 4: 2}
+
+
+def event_order(events: dict[str, bytes]) -> list[str]:
+    """Event ids of one environment ({id: .evse payload}) in the order the game lists them."""
+    return sorted(events, key=lambda e: (STATE_CLASS.get(struct.unpack_from("<i", events[e], 0)[0], 9), e))
+
+
 def data_refs(payload: bytes) -> set[str]:
     return {m.decode() for m in re.findall(rb"data/[A-Za-z0-9_./-]+\.[a-z0-9]{3,4}", payload)}
 
@@ -438,6 +449,13 @@ def build(args: argparse.Namespace) -> dict:
                 check(v <= lim, f"{m['slug']}: {what} within the stock limit", f"{v:,} (limit {lim:,})")
         titles = {l["event"]: l.get("title") for l in m["report"].get("layouts", [])}
         order = [l["event"] for l in m["report"].get("layouts", [])]
+        evdir = os.path.join(stage, "data", "property", "event", m["slug"])
+        evs = {f[:-5]: scne_read.unbag(open(os.path.join(evdir, f), "rb").read())
+               for f in (os.listdir(evdir) if os.path.isdir(evdir) else []) if f.endswith(".evse")}
+        listed = event_order(evs)
+        check(not order or listed[:1] == order[:1],
+              f"{m['slug']}: the main layout is listed first in the game's event picker",
+              f"game order {listed}; main {order[:1]}")
         scenes = sorted(ids_of(m)["layout"], key=lambda s: (order.index(s) if s in order else len(order), s))
         m["layouts"] = []
         for scene in scenes:
@@ -453,6 +471,8 @@ def build(args: argparse.Namespace) -> dict:
             title = titles.get(scene) or scene
             lname = title[len(m["name"]):].strip() if title.startswith(m["name"]) else title
             m["layouts"].append({"event": scene, "title": title, "name": lname or "Main", "lapM": round(lap, 1)})
+        with contextlib.redirect_stdout(check.out):  # out of bounds: reset walls, kill floor, ground coverage
+            check_export.check_bounds.export(check_export.check, track)
     for f in check_export.failures:
         check.failures.append(f)
     check_export.failures.clear()

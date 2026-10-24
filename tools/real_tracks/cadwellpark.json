@@ -60,6 +60,8 @@
     { "corner": "Hall Bends", "entry": true, "apex": true, "source": "motorbikestoday.com Cadwell guide: riders go over the entry kerbs to straight-line Hall Bends" }
   ],
   "kerbsNote": "OSM has no kerb or run-off features at Cadwell (Overpass 2026-10-19: barrier=kerb, kerb=*, area:highway=*, racing:kerb none) and the 1 m DTM can't resolve 5 cm kerbs; these overrides come from track guides, every other corner (the Club Hairpin and the Woodlands hairpin too) gets the geometric apex/exit kerbs.",
+  "runoff": "measured",
+  "runoffNote": "Run-off surfaces, barriers (type, offset, debris fences) and trees measured from open LIDAR and OSM plus published sources: tools/real_tracks/runoff|vegetation/<slug>.json (tools/real_tracks_data/measure_runoff.py, runoff_evidence.json); docs/real-tracks.md, Run-off and foliage.",
   "options": {
     "surface": "tarmac",
     "kerbs": true,

@@ -81,6 +81,15 @@ def check_pits_base(check, geo, sc: dict, obs: dict, manifest: dict, to_scene, w
     check(not sel or worst >= 1.0, "pits: buildings, grandstands and paddock props stand off every road",
           f"{len(sel)} props, nearest {worst:.1f} m from a road edge")
     check(not on_lane, "pits: nothing stands on the pit lane", ", ".join(on_lane[:3]))
+    # measured run-off (runoff.py): no gravel trap under the pit lane or a pit building
+    ro = getattr(geo, "runoff", None)
+    if ro is not None and ro.active:
+        lane_pts = [ln.p[ln.b0:ln.b1 + 1] for ln in pits.lanes if ln.b1 > ln.b0]
+        on_trap = sum(int((ro.at(p) == 1).sum()) for p in lane_pts)
+        bld = [_rect(p, envs.asset_info(p["asset"])).mean(0) for p in sel if p["category"] != "pitPaddock"]
+        b_trap = int((ro.at(np.array(bld)) == 1).sum()) if bld else 0
+        check(on_trap == 0 and b_trap == 0, "pits: no gravel trap under the pit lane or the pit buildings",
+              f"{on_trap} lane samples, {b_trap} buildings on a trap")
     # gantries and bridges: real sM, clearance
     m = geo.main
     over = [p for p in P if p["category"] in ("gantry", "bridges")]

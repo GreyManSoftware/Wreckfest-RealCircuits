@@ -161,12 +161,15 @@
                      "c": "fields:decal_asphalt_sand_transition_fields13_c5", "ao": "fields:decal_asphalt_sand_transition_fields13_ao",
                      "n": "fields:decal_asphalt_sand_transition_fields13_n", "s": "fields:decal_asphalt_sand_transition_fields13_s"},
  "sponsor": {
-  "_comment": "Our own sponsor boards (wfbuild/sponsor.py, category sponsorBoards): ad-fence panels replacing fenceShare of the stock ad-fence blocks, and up to billboards billboards on posts at the start/finish straight, the outside of the biggest braking zones and facing the grandstand. Textures are rendered by the builder (handle text in bold, our own camera glyph). Override with the JSON file named in TRACKGEN_SPONSOR; enabled false turns them off.",
+  "_comment": "Our own sponsor boards (wfbuild/sponsor.py, category sponsorBoards): ad-fence panels replacing fenceShare of the stock ad-fence blocks, and up to billboards billboards on posts at the start/finish straight, the outside of the biggest braking zones and facing the grandstand; every layout is guaranteed at least one handle board in view of its grid or start straight (fallbacks may add a few beyond the cap). Textures are rendered by the builder (handle text in bold, our own camera glyph). Override with the JSON file named in TRACKGEN_SPONSOR; enabled false turns them off.",
   "enabled": true,
   "text": "@flatshiftcars",
   "tagline": "FOLLOW ON INSTAGRAM",
   "fenceShare": 0.4,
   "billboards": 6,
+  "credit": {"_comment": "A subtle credit on every circuit (sponsor.credit): style plaque = one small muted plaque near the start/finish line on the paddock side, line = small type along the bottom of the billboards (also the fallback when the plaque finds no room). enabled false (or credit false) turns it off.",
+             "enabled": true, "text": "GreyManSoftware", "prefix": "track by", "style": "plaque",
+             "colourway": {"background": [52, 56, 60], "text": [176, 180, 178], "accent": [96, 100, 104], "back": [60, 62, 66]}},
   "colourways": [
    {"name": "black", "background": [18, 18, 22], "text": [255, 255, 255], "accent": [228, 34, 58], "back": [44, 44, 48]},
    {"name": "red", "background": [200, 24, 42], "text": [255, 255, 255], "accent": [255, 204, 0], "back": [62, 62, 66]},
@@ -204,6 +207,7 @@
     "G": {"c": "fields:ground_grass08_fields13_c", "tile": [16, 16]},
     "B": {"c": "fields:ground_farmfield_01_c", "tile": [12, 12]}
    },
+   "runoff": {"_comment": "measured run-off of imported tracks: the gravel trap and paved apron R layers (materials.py)", "trap": {"c": "sandpit:ground_pebbles_03_c", "tile": [6, 6]}, "apron": {"c": "fields:ground_tarmac08f_fields_c", "tile": [8, 8]}},
    "macro": "fields:macro_fields13_ns",
    "roads": {
     "tarmac": [{"c": "fields:ground_fields13_tarmac01_c", "tile": [8, 16]}, {"c": "fields:ground_tarmac05_fields_c", "tile": [16, 8]},
@@ -244,6 +248,7 @@
     "G": {"c": "fields:ground_grass08_fields13_c", "tile": [16, 16]},
     "B": {"c": "forest:ground_forestfloor4_c", "tile": [12, 12]}
    },
+   "runoff": {"_comment": "measured run-off of imported tracks: the gravel trap and paved apron R layers (materials.py)", "trap": {"c": "sandpit:ground_pebbles_03_c", "tile": [6, 6]}, "apron": {"c": "fields:ground_tarmac08f_fields_c", "tile": [8, 8]}},
    "macro": "fields:macro_fields13_ns",
    "roads": {
     "tarmac": [{"c": "fields:ground_fields13_tarmac01_c", "tile": [8, 16]}, {"c": "fields:ground_tarmac05_fields_c", "tile": [16, 8]},
@@ -291,6 +296,7 @@
     "G": {"c": "fields:ground_grass08_fields13_c", "tile": [16, 16]},
     "B": {"c": "fields:ground_cliff_fields09_c", "tile": [14, 14]}
    },
+   "runoff": {"_comment": "measured run-off of imported tracks: the gravel trap and paved apron R layers (materials.py)", "trap": {"c": "sandpit:ground_pebbles_03_c", "tile": [6, 6]}, "apron": {"c": "fields:ground_tarmac08f_fields_c", "tile": [8, 8]}},
    "macro": "fields:macro_fields13_ns",
    "roads": {
     "tarmac": [{"c": "fields:ground_fields13_tarmac01_c", "tile": [8, 16]}, {"c": "fields:ground_tarmac05_fields_c", "tile": [16, 8]},
@@ -340,6 +346,7 @@
     "G": {"c": "fields:ground_grass08_fields13_c", "tile": [16, 16]},
     "B": {"c": "fields:ground_farmfield_01_c", "tile": [12, 12]}
    },
+   "runoff": {"_comment": "measured run-off of imported tracks: the gravel trap and paved apron R layers (materials.py)", "trap": {"c": "sandpit:ground_pebbles_03_c", "tile": [6, 6]}, "apron": {"c": "fields:ground_tarmac08f_fields_c", "tile": [8, 8]}},
    "macro": "fields:macro_fields13_ns",
    "roads": {
     "tarmac": [{"c": "fields:ground_fields13_tarmac01_c", "tile": [8, 16]}, {"c": "fields:ground_tarmac05_fields_c", "tile": [16, 8]},
@@ -383,6 +390,7 @@
     "G": {"c": "sandpit:ground_forestfloor6_c", "tile": [12, 12]},
     "B": {"c": "sandpit:ground_sandbank_large_04_c", "tile": [24, 12]}
    },
+   "runoff": {"_comment": "measured run-off of imported tracks: the gravel trap and paved apron R layers (materials.py)", "trap": {"c": "sandpit:ground_pebbles_03_c", "tile": [6, 6]}, "apron": {"c": "sandpit:road_sandpit_tarmac03_c", "tile": [8, 8]}},
    "macro": "sandpit:sandpit3_macro_ns",
    "roads": {
     "tarmac": [{"c": "sandpit:road_sandpit_tarmac02_c", "tile": [16, 8]}, {"c": "sandpit:road_sandpit_tarmac01_c", "tile": [16, 8]},

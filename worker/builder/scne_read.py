@@ -104,7 +104,7 @@ class Batch:
     plan_area: float = 0.0  # bounding box area in plan (m2)
     box: tuple = ()  # bounding box min x, y (up), z, max x, y, z (Bugbear Y-up)
     # with read(..., geometry=prefix), for meshes whose name starts with the prefix: vertex positions (n x 3,
-    # Blender axes x, y, z up, in the model's own space) and triangles (m x 3 vertex indices)
+    # Blender axes x, y, z up, in world space: the model's matrix applied) and triangles (m x 3 vertex indices)
     pos: object = field(default=None, repr=False, compare=False)
     idx: object = field(default=None, repr=False, compare=False)
 
@@ -114,6 +114,9 @@ class Mesh:
     name: str
     role: str  # main | shadow | damage | damage_shadow
     batches: list[Batch] = field(default_factory=list)
+    # the model's 4x4 matrix as stored (Bugbear Y-up, row vectors: rows x, y, z axes, then the translation);
+    # stock bases place most models with it, ours are all identity
+    matrix: object = field(default=None, repr=False, compare=False)
 
     @property
     def verts(self) -> int:
@@ -261,9 +264,16 @@ def _pmsh(r: _P, damage: bool, geometry: str | None = None) -> list[Mesh]:
     return out
 
 
+def to_world(pos, mx):
+    """Model-space positions (n x 3, Blender axes) to world space with a model matrix as stored (Bugbear Y-up,
+    row vectors, translation in the last row)."""
+    bug = pos[:, [0, 2, 1]] @ mx[:3, :3] + mx[3, :3]
+    return bug[:, [0, 2, 1]]
+
+
 def read(path: str, geometry: str | None = None) -> Scene:
-    """Statistics of a .scne; ``geometry`` (a mesh name prefix, e.g. "terrain_") also decodes the positions and
-    triangles of the main meshes with that prefix (``Batch.pos``, ``Batch.idx``)."""
+    """Statistics of a .scne; ``geometry`` (a mesh name prefix, e.g. "terrain_") also decodes the positions (world
+    space) and triangles of the main meshes with that prefix (``Batch.pos``, ``Batch.idx``)."""
     with open(path, "rb") as f:
         raw = f.read()
     d = unbag(raw)
@@ -276,6 +286,7 @@ def read(path: str, geometry: str | None = None) -> Scene:
     nmodels = r.i()
     meshes: list[Mesh] = []
     if mver < 6:
+        import numpy as np
         for k in range(nmodels):
             if k:  # the rest of the previous model (shapes, animation, dummies) is skipped by searching
                 q = r.find("pmsh")
@@ -289,8 +300,15 @@ def read(path: str, geometry: str | None = None) -> Scene:
                     r.p += 4
                     r.text()
                 r.p += 64 + 24
-            meshes += _pmsh(r, False, geometry)
-            meshes += _pmsh(r, True)
+            # the model's matrix and bounding box sit right before its 'pmsh' (Toolbox Mz's importer)
+            mx = np.array(struct.unpack_from("<16f", d, r.p - 88), dtype=np.float64).reshape(4, 4)
+            got = _pmsh(r, False, geometry) + _pmsh(r, True)
+            for m in got:
+                m.matrix = mx
+                for b in m.batches:
+                    if b.pos is not None:
+                        b.pos = to_world(b.pos, mx)
+            meshes += got
     refs: list[str] = []
     q = r.find("ssce")
     if q >= 0:
@@ -385,6 +403,94 @@ def read_layout(path: str) -> CompiledLayout:
         r.p += 24 + (4 if ver >= 5 else 0)
         cps.append((k + 1, split > 0, ri, cx, cz))
     return CompiledLayout(routes, sps, cps)
+
+
+# Collision surfaces by id, as bgeometry numbers them (Toolbox Mz's importer; the names are the stock
+# data/scene/surface/<name>.suse files a material's "#tag" selects).
+SURFACES = ['default', 'gravel', 'graveldark', 'gravelpacked', 'mud', 'offroadrocks', 'offroadfoliage', 'offroadsand',
+            'asphalt', 'concrete', 'metal', 'water', 'wood', 'nofriction', 'slowdown', 'slowdownsand', 'foliage',
+            'wettarmac', 'killplayer', 'resetplayer', 'curb', 'asphaltdusty', 'offroadasphalt', 'blender_glass',
+            'superslowdown', 'gravelredclay', 'global_barrier', 'concrete_barrier', 'metal_barrier', 'speedup', 'loop',
+            'resetplayer_delay', 'snow', 'crm_solid', 'crm_water_reset']
+RESET_SURFACES = {SURFACES.index(s) for s in ('killplayer', 'resetplayer', 'resetplayer_delay', 'crm_water_reset')}
+
+
+@dataclass
+class Collision:
+    """One collision shape of a model: vertices (n x 3, Blender axes, the scene's world space), triangles (m x 3)
+    and each triangle's surface id (SURFACES)."""
+    model: str
+    dyn: str
+    pos: object = field(repr=False)
+    tris: object = field(repr=False)
+    surface: object = field(repr=False)
+
+
+def _shape_mesh(b: bytes):
+    """A static collision shape's triangle mesh (layout found 2026-10-24 on stock scenes and ours): u32 magic, u32 0,
+    6 x i32 bounding box (fixed point), 3 x f32 scale (1/65536), 3 x f32 inverse scale, u32 tree bytes, u32 tree +
+    triangle bytes, the tree, triangles of 11 bytes (u8, u8 surface id, 3 x u24 vertex offset in dwords = 6 per
+    vertex), then 24-byte vertices (3 x i32 position x scale, Bugbear axes x, y up, z; 3 x i32 normal)."""
+    import numpy as np
+    if len(b) < 64:
+        return None
+    sc = struct.unpack_from("<3f", b, 32)
+    flen, tl = struct.unpack_from("<II", b, 56)
+    nt = (tl - flen) // 11
+    nv = (len(b) - 64 - tl) // 24
+    if nt <= 0 or nv <= 0:
+        return None
+    raw = np.frombuffer(b, np.uint8, count=nt * 11, offset=64 + flen).reshape(nt, 11).astype(np.int64)
+    idx = np.stack([(raw[:, 2 + 3 * k] | (raw[:, 3 + 3 * k] << 8) | (raw[:, 4 + 3 * k] << 16)) // 6 for k in range(3)], 1)
+    pos = np.frombuffer(b, "<i4", count=nv * 6, offset=64 + tl).reshape(nv, 6)[:, :3].astype(np.float64) * np.array(sc)
+    ok = (idx < nv).all(1)
+    return pos, idx[ok], raw[ok, 1]
+
+
+def read_collision(path: str) -> list[Collision]:
+    """The static collision triangle meshes of every model of a .scne (Wreckfest 1, model version < 6), placed by
+    the model's matrix, in Blender axes. Dynamic objects' box shapes and subscenes (props) aren't included."""
+    import numpy as np
+    with open(path, "rb") as f:
+        d = unbag(f.read())
+    r = _P(d)
+    p = r.find("modl", 0)
+    if p < 0:
+        return []
+    r.p = p + 4
+    mver, nm = r.i(), r.i()
+    out = []
+    for _ in range(nm if mver < 6 else 0):
+        name, dyn = r.text(), r.text()
+        if mver > 1:
+            r.p += 4
+            r.text()
+        mat = np.array(struct.unpack_from("<16f", d, r.p)).reshape(4, 4)
+        r.p += 64 + 24
+        _pmsh(r, False)
+        _pmsh(r, True)
+        r.header("shpe")
+        sv, ns = r.i(), r.i()
+        for _s in range(ns if sv else 0):
+            r.i()  # type
+            n = r.i()
+            mesh = _shape_mesh(d[r.p:r.p + n])
+            r.p += n
+            r.header("shbx")
+            r.i()
+            r.p += r.i() * 88
+            if mesh is not None:
+                pos, idx, surf = mesh
+                w = pos @ mat[:3, :3] + mat[3, :3]
+                out.append(Collision(name, dyn, w[:, [0, 2, 1]], idx, surf))
+        q = r.find("dmmy")
+        r.p = q + 4
+        r.i()
+        for _d in range(r.i()):
+            r.p += 64
+            r.text()
+        r.p += 12
+    return out
 
 
 # Limits for a base scene, with a margin below what stock tracks use (all 43 stock *_base.scne measured with

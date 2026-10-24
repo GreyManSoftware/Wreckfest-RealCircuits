@@ -29,7 +29,11 @@ TrackSpec
 │     ├─ centreline[16–10000] { x, y, z, bankDeg, widthM? }  metres, x east, y north; closed; point 0 on the start line;
 │     │     widthM: the road's measured width there (5–25 m; without it options.widthM)
 │     ├─ terrain?   { originX, originY, cellM, nx, ny, z[(nx+1)(ny+1) ≤ 250000] }  ground heights (nodes)
-│     ├─ woodland[≤500] { points[3–2000] {x, y} } · corners[≤60], viewingSpots[≤20] { name, sM }
+│     ├─ woodland[≤500] { points[3–2000] {x, y}, cover? (measured canopy 0–1) } · corners[≤60], viewingSpots[≤20] { name, sM }
+│     ├─ trees[≤6000] { x, y, h }  measured single trees and clumps outside the woods (canopy height h)
+│     ├─ runoff[≤3000] { route, side left|right, fromS, toS, surface gravel|tarmac|grass, tarmacM?, startM?, depthM?,
+│     │     barrier armco|tyres|concrete|bank|none, offsetM?, fence?, colour? black|redwhite, confidence?, source? }
+│     │     measured run-off and barriers per route side and stretch (tools/real_tracks_data/measure_runoff.py)
 │     ├─ kerbs[≤60] { corner, sM, entry?, apex?, exit?, green?, source }  real-data kerb overrides per corner
 │     ├─ pits?  { source?, pitLanes[≤4] { id, mode drivable|closed, widthM 4–20, side?, entrySM?, exitSM?,
 │     │          centreline[4–2000] {x, y}, wall? { points[2–2000], sM[2]?, heightM? } },
@@ -92,6 +96,12 @@ National on its own straight) it has its own line and a grid ahead of it. The ge
 alternative route (`aiIndex` -1, -2, ...) and lists every layout in the TrackModel's `layouts` (lap length,
 sections in driving order from its line, and for an own line `startFinish` {route, s, position, heading} and its
 own `grid`); the builder makes one layout per entry. `firstSectorLengthM` and `gridMaxGradePct` cover every grid.
+**Extra roads** (`imported.roads`, 2026-10-24): real tarmac that is no layout's own branch, e.g. Oulton Park's old
+straight beside Hislop's chicane. Each is an open centreline with both ends on the main one, built as a route (road
+with collision, aiIndex after the branches) that no layout drives unless it lists it in `altLayouts[].roads`. Such a
+layout's lap chains its branch, its roads and the main centreline between them in driving order; a road may leave
+the main centreline up to 30 m before the previous piece rejoins it (one junction): the lap then hands over where
+the two lines come closest (Oulton's Fosters link onto the old straight).
 A real track's corners need only `widthM / 2 + importedMinInnerEdgeRadiusM` (2 m) of radius (`min-corner-radius`):
 real hairpins are kept, and junctions with other layouts' branches don't end the main first sector. Ids are unique
 (`imported-alt-layout-ids-unique`) and not `main`. `imported.seaLevelM` (datum-relative) marks ground below it as

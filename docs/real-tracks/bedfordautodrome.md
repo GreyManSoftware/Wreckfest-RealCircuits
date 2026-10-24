@@ -36,3 +36,59 @@ Source: EA National LIDAR Programme point cloud, tiles TL0060 and TL0560 (flown 
 
 Airfield concrete reads as bright as grass in the LIDAR intensity: its stretches (the service road the GT and SEN
 use) take the median width.
+
+## Run-off, barriers and trees (2026-10-24)
+
+Measured from open data (method: `docs/real-tracks.md`, "Run-off, barriers and foliage"): EA National LIDAR Programme point cloud (intensity, classes, heights);
+OSM run-off, barrier and woodland features; barrier types from `tools/real_tracks_data/runoff_evidence.json`.
+Data `tools/real_tracks/runoff/bedfordautodrome.json`, `tools/real_tracks/vegetation/bedfordautodrome.json`; overlays
+`.local\audit\bedfordautodrome\runoff-*.png`, `vegetation-overview.png`.
+
+| | Before (builder until 2026-10-24) | Now (measured) |
+|---|---|---|
+| Run-off | grass everywhere (no traps or aprons); 388 stock barrier props (tyres: red/white tyre heaps prop_tirebarrier02/04) on 16 % / 12 % of the main lap's left / right sides | gravel 0 %, tarmac 39 %, grass 61 % of the main lap's sides; barriers none 100 %; debris fence on 0 %; built barrier line on 14 % / 12 % (left / right) |
+| Trees | 957 trees: OSM woods plus seeded park trees and an edge belt | 39 measured woods (27.2 ha in the 450 m box), 1297 single trees, canopy 6.3 % of the box; 1135 trees placed (2466 candidates inside the terrain, cap 1200) |
+| Look | grass verges with red/white tyre heaps on dividers, crowds and fast corners | open airfield: no barriers (evo, racingcircuits.info), concrete/tarmac run-off where the LIDAR's mid-grey reads old airfield paving (about 40 %), grass elsewhere; dividers between parallel straights keep plain black tyre walls (a gameplay concession) |
+
+Evidence per corner (main lap; the zone that holds the corner label; offsets from the road edge):
+
+| Corner (sM) | Side | Run-off | Barrier | Source |
+|---|---|---|---|---|
+| Hangar Hairpin (278) | left | tarmac 3 m | none | LIDAR |
+| Hangar Hairpin (278) | right | grass | none | LIDAR |
+| Turn 2 (584) | left | grass | none | LIDAR, circuit default |
+| Turn 2 (584) | right | grass | none | LIDAR, circuit default |
+| Turn 3 (646) | left | grass | none | LIDAR, circuit default |
+| Turn 3 (646) | right | tarmac 19 m | none | LIDAR |
+| Turn 4 (702) | left | tarmac 6 m | none | LIDAR |
+| Turn 4 (702) | right | tarmac 19 m | none | LIDAR |
+| Turn 5 (780) | left | grass | none | LIDAR, circuit default |
+| Turn 5 (780) | right | grass | none | LIDAR |
+| Turn 6 (956) | left | grass | none | LIDAR, circuit default |
+| Turn 6 (956) | right | grass | none | LIDAR |
+| Turn 7 (1544) | left | grass | none | LIDAR |
+| Turn 7 (1544) | right | grass | none | LIDAR |
+| Turn 8 (1652) | left | grass | none | LIDAR |
+| Turn 8 (1652) | right | grass | none | LIDAR, circuit default |
+| Turn 9 (2752) | left | tarmac 8 m | none | LIDAR |
+| Turn 9 (2752) | right | grass | none | LIDAR, circuit default |
+| Turn 10 (2824) | left | tarmac 8 m | none | LIDAR |
+| Turn 10 (2824) | right | tarmac 6 m | none | LIDAR, circuit default |
+| Turn 11 (3454) | left | tarmac 4 m | none | LIDAR |
+| Turn 11 (3454) | right | grass | none | LIDAR, circuit default |
+| Turn 12 (3698) | left | grass | none | LIDAR, circuit default |
+| Turn 12 (3698) | right | grass | none | LIDAR, circuit default |
+| Turn 13 (3962) | left | grass | none | LIDAR |
+| Turn 13 (3962) | right | tarmac 4 m | none | LIDAR |
+| Turn 14 (4130) | left | tarmac 6 m | none | LIDAR |
+| Turn 14 (4130) | right | tarmac 4 m | none | LIDAR, circuit default |
+| Turn 15 (4525) | left | grass | none | LIDAR |
+| Turn 15 (4525) | right | tarmac 4 m | none | LIDAR, circuit default |
+| Turn 16 (4717) | left | grass | none | LIDAR |
+| Turn 16 (4717) | right | tarmac 4 m | none | LIDAR, circuit default |
+| Turn 17 (5459) | left | tarmac 11 m | none | LIDAR, circuit default |
+| Turn 17 (5459) | right | tarmac 15 m | none | LIDAR, circuit default |
+| Turn 18 (5741) | left | tarmac 5 m | none | LIDAR |
+| Turn 18 (5741) | right | tarmac 18 m | none | LIDAR, circuit default |
+
+Uncertain: the mid-grey surface is read as concrete because sources report no gravel traps; dividers and the grid sector keep barriers the real circuit doesn't have.

@@ -87,6 +87,9 @@ ELEVATION_LEVELS: Mapping[str, ElevationLevel] = {
 }
 GRADE_BASELINE_M = 10.0  # fact maxGradePct: steepest height change over this distance along a route
 IMPORTED_LAP_TOLERANCE = 0.02  # warn when options.lapLengthKm differs from an imported centreline by more
+# an imported layout's next piece (an extra road) may leave the main centreline up to this far before the previous
+# piece rejoins it: one junction where both meet the main road (Oulton Park's Fosters link onto the old straight)
+IMPORTED_PIECE_OVERLAP_M = 30.0
 NOISE_COMPONENTS = 6
 
 # --- Height markers --------------------------------------------------------------------------

@@ -1,0 +1,81 @@
+{
+ "_comment": [
+  "Per-circuit evidence for measure_runoff.py that the LIDAR and OSM can't give: what a barrier the LIDAR finds is",
+  "(it sees a narrow raised object, not its material), the circuit's default barrier look, and corner-specific facts",
+  "from published sources. Barrier types: armco (steel guardrail), tyres (tyre wall faced with plain black conveyor",
+  "belting), concrete (wall), bank (earth bank, no barrier), none. 'fence': a debris/catch fence above the barrier.",
+  "'colour' is black unless a source confirms red/white (Chris, 2026-10-24: red/white only where the evidence",
+  "supports it). Overrides: 'corner' is a label of the sample's corners, 'side' outside|inside|left|right of the",
+  "corner (outside = away from the turn's centre at its apex), 'fromM'/'toM' metres along the route relative to",
+  "the corner label's sM (default -60..+80); any of surface, startM, depthM, barrier, fence, offsetM set the",
+  "zone's value; every override needs a source."
+ ],
+ "doningtonpark": {
+  "defaults": {"barrier": "armco", "trapBarrier": "tyres", "colour": "black",
+               "source": "Chris (2026-10-24): Donington's outer barriers are mostly Armco and plain/black tyre walls behind the gravel traps, very few red/white; tyre walls behind the traps: oversteer48.com/donington-park-corners/ (Redgate), crash.net/f1/news/32712 (Coppice)"},
+  "overrides": [
+   {"corner": "Redgate", "side": "outside", "barrier": "tyres", "source": "oversteer48.com/donington-park-corners/; essaar.co.uk BTCC Donington preview (1995: 'gravel trap, into the tyre wall')"},
+   {"corner": "Hollywood", "side": "outside", "barrier": "concrete", "fromM": -40, "toM": 60, "source": "motorsport.com BTCC 449431 (Holland hit the wall at Hollywood, no tyre protection)"},
+   {"corner": "Craner Curves", "side": "outside", "barrier": "tyres", "fromM": -120, "toM": 120, "source": "paulrivett.com/?p=1842 (tyre barrier with a concrete wall alongside); autosport.com MSV 2020 upgrades (new tyre barriers); Chris: no red/white at the Craner Curves"},
+   {"corner": "Starkey's Bridge", "side": "outside", "barrier": "armco", "source": "oversteer48.com/donington-trackdays/ (Armco at Starkey's)"},
+   {"corner": "Coppice", "side": "outside", "barrier": "tyres", "source": "crash.net/f1/news/32712 (Mansell 1998, Coppice tyre barrier)"},
+   {"corner": "Fogarty Esses", "side": "left", "fence": true, "fromM": -80, "toM": 80, "source": "msv.com/news/2024/feb/5 (debris fencing extended at the Fogarty Esses)"},
+   {"corner": "Fogarty Esses", "side": "right", "fence": true, "fromM": -80, "toM": 80, "source": "msv.com/news/2024/feb/5 (debris fencing extended at the Fogarty Esses)"}
+  ]
+ },
+ "brandshatch": {
+  "defaults": {"barrier": "armco", "trapBarrier": "tyres", "colour": "black",
+               "source": "oversteer48.com/brands-hatch-track-day/ (GP loop: minimal run-off, Armco and tyre walls close to the track); brandshatch.co.uk winter works 2022 (Paddock Hill barriers and tyre walls renewed)"},
+  "overrides": [
+   {"corner": "Paddock Hill Bend", "side": "outside", "barrier": "tyres", "source": "brandshatch.co.uk winter works 2022 (gravel trap regraded, tyre walls renewed)"},
+   {"corner": "Druids Bend", "side": "outside", "barrier": "tyres", "source": "oversteer48.com/brands-hatch-corner-names/ (tyre barrier beyond the exit kerb)"},
+   {"corner": "Surtees", "side": "outside", "barrier": "tyres", "source": "oversteer48.com/brands-hatch-track-day/ (tyre wall at Surtees)"},
+   {"corner": "Clearways", "side": "outside", "barrier": "armco", "fence": true, "source": "classicbikehub.uk/?p=13232; autosport.com 2020 (Clearways gravel enlarged, Armco and fencing moved back)"},
+   {"corner": "Sheene Curve", "side": "outside", "surface": "grass", "depthM": 0, "source": "oversteer48.com (Sheene Curve: no kerb or run-off)"}
+  ]
+ },
+ "oultonpark": {
+  "defaults": {"barrier": "armco", "trapBarrier": "armco", "colour": "black",
+               "source": "Wikipedia (Oulton Park: Armco at Knickerbrook); MCN 2007 (Druids: Armco moved back 72 ft behind a larger gravel trap)"},
+  "overrides": [
+   {"corner": "Druids Corner", "side": "outside", "barrier": "armco", "source": "MCN Feb 2007 (Druids gravel trap enlarged, Armco moved back)"},
+   {"corner": "Knickerbrook", "side": "outside", "barrier": "armco", "source": "en.wikipedia.org/wiki/Oulton_Park (Armco at Knickerbrook)"}
+  ]
+ },
+ "snetterton": {
+  "defaults": {"barrier": "armco", "trapBarrier": "tyres", "colour": "black",
+               "source": "snetterton.co.uk/news/2026/mar/5 (250 new Armco sheets, 83 tyre stacks, 400 m of tyre walls at Coram); driver61.com/circuit-guide/snetterton-300/"},
+  "overrides": [
+   {"corner": "Riches", "side": "inside", "barrier": "armco", "source": "driver61.com/circuit-guide/snetterton-300/ (Armco close on the inside at Riches)"},
+   {"corner": "Coram", "side": "outside", "barrier": "tyres", "fromM": -150, "toM": 150, "source": "snetterton.co.uk/news/2026/mar/5 (400 m of new tyre walls at Coram)"}
+  ]
+ },
+ "cadwellpark": {
+  "defaults": {"barrier": "armco", "trapBarrier": "armco", "colour": "black",
+               "source": "visordown 2008 (Armco at Coppice and from the chicane to Mountain Bottom); classicbikehub/autosport 2020 (Hall Bends Armco reprofiled); motorbikestoday (narrow, run-off small or non-existent in places)"},
+  "overrides": [
+   {"corner": "Hall Bends", "side": "left", "barrier": "armco", "source": "classicbikehub.uk; autosport.com 2020 (Hall Bends Armco reprofiled)"},
+   {"corner": "Hall Bends", "side": "right", "barrier": "armco", "source": "classicbikehub.uk; autosport.com 2020 (Hall Bends Armco reprofiled)"}
+  ]
+ },
+ "bedfordautodrome": {
+  "defaults": {"barrier": "none", "trapBarrier": "none", "colour": "black", "midIntensity": "tarmac",
+               "source": "evo.co.uk/advice/19672 and racingcircuits.info (Bedford: no Armco, metal or concrete walls; wide grass and concrete or tarmac run-off on the open airfield)"},
+  "overrides": []
+ },
+ "navarra": {
+  "defaults": {"barrier": "armco", "trapBarrier": "armco", "colour": "black",
+               "source": "OSM barrier=guard_rail (63 ways round the circuit); geobrugg.com project 145638 (triple guardrail with debris fencing, tyre barriers); gedlich-racing.com (asphalt run-off and gravel beds)"},
+  "thresholds": {"asphaltMax": 130.0, "_note": "the run-off asphalt is older and paler than the track's in the 2024 RGB (road ~97, run-off ~115-128, dry ground 150+)"},
+  "overrides": [
+   {"corner": "Turn 11", "side": "outside", "fence": true, "fromM": -60, "toM": 400, "source": "geobrugg.com/project_ja,,145638.html (Turns 11-13: triple guardrail with a 576 m debris fence)"},
+   {"corner": "Turn 15", "side": "outside", "fence": true, "source": "geobrugg.com project 145638 (Turn 15: 3.5 m FIA debris fence)"},
+   {"corner": "Turn 6", "side": "outside", "fence": true, "source": "circuitodenavarra.com 2024 works; geobrugg.com (Turn 6 reprofiled with a debris fence)"}
+  ]
+ },
+ "anglesey": {
+  "defaults": {"barrier": "armco", "trapBarrier": "armco", "colour": "black",
+               "source": "OSM barrier=guard_rail (31 ways round the circuit); no published barrier colour or tyre-wall detail found"},
+  "overrides": []
+ }
+}

@@ -1011,9 +1011,60 @@ def fit_loop(bng: np.ndarray, dtm: Dtm, width: float, step: float,
     q = p + shift[:, None] * nl
     q = w[:, None] * q + (1.0 - w[:, None]) * gauss_closed(q, 1.5)
     p = resample_closed(q, step)
+    p = straighten(p, step, keep=w)
     need = (width / 2.0 + IMPORTED_MIN_INNER_EDGE_RADIUS_M) * 1.03  # rule min-corner-radius for real tracks, +3 %
     p, eased = ease_corners(p, need)
     return resample_closed(p, step), shift, eased
+
+
+STRAIGHTEN_COARSE_M = 10.0    # straighten: bi-Laplacian smoothing of the line sampled this far apart ...
+STRAIGHTEN_ITER = 300         # ... this many steps (a 120 m-long left-right snake falls to an eighth) ...
+STRAIGHTEN_MAX_MOVE_M = 1.2   # ... moving it at most this far ...
+STRAIGHTEN_MAX_CURV = 1.0 / 250.0  # ... and not where it bends tighter than this over ~20 m (a real corner) ...
+STRAIGHTEN_FEATHER_M = 20.0   # ... fading in and out over this
+
+
+def straighten(p: np.ndarray, step: float, keep: np.ndarray | None = None, resample: bool = True) -> np.ndarray:
+    """A closed line with the left-right snaking taken out: OSM traces a straight as a few nodes a metre or so
+    off line, which the 5 m smoothing turns into R 130-250 m S-bends (Cadwell Park's start straight towards
+    Coppice snaked left-right-left over 100 m, 1.4 m off its mean). Bi-Laplacian (fourth-difference) smoothing
+    of the line sampled every STRAIGHTEN_COARSE_M evens out changes of curvature (a snake) but leaves straights
+    and constant-radius arcs where they are; its displacement, at most STRAIGHTEN_MAX_MOVE_M, is interpolated
+    onto the line, so detail shorter than the coarse step (a chicane's corners) stays. ``keep`` (sharp chicane
+    samples) is held, the move fading out over STRAIGHTEN_FEATHER_M."""
+    n = len(p)
+    s = arc(np.vstack([p, p[:1]]))
+    L = float(s[-1])
+    m = max(16, int(round(L / STRAIGHTEN_COARSE_M)))
+    t = np.arange(m) * L / m
+    c0 = np.column_stack([np.interp(t, s, np.append(p[:, 0], p[0, 0])), np.interp(t, s, np.append(p[:, 1], p[0, 1]))])
+    # held: corners (tighter than STRAIGHTEN_MAX_CURV over ~20 m: real bends keep their shape) and ``keep``
+    d = np.roll(p, -5, axis=0) - np.roll(p, 5, axis=0)
+    th = np.arctan2(d[:, 1], d[:, 0])
+    k = ((np.roll(th, -5) - np.roll(th, 5) + math.pi) % (2 * math.pi) - math.pi) / (10.0 * step)
+    k = gauss_closed(k, 20.0 / step)
+    hold_f = (np.abs(k) > STRAIGHTEN_MAX_CURV).astype(float)
+    if keep is not None:
+        kp = np.asarray(keep, dtype=np.float64)
+        kp = np.interp(np.linspace(0.0, 1.0, n, endpoint=False), np.linspace(0.0, 1.0, len(kp), endpoint=False), kp)
+        hold_f = np.maximum(hold_f, (kp > 0.01).astype(float))
+    hold = np.interp(t, s[:-1], hold_f, period=L)
+    f = max(1, int(round(STRAIGHTEN_FEATHER_M / STRAIGHTEN_COARSE_M)))
+    for sh in range(1, f + 1):
+        hold = np.maximum(hold, np.maximum(np.roll(hold, sh), np.roll(hold, -sh)) * (1.0 - sh / (f + 1)))
+    c = c0.copy()
+    for _ in range(STRAIGHTEN_ITER):
+        lap = np.roll(c, -1, axis=0) - 2.0 * c + np.roll(c, 1, axis=0)
+        bil = np.roll(lap, -1, axis=0) - 2.0 * lap + np.roll(lap, 1, axis=0)
+        c = c - 0.1 * bil
+        dv = c - c0
+        mag = np.hypot(*dv.T)
+        scale = np.minimum(1.0, STRAIGHTEN_MAX_MOVE_M / np.maximum(mag, 1e-9)) * (1.0 - hold)
+        c = c0 + dv * scale[:, None]
+    disp = c - c0
+    sp = s[:-1]
+    out = p + np.column_stack([np.interp(sp, t, disp[:, 0], period=L), np.interp(sp, t, disp[:, 1], period=L)])
+    return resample_closed(out, step) if resample else out
 
 
 def node_bng(osm: dict, node: int) -> np.ndarray:
@@ -1026,14 +1077,17 @@ def node_bng(osm: dict, node: int) -> np.ndarray:
 
 def branch_of(alt: np.ndarray, main: np.ndarray, step: float, blend_m: float = 30.0,
               core: tuple[float, float] | None = None, off_m: float = 1.0,
-              join_within_m=None) -> np.ndarray:
+              join_within_m=None, also=()) -> np.ndarray:
     """The part of a fitted alternative lap that leaves the main line, with its ends moved onto the nearest main
     points (the move fades out over ``blend_m``). ``core``: the fractions of the lap (from its first point)
     where it runs on ways the main lap doesn't use (``non_main_span``); the branch is that span grown at both
     ends while the line stays more than 1 m off the main one, plus 10 m. Without ``core``, the longest run of
     samples more than 1 m off (a lap fitted independently can differ from the main one by more than that
-    elsewhere, so recipes get the core). Raises if the layouts share nothing."""
+    elsewhere, so recipes get the core). ``also``: open lines of extra roads the layout drives, which count as
+    shared like the main line (the branch stops where it reaches one). Raises if the layouts share nothing."""
     d = np.min(np.hypot(alt[:, None, 0] - main[None, :, 0], alt[:, None, 1] - main[None, :, 1]), axis=1)
+    for o in also:
+        d = np.minimum(d, np.min(np.hypot(alt[:, None, 0] - o[None, :, 0], alt[:, None, 1] - o[None, :, 1]), axis=1))
     off = d > off_m
     if off.all() or not off.any():
         raise ValueError("the alternative layout doesn't share part of the main lap")
@@ -1078,6 +1132,58 @@ def branch_of(alt: np.ndarray, main: np.ndarray, step: float, blend_m: float = 3
         w = np.clip(1.0 - (s if end == 0 else s[-1] - s) / bl, 0.0, 1.0)
         b += move[None, :] * w[:, None]
     return fillet_ends(resample_open(b, step), main, step)
+
+
+PIECE_OVERLAP_M = 30.0  # a layout's next piece may leave the main line this far before the previous one rejoins it
+
+
+def chain_lap(loc: np.ndarray, z: np.ndarray, s: np.ndarray, L: float, step: float,
+              pieces: list[tuple[np.ndarray, np.ndarray, int, int]]) -> tuple[np.ndarray, np.ndarray]:
+    """An alternative layout's lap (points and heights, closed, from its branch): its pieces (the branch, then the
+    extra roads it drives: points, heights, main index where each leaves and rejoins) and the main line between
+    them in driving order, as geom's _layout_sections chains them (a piece leaving up to PIECE_OVERLAP_M before
+    the previous one rejoins cuts that one short)."""
+    n = len(loc)
+    first, todo = pieces[0], list(pieces[1:])
+    xy_out, z_out = [], []
+    cur, pos, k0 = first, first[3], 1
+    head0 = 1
+
+    def gap(a: int, b: int) -> float:
+        d = (s[b] - s[a]) % L
+        return d - L if d > L - PIECE_OVERLAP_M else d
+
+    def handover(a: np.ndarray, b: np.ndarray, overlap: float) -> tuple[int, int]:
+        # as geom's _handover: the closest pair of a's tail and b's head, running most nearly the same way
+        m_ = int(round((overlap + 30.0) / step))
+        ia, ib = np.arange(max(len(a) - m_, 1), len(a) - 1), np.arange(1, min(m_, len(b) - 1))
+        d = np.hypot(a[ia, None, 0] - b[None, ib, 0], a[ia, None, 1] - b[None, ib, 1])
+        ta, tb = np.gradient(a, axis=0), np.gradient(b, axis=0)
+        ha, hb = np.arctan2(ta[ia, 1], ta[ia, 0]), np.arctan2(tb[ib, 1], tb[ib, 0])
+        dh = np.abs((ha[:, None] - hb[None, :] + np.pi) % (2 * np.pi) - np.pi)
+        k = np.unravel_index(int(np.argmin(d + 0.1 * np.degrees(dh))), d.shape)
+        return int(ia[k[0]]), int(ib[k[1]])
+
+    while True:
+        nxt = min(todo, key=lambda q: gap(pos, q[2])) if todo else first
+        g = gap(pos, nxt[2])
+        end, k_next = len(cur[0]) - 1, 1
+        if g < 0:
+            end, k_next = handover(cur[0], nxt[0], -g)
+        xy_out.append(cur[0][k0:end])
+        z_out.append(cur[1][k0:end])
+        if g >= 0:
+            idx = [(pos + k) % n for k in range((nxt[2] - pos) % n + 1)]
+            xy_out.append(loc[idx])
+            z_out.append(z[idx])
+        if nxt is first:
+            if k_next != 1:  # the lap's first piece starts later: drop its points before the hand-over
+                cut = k_next - head0
+                xy_out[0], z_out[0] = xy_out[0][cut:], z_out[0][cut:]
+            break
+        todo.remove(nxt)
+        cur, pos, k0 = nxt, nxt[3], k_next
+    return np.vstack(xy_out), np.concatenate(z_out)
 
 
 FILLET_MIN_ANGLE_DEG = 15.0  # a branch meeting the main line at more than this ...
@@ -1152,15 +1258,21 @@ def source_problems(recipe: dict) -> list[str]:
             v = d.get(k)
             if not isinstance(v, str) or len(v.strip()) < 10:
                 out.append(f"{where}: no {k}")
+    for r in recipe.get("roads", []):  # extra roads: where the tarmac and who drives it come from
+        if not isinstance(r.get("source"), str) or len(r["source"].strip()) < 10:
+            out.append(f"road {r.get('id')}: no source")
     return out
 
 
-def non_main_span(ll: list[tuple[float, float]], ids: list[int], main_ids: list[int]) -> tuple[float, float]:
+def non_main_span(ll: list[tuple[float, float]], ids: list[int], main_ids: list[int],
+                  extra_edges: set | None = None) -> tuple[float, float]:
     """The fractions of a stitched alternative lap (from its first point, by OSM arc length) of its run of OSM
     segments (node to node, in the driving direction) that the main lap doesn't drive: where the layout leaves
     the main line (``branch_of``'s core). Segments, not ways, so a layout may use part of a way the main lap
-    uses another part of (Bedford's loops). The lap must have one such run."""
-    main_edges = {(a, b) for a, b in zip(main_ids, main_ids[1:] + main_ids[:1])}
+    uses another part of (Bedford's loops). The lap must have one such run. ``extra_edges``: segments (node pairs)
+    of extra roads the layout drives, counted as shared like the main lap's (Oulton Park's Fosters on the old
+    straight past Hislop's: its own branch is the Fosters link alone)."""
+    main_edges = {(a, b) for a, b in zip(main_ids, main_ids[1:] + main_ids[:1])} | set(extra_edges or ())
     n = len(ids)
     own = [(ids[k], ids[(k + 1) % n]) not in main_edges for k in range(n)]
     if not any(own):
@@ -1540,8 +1652,10 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     road_w, width_report, main_shift = None, None, None
     if meas:
         road_w, off, matched = width_and_offset(meas["routes"]["main"], p, nl, width, closed=True)
-        main_shift = (p.copy(), nl * off[:, None])  # the main line before the move, and the move
-        moved = p + nl * off[:, None]
+        # onto the tarmac's middle, then straightened again: where the point cloud gave no confident edges the
+        # measured middle follows the line it was measured from, snaking with it
+        moved = straighten(p + nl * off[:, None], step, resample=False)
+        main_shift = (p.copy(), moved - p)  # the main line before the move, and the move
         q = np.vstack([moved, moved[:1]])
         sq = arc(q)
         t = np.arange(n) * sq[-1] / n
@@ -1576,35 +1690,49 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     grade = (np.roll(z, -5) - np.roll(z, 5)) / (10.0 * step / k_scale)  # over 20 m, centred
     g10 = (np.roll(z, -5) - z) / (5 * step / k_scale)                     # over 10 m, forward
 
-    # 4b. Alternative layouts sharing the base: fit each whole lap the same way, keep the part that leaves the
-    # main line (its ends moved onto it), with its own heights and camber.
-    alt_specs, alt_reports, alt_branches = [], [], []
-    for alt in recipe.get("altLayouts", []):
-        ll_a, marks_a, ids_a = stitch_nodes(osm, alt["lap"], joins)
+    # 4b. Alternative layouts and extra roads sharing the base: fit each whole lap the same way, keep the part that
+    # leaves the main line (its ends moved onto it), with its own heights and camber. Extra roads (recipe "roads":
+    # real tarmac no layout's own branch covers, e.g. Oulton Park's old straight beside Hislop's) come first; a
+    # layout listing some ("roads") treats them like the main road when finding its own branch.
+    road_lines: dict[str, np.ndarray] = {}
+    road_edges: dict[str, set] = {}
+
+    def fit_piece(item: dict, kind: str) -> dict:
+        ll_a, marks_a, ids_a = stitch_nodes(osm, item["lap"], joins)
         bng_a = np.array([to_grid(x, y) for x, y in ll_a])
         # a layout normally winds the same way as the main lap; one that doesn't says so (Snetterton's 100 is the
         # 300's infield loop, driven the same way but anticlockwise as a loop): "clockwise": false
-        if (signed_area(bng_a) < 0) != bool(alt.get("clockwise", clockwise)):
-            raise ValueError(f"layout {alt['id']} runs the other way round from the main lap (or its recipe's clockwise)")
+        if (signed_area(bng_a) < 0) != bool(item.get("clockwise", clockwise)):
+            raise ValueError(f"{kind} {item['id']} runs the other way round from the main lap (or its recipe's clockwise)")
         pa, shift_a, eased_a = fit_loop(bng_a, dtm, width, step, max_shift, sharp_segments(marks_a, len(bng_a), sharp_ways))
         if main_shift is not None:
             # where the layout drives the main road, it moves with the main line (else the shared part would end
             # up beside the moved main line and count as its own branch, overlapping the main road)
             pa = follow_main_shift(pa, *main_shift)
+        own_roads = item.get("roads", [])
+        for rid in own_roads:
+            if rid not in road_lines:
+                raise ValueError(f"layout {item['id']}: no road {rid!r} in the recipe's roads")
+        extra = set().union(*(road_edges[rid] for rid in own_roads)) if own_roads else set()
         # branchOffM: how far off the main line a layout's line counts as its own (default 1 m; unregistered OSM
         # lines on shared ways match exactly but are sampled out of phase, up to 1 m apart vertex to vertex)
         # joinWithinM (per layout): a branch that runs beside the main road for a while before it merges (Bedford
         # SEN's return beside the south straight, paved between) joins where it first comes within this distance
-        br = branch_of(pa, p, step, core=non_main_span(ll_a, ids_a, main_ids), off_m=float(recipe.get("branchOffM", 1.0)),
-                       join_within_m=alt.get("joinWithinM"))
+        br = branch_of(pa, p, step, core=non_main_span(ll_a, ids_a, main_ids, extra),
+                       off_m=float(recipe.get("branchOffM", 1.0)), join_within_m=item.get("joinWithinM"),
+                       also=[road_lines[rid] for rid in own_roads])
         road_w_b = None
         if meas:
             # onto its tarmac's middle too, the move fading out towards the ends (they lie on the main line,
-            # already moved); the width blends to the main road's at the ends
+            # already moved); the width blends to the main road's at the ends. An extra road without a measured
+            # route keeps its line and takes the main lap's median width.
             nl_b0 = normals_open(br)
-            if alt["id"] not in meas["routes"]:
-                raise ValueError(f"measured widths: no route {alt['id']!r} in {recipe_slug(recipe)}.json (re-measure)")
-            w_b, off_b, matched_b = width_and_offset(meas["routes"][alt["id"]], br, nl_b0, fit_w, closed=False)
+            if item["id"] not in meas["routes"] and kind != "road":
+                raise ValueError(f"measured widths: no route {item['id']!r} in {recipe_slug(recipe)}.json (re-measure)")
+            if item["id"] in meas["routes"]:
+                w_b, off_b, _ = width_and_offset(meas["routes"][item["id"]], br, nl_b0, fit_w, closed=False)
+            else:
+                w_b, off_b = np.full(len(br), fit_w), np.zeros(len(br))
             sb = arc(br)
             f = np.clip(np.minimum(sb, sb[-1] - sb) / BRANCH_SHIFT_TAPER_M, 0.0, 1.0)
             f = f * f * (3.0 - 2.0 * f)
@@ -1613,11 +1741,10 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
             e1 = int(np.argmin(np.hypot(*(p - br[-1]).T)))
             w_end = np.where(sb < sb[-1] / 2.0, road_w[e0], road_w[e1])
             road_w_b = w_b * f + w_end * (1.0 - f)
-        alt_branches.append(br)
         nl_b = normals_open(br)
         ab, bb, res_b = cross_fit(dtm, br, nl_b, offs)
         if np.isnan(ab).any():
-            raise RuntimeError(f"the DTM has gaps under layout {alt['id']}")
+            raise RuntimeError(f"the DTM has gaps under {kind} {item['id']}")
         zb = gauss_open(ab, z_sig / step)
         bank_b = np.clip(np.degrees(np.arctan(gauss_open(bb, b_sig / step))), -IMPORTED_MAX_BANK_DEG, IMPORTED_MAX_BANK_DEG)
         loc_b = (br - centre) / k_scale
@@ -1630,29 +1757,56 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         zb, bank_b = join_blend(arc(loc_b), zb, bank_b, (z[j0], z[j1]), (bank[j0], bank[j1]))
         zb = ease_vertical(zb, step, closed=False)
         wb_out = road_w_b / k_scale if road_w_b is not None else [None] * len(loc_b)
-        alt_specs.append({"id": alt["id"], "name": alt["name"],
-                          "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), Z_DECIMALS),
-                                          "bankDeg": round(float(bk), 2), **({"widthM": round(float(wv), 2)} if wv is not None else {})}
-                                         for (x, y), zv, bk, wv in zip(loc_b, zb, bank_b, wb_out)]})
+        centreline = [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), Z_DECIMALS),
+                       "bankDeg": round(float(bk), 2), **({"widthM": round(float(wv), 2)} if wv is not None else {})}
+                      for (x, y), zv, bk, wv in zip(loc_b, zb, bank_b, wb_out)]
+        return {"br": br, "loc": loc_b, "z": zb, "bank": bank_b, "w": road_w_b, "res": res_b, "shift": shift_a,
+                "eased": eased_a, "ids": ids_a, "j": (j0, j1), "centreline": centreline}
+
+    road_specs, road_reports, road_pieces = [], [], {}
+    for rd in recipe.get("roads", []):
+        pc = fit_piece(rd, "road")
+        road_lines[rd["id"]] = pc["br"]
+        ids_r = pc["ids"]
+        road_edges[rd["id"]] = {(a_, b_) for a_, b_ in zip(ids_r, ids_r[1:] + ids_r[:1])}
+        road_pieces[rd["id"]] = pc
+        road_specs.append({"id": rd["id"], **({"name": rd["name"]} if rd.get("name") else {}),
+                           "centreline": pc["centreline"]})
+        road_reports.append({"id": rd["id"], "name": rd.get("name"), "lengthM": round(float(arc(pc["loc"])[-1]), 1),
+                             "leavesMainAtS": round(float(s[pc["j"][0]]), 1), "rejoinsMainAtS": round(float(s[pc["j"][1]]), 1),
+                             "branchMinRadiusM": round(float(radii_open(pc["loc"]).min()), 2),
+                             "branchBankMaxDeg": round(float(np.abs(pc["bank"]).max()), 2),
+                             **({"widthMinM": round(float(pc["w"].min() / k_scale), 2),
+                                 "widthMaxM": round(float(pc["w"].max() / k_scale), 2)} if pc["w"] is not None else {}),
+                             "branchCrossResidualM": round(float(pc["res"].mean()), 3),
+                             "artefacts": profile_artefacts(pc["loc"], pc["z"], pc["bank"], closed=False)})
+
+    alt_specs, alt_reports, alt_branches = [], [], [rp["br"] for rp in road_pieces.values()]
+    for alt in recipe.get("altLayouts", []):
+        pc = fit_piece(alt, "layout")
+        br, loc_b, zb, bank_b, road_w_b, res_b = pc["br"], pc["loc"], pc["z"], pc["bank"], pc["w"], pc["res"]
+        alt_branches.append(br)
+        alt_specs.append({"id": alt["id"], "name": alt["name"], "centreline": pc["centreline"],
+                          **({"roads": list(alt["roads"])} if alt.get("roads") else {})})
         if alt.get("startFinish"):  # the layout's own line, snapped onto the fitted road (main or branch)
             q_sf = start_finish_point(alt["startFinish"], osm)
             both = np.vstack([p, br])
             snap = both[int(np.argmin(np.hypot(*(both - q_sf).T)))]
             xy_sf = (snap - centre) / k_scale
             alt_specs[-1]["startFinish"] = {"x": round(float(xy_sf[0]), 2), "y": round(float(xy_sf[1]), 2)}
-        i0 = int(np.argmin(np.hypot(*(loc - loc_b[0]).T)))
-        i1 = int(np.argmin(np.hypot(*(loc - loc_b[-1]).T)))
+        i0, i1 = pc["j"]
         Lb = float(arc(loc_b)[-1])
-        back = [(i1 + k) % n for k in range((i0 - i1) % n + 1)]  # main from the rejoin round to the branch start
-        lap_z = np.concatenate([zb[1:-1], z[back]])
-        lap_xy = np.vstack([loc_b[1:-1], loc[back]])
+        lap_xy, lap_z = chain_lap(loc, z, s, L, step / k_scale,
+                                  [(loc_b, zb, i0, i1)] + [(road_pieces[r]["loc"], road_pieces[r]["z"], *road_pieces[r]["j"])
+                                                           for r in alt.get("roads", [])])
         seg = np.hypot(*np.diff(np.vstack([lap_xy, lap_xy[:1]]), axis=0).T)
         dzl = np.diff(np.concatenate([lap_z, lap_z[:1]]))
         g_lap = dzl / np.maximum(seg, 1e-6)
         g10_lap = (np.roll(lap_z, -5) - lap_z) / (5 * step / k_scale)
         alt_reports.append({
             "id": alt["id"], "name": alt["name"], "branchLengthM": round(Lb, 1),
-            "lapLengthM": round(float(Lb + (s[i0] - s[i1]) % L), 1),
+            "lapLengthM": round(float(seg.sum()), 1),
+            **({"roads": list(alt["roads"])} if alt.get("roads") else {}),
             "measuredLapLengthM": alt.get("measuredLapLengthM"), "publishedLapLengthM": alt.get("publishedLapLengthM"),
             "leavesMainAtS": round(float(s[i0]), 1), "rejoinsMainAtS": round(float(s[i1]), 1),
             "joinGapsM": [round(float(np.hypot(*(loc[i0] - loc_b[0]))), 2), round(float(np.hypot(*(loc[i1] - loc_b[-1]))), 2)],
@@ -1664,11 +1818,11 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
             **({"widthMinM": round(float(road_w_b.min() / k_scale), 2), "widthMaxM": round(float(road_w_b.max() / k_scale), 2)}
                if road_w_b is not None else {}),
             "branchCrossResidualM": round(float(res_b.mean()), 3),
-            "lapEasingMaxM": round(eased_a, 2), "registrationShiftM": [round(float(shift_a.min()), 2), round(float(shift_a.max()), 2)],
+            "lapEasingMaxM": round(pc["eased"], 2),
+            "registrationShiftM": [round(float(pc["shift"].min()), 2), round(float(pc["shift"].max()), 2)],
             "maxStepGradePct": round(float(np.abs(g_lap).max()) * 100, 1),
             "artefacts": profile_artefacts(loc_b, zb, bank_b, closed=False),
         })
-
     # 5. Terrain: block means of the DTM onto a coarser grid (nodes), in the local frame. Sea (no-data) cells
     # are seabed just below the recipe's sea level, else the mean ground.
     e0, n0 = lo
@@ -1775,6 +1929,8 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     if alt_specs:
         imported["mainLayoutName"] = recipe.get("mainLayoutName", "Main")
         imported["altLayouts"] = alt_specs
+    if road_specs:
+        imported["roads"] = road_specs
     if sea is not None:
         imported["seaLevelM"] = round(float(sea) - datum, 2)
     pits = load_pits(recipe, centre, k_scale)
@@ -1798,6 +1954,15 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
                     "environment": o["environment"], "gridSize": o["gridSize"], "weathers": o["weathers"],
                     "reverseLayout": o["reverseLayout"], "defaultLaps": o["defaultLaps"]},
     }
+    runoff_report = None
+    if recipe.get("runoff") == "measured":
+        # measured run-off, barriers and trees (tools/real_tracks/runoff|vegetation/<slug>.json, measure_runoff.py)
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "real_tracks_data"))
+        import apply_runoff  # noqa: PLC0415
+
+        region = {"wales": "wales", "es-navarra": "navarra", "es-mdt05": "navarra"}.get(recipe.get("dtm"), "england")
+        runoff_report = apply_runoff.apply(spec, recipe_slug(recipe), {"centreE": float(centre[0]),
+                                           "centreN": float(centre[1]), "scale": k_scale}, region, log)
 
     # 8. Report.
     climb = float(np.clip(np.diff(np.concatenate([z, z[:1]])), 0, None).sum())
@@ -1826,10 +1991,13 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         "artefacts": profile_artefacts(loc, z, bank),
         "dtmCellM": dtm.cell, "dtmWholeMetreFraction": round(dtm_quantised_fraction(dtm), 3),
         **({"widths": width_report} if width_report else {}),
+        **({"runoff": runoff_report} if runoff_report else {}),
     }
     if alt_reports:
         report["mainLayoutName"] = recipe.get("mainLayoutName", "Main")
         report["altLayouts"] = alt_reports
+    if road_reports:
+        report["roads"] = road_reports
     for c in corners:
         i = int(round(c["sM"] / (L / n))) % n
         c_rep = {"zM": round(float(z[i]), 1), "gradePct": round(float(grade[i]) * 100, 1), "bankDeg": round(float(bank[i]), 1)}

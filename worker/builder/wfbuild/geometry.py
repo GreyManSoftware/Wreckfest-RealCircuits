@@ -79,6 +79,48 @@ class Mesh:
         return not self.faces
 
 
+class TriIndex:
+    """2D point-in-triangle queries over a mesh's faces (fan-triangulated; grid hash)."""
+
+    def __init__(self, tris: np.ndarray, cell: float = 6.0):
+        self.t = np.asarray(tris, dtype=np.float64).reshape(-1, 3, 3)[:, :, :2]
+        self.cell = cell
+        self.grid: dict[tuple[int, int], list[int]] = {}
+        if not len(self.t):
+            return
+        lo = np.floor(self.t.min(1) / cell).astype(np.int64)
+        hi = np.floor(self.t.max(1) / cell).astype(np.int64)
+        for k in range(len(self.t)):
+            for gx in range(lo[k, 0], hi[k, 0] + 1):
+                for gy in range(lo[k, 1], hi[k, 1] + 1):
+                    self.grid.setdefault((gx, gy), []).append(k)
+
+    @staticmethod
+    def of(*meshes: "Mesh") -> "TriIndex":
+        out = []
+        for m in meshes:
+            v = np.array(m.verts, dtype=np.float64).reshape(-1, 3)
+            for f in m.faces:
+                for k in range(1, len(f) - 1):
+                    out.append(v[[f[0], f[k], f[k + 1]]])
+        return TriIndex(np.array(out))
+
+    def covered(self, p, tol: float = 0.02) -> bool:
+        """Is 2D point p on a triangle (with ``tol`` slack, relative, for points on a shared edge)?"""
+        ks = self.grid.get((int(np.floor(p[0] / self.cell)), int(np.floor(p[1] / self.cell))))
+        if not ks:
+            return False
+        t = self.t[ks]
+        a, b, c = t[:, 0], t[:, 1], t[:, 2]
+
+        def cross(o, u, v):
+            return (u[:, 0] - o[:, 0]) * (v[..., 1] - o[:, 1]) - (u[:, 1] - o[:, 1]) * (v[..., 0] - o[:, 0])
+
+        d1, d2, d3 = cross(a, b, p), cross(b, c, p), cross(c, a, p)
+        e = tol * np.sqrt(np.abs(cross(a, b, c)) + 1e-12)
+        return bool(np.any(((d1 < e) & (d2 < e) & (d3 < e)) | ((d1 > -e) & (d2 > -e) & (d3 > -e))))
+
+
 def _newell(pts: np.ndarray) -> np.ndarray:
     n = np.zeros(3)
     for a, b in zip(pts, np.roll(pts, -1, axis=0)):
@@ -186,6 +228,16 @@ def dist_to_polyline(pts: np.ndarray, poly: np.ndarray) -> np.ndarray:
     t = np.clip(((p - a) * ab).sum(2) / L2, 0.0, 1.0)
     q = a + t[..., None] * ab
     return np.sqrt(((p - q) ** 2).sum(2)).min(1)
+
+
+def _project_polyline(p: np.ndarray, poly: np.ndarray, max_dist: float = 3.0) -> float | None:
+    """The nearest point of an open polyline to p, as a fractional vertex index (None beyond ``max_dist``)."""
+    a, b = poly[:-1], poly[1:]
+    e = b - a
+    t = np.clip(np.sum((p - a) * e, axis=1) / np.maximum(np.sum(e * e, axis=1), 1e-12), 0.0, 1.0)
+    d = np.hypot(*(a + e * t[:, None] - p).T)
+    k = int(np.argmin(d))
+    return None if d[k] > max_dist else float(k + t[k])
 
 
 def _ray_polyline(p0: np.ndarray, d: np.ndarray, poly: np.ndarray, max_len: float) -> float | None:
@@ -333,6 +385,7 @@ class TerrainField:
         self.berm = berm
         self.extent = extent  # min_x, max_x, min_y, max_y of the terrain
         self.banks: list[tuple[np.ndarray, np.ndarray]] = []  # TrackGeometry._divider_banks
+        self.dip = None  # (xy) -> metres the ground sinks there (an imported track's gravel traps; runoff.py)
 
     def road_height(self, p: np.ndarray, j: np.ndarray) -> np.ndarray:
         """Height of the road surface of sample ``j`` extended to the points ``p``: along its grade (within one
@@ -379,9 +432,16 @@ class TerrainField:
             dxy = np.hypot(self.xy[None, :, 0] - self.xy[k][:, None, 0], self.xy[None, :, 1] - self.xy[k][:, None, 1])
             other = band & ((self.ri[None, :] != self.ri[k][:, None]) | (sd > 1.5 * dxy + 4.0))
             if other.any():
+                # a lower road nearby pulls the ground down to its surface only close to its own edge (fully
+                # within TERRAIN_PULL_FULL, fading out over TERRAIN_PULL_FADE), so between two roads at different
+                # heights the ground slopes across the gap instead of dropping to the lower one right at the
+                # higher one's edge: that drop showed as dark trenches and holes beside junction gores and close
+                # parallel sections (Cadwell Park's start straight, Anglesey's Corkscrew split, Brands Hatch,
+                # Donington; Chris 2026-10-24)
                 rows, cols = np.nonzero(other)
+                pull = 1.0 - smoothstep((e[rows, cols] - C.TERRAIN_PULL_FULL) / C.TERRAIN_PULL_FADE)
                 zo = np.full(len(p), np.inf)
-                np.minimum.at(zo, rows, self.road_height(p[rows], cols))
+                np.minimum.at(zo, rows, zr[rows] + pull * (self.road_height(p[rows], cols) - zr[rows]))
                 zr = np.minimum(zr, zo)
             # full sink under the road (more on steep grades: a 4 m terrain cell spanning a curving road can't
             # follow it exactly), easing to flush by 1.5 m out
@@ -413,6 +473,8 @@ class TerrainField:
                 k = np.argmin(d, axis=1)
                 f = 1.0 - d[np.arange(len(p)), k] / np.maximum(bhw[k], 1e-6)
                 out[a:a + 1024] += C.DIVIDER_BANK_H * smoothstep(f)
+        if self.dip is not None:
+            out -= self.dip(pts[:, :2])
         x0, x1, y0, y1 = self.extent
         edge = np.minimum.reduce([pts[:, 0] - x0, x1 - pts[:, 0], pts[:, 1] - y0, y1 - pts[:, 1]])
         if self.berm:
@@ -522,6 +584,12 @@ class TrackGeometry:
             self.terrain.banks = self._divider_banks()
         from . import pits as pits_mod  # an imported track's real pit lane, wall, buildings and gantries
         self.pits = pits_mod.Pits(self) if pits_mod.present(self) else None
+        # an imported track's measured run-off (gravel traps, paved aprons, barriers; runoff.py)
+        from .runoff import RunoffPlan
+        self.runoff = RunoffPlan(self)
+        if self.runoff.active:
+            self.runoff.finalise()
+            self.terrain.dip = self.runoff.dip
 
     def _divider_banks(self) -> list[tuple[np.ndarray, np.ndarray]]:
         """Grass banks under the dividers between close sections of a drawn track (where the gap leaves room):
@@ -690,6 +758,8 @@ class TrackGeometry:
 
     # ----------------------------------------------------------------------------------------- road
     def build_road(self) -> Mesh:
+        if self.__dict__.get("_road_mesh") is not None:
+            return self._road_mesh
         mesh = Mesh("track_surface", "col = true", kind="road")
         vids: dict[tuple[int, int, int], int] = {}
 
@@ -722,6 +792,7 @@ class TrackGeometry:
         for alt, chains in self.aprons:
             self._pave_apron(mesh, vid, alt, chains)
         self.road_vids = vids
+        self._road_mesh = mesh
         return mesh
 
     def _pave_apron(self, mesh: Mesh, vid, alt: Route, chains) -> None:
@@ -760,12 +831,44 @@ class TrackGeometry:
         side = float(np.dot(c - wpts[jc], t.nl[win[jc]]))
         col = 0 if side > 0 else t.m
         edge = (t.left if side > 0 else t.right)[win, :2]
-        # Extend this road's two edge lines back to the target's edge: the mouth spans the target-edge
-        # vertices between the two hits, so the corners between the roads are filled too.
+        # The mouth's sides follow this road's own edges back from the cut to where they enter the target road
+        # (a junction mouth: the fork keeps the real outline of both roads), then on to the target's edge; the
+        # mouth spans the target-edge vertices between the two hits. Straight chords from the cut (as for a
+        # flat crossing's hole) filled a large triangular apron outside a curving branch's edge (Donington's
+        # National split; Chris 2026-10-24).
         away = r.tangent[cut.sample] * (1.0 if np.dot(r.tangent[cut.sample], c - wpts[jc]) >= 0 else -1.0)
+        step_k = -1 if cut.sample < r.n // 2 else 1  # towards the junction
+        hw_t = float(np.max(t.w[win])) / 2.0
+        chains: list[list[int]] = [[], []]
         ends = []
-        for p0 in (cross[0, :2], cross[-1, :2]):
-            hit = _ray_polyline(p0, -away, edge, 40.0)
+        for n_c, (p0, ecol) in enumerate(((cross[0, :2], r.left), (cross[-1, :2], r.right))):
+            start, d = p0, -away
+            if cut.kind == "mouth":
+                k = cut.sample + step_k
+                last = p0
+                while 0 <= k < r.n and len(chains[n_c]) < 60:
+                    q = ecol[k, :2]
+                    if float(np.min(dist_to_polyline(q[None, :], wpts))) <= hw_t:
+                        break
+                    # on a third road (another junction right beside this one, Anglesey's Bus Stop): that one's
+                    # mouth paves it, so this side keeps the plain chord
+                    mask = self.index.ri != t.index
+                    if self.index.near_other(ecol[k:k + 1], np.array([r.index]), r.s[k:k + 1], 0.0, mask=mask)[0]:
+                        chains[n_c] = []
+                        break
+                    chains[n_c].append(k)
+                    last = q
+                    k += step_k
+                if 0 <= k < r.n and chains[n_c]:
+                    dv = ecol[k, :2] - last
+                    if float(np.hypot(*dv)) > 1e-6:
+                        start, d = last, dv / float(np.hypot(*dv))
+            hit = _ray_polyline(start, d, edge, 40.0)
+            if hit is None and chains[n_c]:  # a shallow merge: the edges run side by side; the nearest edge point
+                hit = _project_polyline(start, edge)
+            if hit is None and chains[n_c]:  # back to the plain chord from the cut
+                chains[n_c] = []
+                hit = _ray_polyline(p0, -away, edge, 40.0)
             ends.append(hit if hit is not None else float(np.argmin(np.hypot(*(wpts - p0).T))))
         ja, jb = ends
         lo, hi = math.floor(min(ja, jb)), math.ceil(max(ja, jb))
@@ -786,7 +889,14 @@ class TrackGeometry:
         edge_ids = [vid(t, win[k], col) for k in range(lo, hi + 1)]
         blocked = self.mouth_samples.setdefault((t.index, 1 if side > 0 else -1), set())
         blocked.update(win[k] for k in range(max(0, lo - 1), min(len(win), hi + 2)))
-        tail = cross_ids[::-1] if jb >= ja else cross_ids
+        # around the polygon: the target edge (lo -> hi), the side reaching hi (from the target edge to the cut),
+        # the cut's cross-section, then the other side back towards lo
+        side_a = [vid(r, k, 0) for k in chains[0]]      # from the cut corner (left) towards the target
+        side_b = [vid(r, k, r.m) for k in chains[1]]    # from the cut corner (right) towards the target
+        if jb >= ja:
+            tail = side_b[::-1] + cross_ids[::-1] + side_a
+        else:
+            tail = side_a[::-1] + cross_ids + side_b
         poly_ids = edge_ids + tail
         if len(set(poly_ids)) != len(poly_ids):
             self.warnings.append(f"stitch-degenerate: {r.id}@{cut.sample} -> {t.id}")
@@ -797,6 +907,7 @@ class TrackGeometry:
         for a, b, cc in ear_clip(xy):
             ids = (poly_ids[a], poly_ids[b], poly_ids[cc])
             mesh.face(ids, mat, [(mesh.verts[i][0] / tile, mesh.verts[i][1] / tile) for i in ids])
+        self.__dict__.setdefault("stitch_polys", []).append(xy)
         self.stitched = getattr(self, "stitched", [])
         self.stitched.append({"route": r.id, "sample": cut.sample, "target": t.id,
                               "edgeVertices": [list(mesh.verts[i]) for i in edge_ids]})
@@ -810,10 +921,85 @@ class TrackGeometry:
         p[:, :2] += out * np.asarray(offset, dtype=np.float64).reshape(-1, 1)
         return p
 
-    def _edge_ok(self, r: Route, pts: np.ndarray, clearance) -> np.ndarray:
+    def _edge_ok(self, r: Route, pts: np.ndarray, clearance, side: int | None = None) -> np.ndarray:
+        """Samples whose roadside point (``pts``, one per sample) is clear of every other road, on valid road
+        away from bridges. With ``side``, another road's samples whose surface stays inside this road on that
+        side don't count (``_inside_own``): a branch leaving across the other edge of a junction must not take
+        this edge's kerb and verge (Oulton Park, Chris 2026-10-24: a dark wedge of bare terrain and a kerb cut
+        short opposite the Island and Fosters junctions)."""
         own_ri = np.full(len(pts), r.index)
-        bad = self.index.near_other(pts, own_ri, r.s, clearance)
+        mask = None if side is None else ~self._inside_own(r, side)
+        bad = self.index.near_other(pts, own_ri, r.s, clearance, mask=mask)
         return ~bad & self.svalid[r.index] & ~self.structure[r.index]
+
+    def _free_width(self, r: Route, side: int, idx: np.ndarray, full: np.ndarray, road: "TriIndex | None" = None,
+                    step: float = 0.25) -> np.ndarray:
+        """For samples ``idx`` of r: how far out from the road edge on ``side`` (up to ``full`` per sample) the
+        ground is clear of another road's surface (as _edge_ok, without clearance) and, with ``road`` (the built
+        road mesh), of any road face (junction stitches included) met after leaving this road."""
+        edge = (r.left if side > 0 else r.right)[idx]
+        free = np.asarray(full, dtype=np.float64)[idx].copy()
+        todo = np.ones(len(idx), dtype=bool)
+        mask = ~self._inside_own(r, side)
+        cleared = np.zeros(len(idx), dtype=bool)
+        t = 0.0
+        while todo.any() and t <= float(free.max()):
+            k = np.nonzero(todo & (t <= free))[0]
+            if not len(k):
+                break
+            pts = edge[k].copy()
+            pts[:, :2] += r.nl[idx[k]] * side * t
+            hit = self.index.near_other(pts, np.full(len(k), r.index), r.s[idx[k]], 0.0, mask=mask)
+            if road is not None:  # road faces once clear of this edge (a stitch's sliver along it doesn't count)
+                on = np.array([road.covered(p) for p in pts[:, :2]], dtype=bool)
+                hit |= on & cleared[k]
+                cleared[k] |= ~on
+            free[k[hit]] = t
+            todo[k[hit]] = False
+            t += step
+        return free
+
+    def _built_samples(self, r: Route) -> np.ndarray:
+        """Samples of r next to at least one built road segment (``qkeep``)."""
+        q = self.qkeep[r.index]
+        b = np.zeros(r.n, dtype=bool)
+        b[:len(q)] |= q
+        b[1:len(q) + 1] |= q[:r.n - 1]
+        if r.closed and len(q):
+            b[0] |= q[-1]
+        return b
+
+    def _inside_own(self, r: Route, side: int) -> np.ndarray:
+        """Index samples of other routes (or of this one further along) whose road surface lies within route r's
+        road on ``side``: beside a centreline sample of r (within 1.5 m along it, 3 m in height) and either not
+        built there (the stitched overlap of a branch, ``qkeep``) or not reaching past r's edge on that side
+        (lateral offset towards the side + their half width <= r's half width + 0.6 m). Such a road can't take
+        r's verge on that side."""
+        cache = self.__dict__.setdefault("_inside_own_cache", {})
+        if (r.index, side) in cache:
+            return cache[(r.index, side)]
+        ix = self.index
+        out = np.zeros(len(ix.xy), dtype=bool)
+        cand = np.arange(len(ix.xy))
+        built = np.concatenate([self._built_samples(q) for q in self.routes])
+        c = r.p[:, :2]
+        hw = r.w / 2.0
+        for a in range(0, len(cand), 512):
+            k = cand[a:a + 512]
+            d = np.hypot(ix.xy[k, None, 0] - c[None, :, 0], ix.xy[k, None, 1] - c[None, :, 1])
+            j = np.argmin(d, axis=1)
+            rel = ix.xy[k] - c[j]
+            along = np.abs(np.sum(rel * r.tangent[j, :2], axis=1))
+            lat = np.sum(rel * r.nl[j], axis=1) * side
+            dz = np.abs(ix.z[k] - r.p[j, 2])
+            # this route's own samples nearby are its own road, not another (near_other skips them anyway)
+            sd = np.abs(ix.s[k] - r.s[j])
+            if r.closed:
+                sd = np.minimum(sd, r.length - sd)
+            other = (ix.ri[k] != r.index) | (sd > C.OTHER_ROUTE_S)
+            out[k] = other & (along <= 1.5) & (dz < 3.0) & ((lat + ix.hw[k] <= hw[j] + 0.6) | ~built[k])
+        cache[(r.index, side)] = out
+        return out
 
     # ------------------------------------------------------------- corners, kerbs and track limits
     def corner_runs(self, r: Route, max_radius: float = C.KERB_CORNER_RADIUS,
@@ -903,7 +1089,7 @@ class TrackGeometry:
                 kerb, green = want[side]
                 kerb &= ~self.jump_zone[r.index]
                 outer = self._side_points(r, side, C.KERB_W + C.GREEN_W + C.SHOULDER_W)
-                kerb &= self._edge_ok(r, outer, 0.3)
+                kerb &= self._edge_ok(r, outer, 0.3, side)
                 kw = C.KERB_W * self._taper(r, kerb)
                 gw = C.GREEN_W * self._taper(r, green & kerb)
                 plan[(r.index, side)] = (kw, gw)
@@ -935,6 +1121,7 @@ class TrackGeometry:
         verge shoulders. Returns (kerbs, shoulders, limits)."""
         if getattr(self, "_roadside", None) is not None:
             return self._roadside
+        road = TriIndex.of(self.build_road())  # junction stitches and mouths are set while the road is built
         kerbs = Mesh("track_kerbs", "col = true", kind="kerb")
         limits = Mesh("track_limits", "col = true", kind="limits")
         shoulders = Mesh("track_shoulders", "col = true", kind="shoulder")
@@ -954,6 +1141,11 @@ class TrackGeometry:
             seg = r.seg_len()
             for side in (1, -1):
                 kw, gw = plan[(r.index, side)]
+                smats = None
+                if self.runoff.active:  # a paved apron or a gravel trap right at the edge: the shoulder is it too
+                    a = self.runoff.side[(r.index, side)]
+                    smats = np.where(a["surface"] == 2, "terrain_apron",
+                                     np.where((a["surface"] == 1) & (a["g0"] <= kw + gw + C.SHOULDER_W), "terrain_trap", smat))
                 self.kerb_runs[f"{r.id}:{'l' if side > 0 else 'r'}"] = kw
                 edge = r.left if side > 0 else r.right
                 inner = self._side_points(r, side, kw)
@@ -963,19 +1155,35 @@ class TrackGeometry:
                 green[:, 2] = np.where(gw > 0, np.minimum(inner[:, 2], gz), inner[:, 2])
                 outer = self._side_points(r, side, kw + gw + sw)
                 outer[:, 2] = np.minimum(green[:, 2] - drop, self.terrain(outer) - 0.3)
-                ok = self._edge_ok(r, outer, 0.3) & self._edge_ok(r, inner, 0.3)
+                ok = self._edge_ok(r, outer, 0.3, side) & self._edge_ok(r, inner, 0.3, side)
                 for i in self.mouth_samples.get((r.index, side), ()):
                     ok[i] = False
                 self.edge_ok[(r.index, side)] = ok & (kw <= 0)
+                # Where another road takes the full strip (a junction's gore, two roads converging), a narrower
+                # verge reaches half way to it (that road's own verge takes the other half), so no bare terrain
+                # shows between road and grass (Oulton Park, Chris 2026-10-24); none where the roads touch.
+                valid = self.svalid[r.index] & ~self.structure[r.index]
+                # (no kerb or green strip there: they need the full strip; the verge starts at the road edge)
+                narrow = np.nonzero(~ok & valid)[0]
+                width = np.where(ok, kw + gw + sw, 0.0)
+                if len(narrow):
+                    free = self._free_width(r, side, narrow, np.full(r.n, 2.0 * sw), road)
+                    w = np.clip(free / 2.0 - 0.05, 0.0, sw)
+                    w[w < 0.3] = 0.0
+                    width[narrow] = w
+                    green[narrow] = edge[narrow]
+                    o = self._side_points(r, side, width)[narrow]
+                    o[:, 2] = np.minimum(green[narrow, 2] - drop * w / sw, self.terrain(o) - 0.3)
+                    outer[narrow] = o
                 kv: dict[int, tuple[int, int]] = {}
                 gv: dict[int, tuple[int, int]] = {}
                 sv: dict[int, tuple[int, int]] = {}
                 for i in range(r.segs):
                     i2 = r.nxt(i)
-                    if not (q[i] and ok[i] and ok[i2]):
+                    if not (q[i] and valid[i] and valid[i2] and max(width[i], width[i2]) > 0):
                         continue
                     s0, s1 = r.s[i], r.s[i] + seg[i]
-                    if kw[i] > 0 or kw[i2] > 0:
+                    if ok[i] and ok[i2] and (kw[i] > 0 or kw[i2] > 0):
                         for k in (i, i2):
                             if k not in kv:
                                 e = kerbs.vert(edge[k])
@@ -984,7 +1192,7 @@ class TrackGeometry:
                         ids = (kv[i][0], kv[i2][0], kv[i2][1], kv[i][1])
                         uv = [(s0 / P, 0.0), (s1 / P, 0.0), (s1 / P, kw[i2] / C.KERB_W), (s0 / P, kw[i] / C.KERB_W)]
                         kerbs.oriented_face(ids, "kerb", up, uv)
-                    if gw[i] > 0 or gw[i2] > 0:
+                    if ok[i] and ok[i2] and (gw[i] > 0 or gw[i2] > 0):
                         for k in (i, i2):
                             if k not in gv:
                                 a = limits.vert(inner[k])
@@ -995,9 +1203,10 @@ class TrackGeometry:
                         limits.oriented_face(ids, "limits", up, uv)
                     for k in (i, i2):
                         if k not in sv:
-                            sv[k] = (shoulders.vert(green[k]), shoulders.vert(outer[k]))
+                            g = shoulders.vert(green[k])
+                            sv[k] = (g, shoulders.vert(outer[k]) if width[k] > 0 else g)
                     ids = (sv[i][0], sv[i2][0], sv[i2][1], sv[i][1])
-                    shoulders.oriented_face(ids, smat, up)  # world-space UV1, as the terrain
+                    shoulders.oriented_face(ids, smats[i] if smats is not None else smat, up)  # world-space UV1
         if self.options.get("kerbs", False):
             for alt, chains in self.aprons:
                 self._apron_kerb(alt, chains, kerbs, limits)
@@ -1233,10 +1442,33 @@ class TrackGeometry:
         for r in self.routes:
             skip = ~self.svalid[r.index] | self.structure[r.index]
             meet = [c.sample for c in self.cuts if c.route is r]
-            meet += [c.target_sample for c in self.cuts if c.target is r]
+            # Imported tracks: where a branch's mouth meets this road, only the mouth itself (plus a few metres) is
+            # left open; probes that see the branch beyond it are its merge (_merging), and a wall line never
+            # crosses another road (_edge_ok). Leaving DIVIDER_JUNCTION_CLEAR open on both sides lost the divider
+            # between two other sections of road beside a short link (Cadwell Park's start straight and the run
+            # to the Mountain beside the Woodlands and Club links; Chris 2026-10-24: cars could cut across).
+            # Drawn tracks keep the wide clearance.
+            near_mouth = []
+            for c in self.cuts:
+                if c.target is r:
+                    if self.imported and c.kind == "mouth":
+                        near_mouth.append((float(r.s[c.target_sample]), 0.75 * c.route.width + C.DIVIDER_APRON_CLEAR))
+                    else:
+                        meet.append(c.target_sample)
+            joined = {(c.route.index, c.target.index) for c in self.cuts if c.kind == "mouth"}
             meet += [int(j["sampleIndex"]) for a in self.routes for j in (a.start_join, a.end_join)
-                     if j and j["route"] == r.id]
-            meet += [k for _, chains in self.aprons for t, _, run in chains if t is r for k in run]
+                     if j and j["route"] == r.id and a.index not in self.apron_routes
+                     and not (self.imported and (a.index, r.index) in joined)]
+            for s_m, clear in near_mouth:
+                skip |= r.s_dist(r.s, s_m) < clear
+            # an apron link (a U-turn paved across the gap between two sections) opens the divider only where it
+            # crosses: its paved run plus a few metres
+            for _, chains in self.aprons:
+                for t, _, run in chains:
+                    if t is r and run:
+                        lo, hi = float(r.s[run[0]]), float(r.s[run[-1]])
+                        mid, half = 0.5 * (lo + hi), 0.5 * abs(hi - lo)
+                        skip |= r.s_dist(r.s, mid) < half + C.DIVIDER_APRON_CLEAR
             for b in self.bridges:
                 if b.under is r:
                     meet.append(r.index_at(b.s_under))
@@ -1366,7 +1598,9 @@ class TrackGeometry:
                     reach = (b.over.width / 2.0 + C.BRIDGE_STRUCT_EXTRA) / max(math.sin(math.radians(b.angle_deg)), 0.3)
                     near = near | (r.s_dist(r.s, b.s_under) <= reach + 20.0)
             fast = {1: np.zeros(r.n, dtype=bool), -1: np.zeros(r.n, dtype=bool)}
-            for c in self.corner_runs(r, max_radius=C.FAST_CORNER_MAX_RADIUS, min_turn_deg=C.FAST_CORNER_MIN_TURN_DEG):
+            measured = self.runoff.active
+            for c in ([] if measured else  # measured run-off: the real barriers replace the generic ones
+                      self.corner_runs(r, max_radius=C.FAST_CORNER_MAX_RADIUS, min_turn_deg=C.FAST_CORNER_MIN_TURN_DEG)):
                 if c["radius"] < C.FAST_CORNER_RADIUS:
                     continue
                 s_in, s_ap, s_out = (float(r.s[c[k]]) for k in ("i_in", "i_apex", "i_out"))
@@ -1378,6 +1612,11 @@ class TrackGeometry:
                 edge = r.left if side > 0 else r.right
                 g = gaps[(r.index, side)]
                 reasons: list[tuple[np.ndarray, np.ndarray]] = []  # (mask, offset per sample)
+                kinds: list[str] = []  # what each reason's barrier is (measured run-off: by type)
+                if measured:
+                    btype, boff, bfence = self.runoff.barrier(r.index, side)
+                    hard = np.isin(btype, ("armco", "tyres", "concrete")) & np.isfinite(boff)
+                    default = str(self.runoff.default_type)
                 div = np.isfinite(g["gap"]) & g["owner"]
                 half = np.maximum(g["gap"] / 2.0, C.DIVIDER_MIN)
                 # a divider runs DIVIDER_OVERRUN samples past the last probe that saw the other road, so a road
@@ -1396,26 +1635,64 @@ class TrackGeometry:
                         grown |= src
                 div = grown
                 reasons.append((div, half_g))
+                kinds.append("divider")
                 reasons.append((near & self.svalid[r.index], np.full(r.n, C.WALL_OFFSET)))
+                kinds.append("grid")
                 crowd = np.zeros(r.n, dtype=bool)
                 for sr, i, sside, length in spots:
                     if sr is r and sside == side:
                         crowd |= r.s_dist(r.s, r.s[i]) <= length / 2.0 + C.CROWD_WALL_EXTEND
-                reasons.append((crowd, np.full(r.n, C.CROWD_WALL)))
-                reasons.append((fast[side], np.full(r.n, C.FAST_CORNER_WALL)))
-                probe = edge.copy()
-                probe[:, :2] += r.nl * side * C.DROP_PROBE
-                drop = (edge[:, 2] - self.terrain(probe)) > C.DROP_H
-                drop &= ~np.isfinite(g["gap"])  # a lower road beside this one is a divider's job
-                reasons.append((drop, np.full(r.n, C.WALL_OFFSET)))
+                if measured:
+                    # crowds stand behind the real barrier where there is one (else a spectator barrier in front)
+                    reasons.append((crowd & ~hard, np.full(r.n, C.CROWD_WALL)))
+                    kinds.append("crowd")
+                    # the measured barriers, each at its own offset; where offsets step between zones the line
+                    # angles across (MEASURED_WALL_SLOPE metres out per metre along)
+                    reasons.append((hard, np.where(hard, boff, np.inf)))
+                    kinds.append("measured")
+                else:
+                    reasons.append((crowd, np.full(r.n, C.CROWD_WALL)))
+                    kinds.append("crowd")
+                    reasons.append((fast[side], np.full(r.n, C.FAST_CORNER_WALL)))
+                    kinds.append("fast")
+                    probe = edge.copy()
+                    probe[:, :2] += r.nl * side * C.DROP_PROBE
+                    drop = (edge[:, 2] - self.terrain(probe)) > C.DROP_H
+                    drop &= ~np.isfinite(g["gap"])  # a lower road beside this one is a divider's job
+                    reasons.append((drop, np.full(r.n, C.WALL_OFFSET)))
+                    kinds.append("drop")
                 offset = np.full(r.n, np.inf)
                 has = np.zeros(r.n, dtype=bool)
-                for mask, off in reasons:
+                which = np.full(r.n, -1, dtype=np.int32)
+                masks: list[np.ndarray] = []
+                for q, (mask, off) in enumerate(reasons):
                     mask = mask & self.svalid[r.index]
                     if not mask.any():
                         continue
+                    slope = C.MEASURED_WALL_SLOPE if kinds[q] == "measured" else C.WALL_RAMP_SLOPE
+                    cone = self._cone(r, mask, off, slope)
+                    if kinds[q] == "measured":
+                        # a measured barrier only where the data has one (plus short angled joins between zones)
+                        reach = mask | self._near_mask(r, mask, C.MEASURED_JOIN_M) & self._between(r, mask)
+                        cone = np.where(reach, cone, np.inf)
+                        mask = reach
                     has |= mask
-                    offset = np.minimum(offset, self._cone(r, mask, off, C.WALL_RAMP_SLOPE))
+                    masks.append((q, mask))
+                    which = np.where(cone < offset, q, which)
+                    offset = np.minimum(offset, cone)
+                if measured:
+                    # never in a measured gravel trap or on an apron: the angled joins between zones and the
+                    # spectator barriers stop at the run-off's outer edge (dividers and the pit wall excepted)
+                    a = self.runoff.side[(r.index, side)]
+                    end = np.maximum(np.where(a["surface"] == 1, a["g1"], 0.0), a["tarmac"])
+                    kind_of = np.array([kinds[q] if q >= 0 else "" for q in which])
+                    # (only where the divider or pit wall itself runs: its ramp out towards a barrier further
+                    # out stays behind the trap, e.g. Knickerbrook's after the divider by Hislop's straight)
+                    own = np.zeros(r.n, dtype=bool)
+                    for q, mask in masks:
+                        own |= (which == q) & mask
+                    push = (end > 0) & ~(np.isin(kind_of, ("divider", "grid")) & own)
+                    offset = np.where(push, np.maximum(offset, end + C.TRAP_BARRIER_GAP), offset)
                 offset = np.where(np.isfinite(offset), offset, C.CROWD_WALL)
                 line = self._side_points(r, side, offset)
                 ok = has & self._edge_ok(r, line, 0.5)
@@ -1430,13 +1707,81 @@ class TrackGeometry:
                 margin = np.full(r.n, runoff)
                 margin = np.where(ok, np.minimum(margin, offset - 0.8), margin)
                 margin = np.minimum(margin, g["gap"] / 2.0 - 0.5)
+                # the barrier type along the line: drawn tracks use options.walls everywhere; measured run-off
+                # follows the data (dividers and spectator barriers take the nearest measured type, else the
+                # circuit's default; the grid sector's pit wall is concrete)
+                if measured:
+                    kind_of = np.array([kinds[q] if q >= 0 else "" for q in which])
+                    types = np.where(self._near_mask(r, hard, 60.0), self._fill_nearest(r, hard, btype), default)
+                    types = np.where(kind_of == "grid", "concrete", types)
+                    fence = np.where(hard | (kind_of == "measured"), self._fill_nearest(r, hard, bfence), False).astype(bool)
+                    ok &= types != "none"
+                else:
+                    types = np.full(r.n, self.walls, dtype=object)
+                    fence = np.zeros(r.n, dtype=bool)
                 plan[(r.index, side)] = {"route": r, "side": side, "offset": offset, "line": line,
+                                         "type": np.asarray(types, dtype=object), "fence": fence & ok,
                                          "out": r.nl * side, "ok": ok, "divider": div & ok,
                                          "ai_margin": np.maximum(self._cone(r, np.ones(r.n, bool), margin, 0.5), 0.5)}
         if self.pits is not None:  # the pit wall is the containment on its stretch (pits.Pits.wall_hook)
             self.pits.wall_hook(plan)
         self._wall_plan = plan
         return plan
+
+    def _on_stitch(self, pts: np.ndarray) -> np.ndarray:
+        """Points (2D) inside a junction mouth's paving (``_stitch`` polygons), by ray casting."""
+        out = np.zeros(len(pts), dtype=bool)
+        for poly in self.__dict__.get("stitch_polys", []):
+            lo, hi = poly.min(0), poly.max(0)
+            sel = np.flatnonzero((pts[:, 0] >= lo[0]) & (pts[:, 0] <= hi[0]) & (pts[:, 1] >= lo[1]) & (pts[:, 1] <= hi[1]))
+            if not len(sel):
+                continue
+            x, y = pts[sel, 0], pts[sel, 1]
+            ins = np.zeros(len(sel), dtype=bool)
+            for (x1, y1), (x2, y2) in zip(poly, np.roll(poly, -1, axis=0)):
+                dy = (y2 - y1) if y2 != y1 else 1e-12
+                ins ^= ((y1 > y) != (y2 > y)) & (x < (x2 - x1) * (y - y1) / dy + x1)
+            out[sel] |= ins
+        return out
+
+    def ground_dips(self, offsets=(1.0, 2.0, 3.0), floor: float = C.GROUND_DIP_MAX) -> list[dict]:
+        """Artificial dips in the ground beside the road edges: points ``offsets`` metres out from every built edge
+        sample (not on another road, a bridge or a jump) where the terrain lies more than ``floor`` below the edge
+        and below the natural ground there (a real bank or ditch beside the road doesn't count, nor does ground
+        falling away at the cambered edge's runout). Junction gores and close parallel sections showed these as
+        dark trenches and holes when the terrain between two roads took the lower one's height up to the higher
+        one's edge (Cadwell Park, Anglesey, Donington, Brands Hatch; Chris 2026-10-24). Returns one entry per
+        dipping sample: route, side, s, depth (m below the allowed floor)."""
+        out = []
+        # only built road counts as road: a branch's samples beyond its junction cut aren't paved unless the mouth
+        # stitch covers them (Brands Hatch's Indy split: its edge ran 2 m outside the main road for 40 m, unpaved,
+        # with the ground sunk under it)
+        built = np.concatenate([self.svalid[q.index] | (q.index in self.apron_routes) for q in self.routes])
+        if getattr(self, "road_vids", None) is None:
+            self.build_road()  # the junction mouths' paving
+        paved = True
+        for r in self.routes:
+            if r.index in self.apron_routes:
+                continue
+            ok = self.svalid[r.index] & ~self.structure[r.index] & ~self.jump_zone[r.index]
+            for side in (1, -1):
+                edge = r.left if side > 0 else r.right
+                worst = np.zeros(r.n)
+                for t in offsets:
+                    pts = edge.copy()
+                    pts[:, :2] += r.nl * side * t
+                    on_road = self.index.near_other(pts, np.full(r.n, r.index), r.s, 0.0, mask=built)
+                    if paved is not None:  # or on a junction mouth's paving
+                        on_road |= self._on_stitch(pts[:, :2])
+                    drop = edge[:, 2] - self.terrain(pts)
+                    natural = np.maximum(edge[:, 2] - self.ground(pts[:, :2]), 0.0)
+                    runout = np.where(r.slope * side < 0, np.abs(r.slope) * min(t, C.CAMBER_RUNOUT), 0.0)
+                    excess = drop - floor - natural - runout
+                    worst = np.maximum(worst, np.where(ok & ~on_road, excess, 0.0))
+                for i in np.flatnonzero(worst > 0.0):
+                    out.append({"route": r.id, "side": "l" if side > 0 else "r", "s": round(float(r.s[i]), 1),
+                                "depthM": round(float(worst[i]), 2)})
+        return out
 
     def _cone(self, r: Route, mask: np.ndarray, value: np.ndarray, slope: float) -> np.ndarray:
         """min over masked samples j of value[j] + slope * |s_i - s_j| (inf without any): a value that changes by
@@ -1450,30 +1795,84 @@ class TrackGeometry:
             out[a:a + 256] = (v[None, :] + slope * r.s_dist(r.s[a:a + 256, None], r.s[idx][None, :])).min(1)
         return out
 
+    def _near_mask(self, r: Route, mask: np.ndarray, reach: float) -> np.ndarray:
+        """Samples within ``reach`` metres (along the route) of a sample in ``mask``."""
+        return self._near_s(r, mask) <= reach
+
+    def _between(self, r: Route, mask: np.ndarray) -> np.ndarray:
+        """Samples with a masked sample on both sides within MEASURED_JOIN_M (gaps between two barrier zones)."""
+        idx = np.nonzero(mask)[0]
+        out = np.zeros(r.n, dtype=bool)
+        if not len(idx):
+            return out
+        for a in range(0, r.n, 256):
+            d = r.signed_s(r.s[idx][None, :], 0.0) - r.signed_s(r.s[a:a + 256, None], 0.0)
+            if r.closed:
+                d = (d + r.length / 2.0) % r.length - r.length / 2.0
+            ahead = ((d > 0) & (d <= C.MEASURED_JOIN_M)).any(1)
+            behind = ((d < 0) & (d >= -C.MEASURED_JOIN_M)).any(1)
+            out[a:a + 256] = ahead & behind
+        return out
+
+    def _fill_nearest(self, r: Route, mask: np.ndarray, values: np.ndarray) -> np.ndarray:
+        """``values`` where ``mask``, elsewhere the value of the nearest masked sample along the route."""
+        values = np.asarray(values, dtype=object)
+        idx = np.nonzero(mask)[0]
+        if not len(idx):
+            return values.copy()
+        out = values.copy()
+        for a in range(0, r.n, 256):
+            d = r.s_dist(r.s[a:a + 256, None], r.s[idx][None, :])
+            out[a:a + 256] = values[idx[np.argmin(d, axis=1)]]
+        return np.where(mask, values, out)
+
+    def _typed_runs(self, p: dict) -> list[tuple[str, list[int], bool]]:
+        """A wall plan side's continuous runs, split where the barrier type changes: (type, samples, closed).
+        Consecutive runs of different types share their end sample, so the line stays unbroken."""
+        r = p["route"]
+        out = []
+        for run in self._runs(p["ok"], r.closed):
+            closed = r.closed and len(run) == r.n
+            t = [str(p["type"][i]) for i in run]
+            if len(set(t)) == 1:
+                out.append((t[0], run, closed))
+                continue
+            if closed:  # start the run where the type changes
+                k0 = next(k for k in range(len(run)) if t[k] != t[k - 1])
+                run, t = run[k0:] + run[:k0], t[k0:] + t[:k0]
+            a = 0
+            for k in range(1, len(run) + 1):
+                if k == len(run) or t[k] != t[a]:
+                    seg = run[a:min(k + 1, len(run))] if k < len(run) else run[a:]
+                    if closed and k == len(run):
+                        seg = seg + [run[0]]
+                    if len(seg) >= 2:
+                        out.append((t[a], seg, False))
+                    a = k
+        return out
+
     def wall_runs(self) -> list[dict]:
-        """The wall line as continuous runs: route id, side, points (N, 3; z = terrain), outward unit normals,
-        s and offsets. Empty when options.walls is none."""
+        """The wall line as continuous runs of one barrier type: route id, side, type, points (N, 3; z =
+        terrain), outward unit normals, s, offsets and debris-fence flags. Empty when options.walls is none."""
         if self.walls == "none":
             return []
         out = []
         for (_ri, side), p in sorted(self.wall_plan().items(), key=lambda kv: kv[0]):
             r = p["route"]
-            for run in self._runs(p["ok"], r.closed):
+            for typ, run, closed in self._typed_runs(p):
                 idx = np.array(run)
-                out.append({"route": r.id, "side": side, "closed": r.closed and len(run) == r.n,
+                out.append({"route": r.id, "side": side, "type": typ, "closed": closed,
                             "points": p["line"][idx], "out": p["out"][idx], "s": r.s[idx],
-                            "offset": p["offset"][idx]})
+                            "offset": p["offset"][idx], "fence": p["fence"][idx]})
         return out
 
     def build_walls(self) -> list[Mesh]:
         """Invisible collision walls (CustomData ``vis = false | col = true``, like stock bases' wall_col meshes)
-        along the wall plan; the visible barrier is a row of stock props on the same line (dressing.py)."""
+        along the wall plan, with the barrier type's surface (concrete, tyres, Armco); the visible barrier is a row
+        of stock props on the same line (dressing.py) or, for an imported track's measured barriers, our own
+        meshes with stock textures (build_barriers)."""
         if self.walls == "none":
             return []
-        mat = C.WALL_MATERIAL[self.walls]
-        height = C.WALL_HEIGHT[self.walls]
-        h = C.WALL_HALF[self.walls]
-        profile = [(-h, 0.0), (-h, 1.0), (h, 1.0), (h, 0.0)]
         meshes = []
         for (ri, side), p in sorted(self.wall_plan().items(), key=lambda kv: kv[0]):
             r = p["route"]
@@ -1481,13 +1880,117 @@ class TrackGeometry:
             line = p["line"]
             tz = line[:, 2]
             base = tz - C.WALL_SINK
-            top = np.maximum(tz, (r.left[:, 2] if side > 0 else r.right[:, 2])) + height
-            for run in self._runs(p["ok"], r.closed):
+            for typ, run, closed in self._typed_runs(p):
                 idx = np.array(run)
-                closed = r.closed and len(run) == r.n
-                self._extrude(mesh, line[idx], p["out"][idx], base[idx], top[idx], profile, mat, closed, r.s[idx])
+                h = C.WALL_HALF[typ]
+                profile = [(-h, 0.0), (-h, 1.0), (h, 1.0), (h, 0.0)]
+                top = np.maximum(tz, (r.left[:, 2] if side > 0 else r.right[:, 2])) + C.WALL_HEIGHT[typ]
+                self._extrude(mesh, line[idx], p["out"][idx], base[idx], top[idx], profile, C.WALL_MATERIAL[typ],
+                              closed, r.s[idx])
             if not mesh.empty:
                 meshes.append(mesh)
+        return meshes
+
+    # ------------------------------------------------------------------------- visible measured barriers
+    def _sweep(self, mesh: Mesh, line: np.ndarray, out2: np.ndarray, z0: np.ndarray, s: np.ndarray,
+               strips: list[tuple[tuple[float, float], tuple[float, float], str, tuple[float, float]]], mat: str,
+               tile_u: float) -> None:
+        """Strips along ``line``: each ((off_a, h_a), (off_b, h_b), facing, (v_a, v_b)) runs between two profile
+        points (offset outwards from the line, height above z0) and faces ``road`` (-out), ``back`` (+out) or
+        ``up``; u runs along the line every ``tile_u`` metres."""
+        n = len(line)
+        if n < 2:
+            return
+        for (oa, ha), (ob, hb), facing, (va, vb) in strips:
+            A = [mesh.vert((line[i, 0] + out2[i, 0] * oa, line[i, 1] + out2[i, 1] * oa, z0[i] + ha)) for i in range(n)]
+            B = [mesh.vert((line[i, 0] + out2[i, 0] * ob, line[i, 1] + out2[i, 1] * ob, z0[i] + hb)) for i in range(n)]
+            for i in range(n - 1):
+                u0, u1 = s[i] / tile_u, s[i + 1] / tile_u
+                o = out2[i]
+                outward = (np.array([-o[0], -o[1], 0.0]) if facing == "road" else
+                           np.array([o[0], o[1], 0.0]) if facing == "back" else np.array([0.0, 0.0, 1.0]))
+                mesh.oriented_face((A[i], A[i + 1], B[i + 1], B[i]), mat, outward,
+                                   [(u0, va), (u1, va), (u1, vb), (u0, vb)])
+
+    def _box_at(self, mesh: Mesh, c: np.ndarray, t: np.ndarray, o: np.ndarray, size: tuple[float, float],
+                z0: float, z1: float, mat: str) -> None:
+        """A small upright box (post) centred at c: ``size`` along t and o; four sides and the top."""
+        a, b = size[0] / 2.0, size[1] / 2.0
+        corners = [c - t * a - o * b, c + t * a - o * b, c + t * a + o * b, c - t * a + o * b]
+        lo = [mesh.vert((q[0], q[1], z0)) for q in corners]
+        hi = [mesh.vert((q[0], q[1], z1)) for q in corners]
+        for k in range(4):
+            k2 = (k + 1) % 4
+            mid = (corners[k] + corners[k2]) / 2.0 - c
+            mesh.oriented_face((lo[k], lo[k2], hi[k2], hi[k]), mat, np.array([mid[0], mid[1], 0.0]),
+                               [(0.0, 0.0), (0.25, 0.0), (0.25, 1.0), (0.0, 1.0)])
+        mesh.oriented_face(tuple(hi), mat, np.array([0.0, 0.0, 1.0]), [(0, 0), (0.1, 0), (0.1, 0.1), (0, 0.1)])
+
+    def build_barriers(self) -> list[Mesh]:
+        """The visible measured barriers of an imported track (runoff.py), as stock bases build theirs: meshes on
+        the wall line with stock textures, no collision of their own (the collision wall under them has the
+        type's surface). Armco: two galvanised W-beams (prop_guardrail01) on posts every 2 m; tyres: a tyre wall
+        faced with plain black conveyor belting (prop_tirerubberbarrier); concrete: a grey wall (a_concrete2);
+        a debris fence (chain-link, prop_chainlinkfence04_small) on top where the zone has one. Split into
+        objects of at most BARRIER_CHUNK samples so no draw batch nears the vertex limit."""
+        if not self.runoff.active or self.walls == "none":
+            return []
+        meshes: list[Mesh] = []
+        counter = 0
+        for run in self.wall_runs():
+            typ = run["type"]
+            if typ not in C.BARRIER_MESH:
+                continue
+            P, O, S = run["points"], run["out"], run["s"]
+            if run["closed"]:
+                P, O, S = np.vstack([P, P[:1]]), np.vstack([O, O[:1]]), np.append(S, S[-1] + float(np.hypot(*(P[0, :2] - P[-1, :2]))))
+            S = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(P[:, :2], axis=0).T))])
+            F = np.asarray(run["fence"], dtype=bool)
+            if run["closed"]:
+                F = np.append(F, F[:1])
+            h = C.WALL_HALF[typ]
+            front = P[:, :2] - O * h          # the collision wall's road face
+            z0 = P[:, 2]
+            spec = C.BARRIER_MESH[typ]
+            for a in range(0, len(P) - 1, C.BARRIER_CHUNK):
+                b = min(a + C.BARRIER_CHUNK + 1, len(P))
+                m = Mesh(f"barrier_{typ}_{counter:03d}", "", kind="barrier")
+                counter += 1
+                L, Oa, Za, Sa = front[a:b], O[a:b], z0[a:b], S[a:b]
+                if typ == "armco":
+                    for lo_, hi_ in C.ARMCO_BEAMS:
+                        self._sweep(m, L, Oa, Za, Sa, [((0.0, lo_), (0.0, hi_), "road", (0.0, 1.0)),
+                                                       ((0.0, hi_), (0.12, hi_), "up", (0.95, 1.0)),
+                                                       ((0.12, lo_), (0.12, hi_), "back", (0.0, 1.0))],
+                                    spec["mat"], spec["tileU"])
+                    # posts every ARMCO_POST_M behind the beams
+                    seg = np.hypot(*np.diff(L, axis=0).T)
+                    cum = np.concatenate([[0.0], np.cumsum(seg)])
+                    for d in np.arange(0.5, cum[-1], C.ARMCO_POST_M):
+                        k = int(np.clip(np.searchsorted(cum, d) - 1, 0, len(L) - 2))
+                        f = (d - cum[k]) / max(seg[k], 1e-9)
+                        c = L[k] + (L[k + 1] - L[k]) * f
+                        t = (L[k + 1] - L[k]) / max(seg[k], 1e-9)
+                        zc = Za[k] + (Za[k + 1] - Za[k]) * f
+                        self._box_at(m, c + Oa[k] * 0.2, t, Oa[k], (0.12, 0.12), zc - 0.3, zc + C.ARMCO_BEAMS[-1][1] - 0.02,
+                                     spec["mat"])
+                else:
+                    H, D = spec["height"], spec["depth"]
+                    self._sweep(m, L, Oa, Za, Sa, [((0.0, -0.3), (0.0, H), "road", (0.0, 1.0)),
+                                                   ((0.0, H), (D, H), "up", (0.0, 0.25)),
+                                                   ((D, H), (D, -0.3), "back", (1.0, 0.0))],
+                                spec["mat"], spec["tileU"])
+                # debris fence on the barrier where the zone has one
+                Fa = F[a:b]
+                for fr in self._runs(Fa, False):
+                    idx = np.array(fr)
+                    top = C.ARMCO_BEAMS[-1][1] if typ == "armco" else spec["height"]
+                    self._sweep(m, L[idx] + Oa[idx] * 0.15, Oa[idx], Za[idx], Sa[idx],
+                                [((0.0, top), (0.0, top + C.FENCE_HEIGHT), "road", C.FENCE_V),
+                                 ((0.0, top), (0.0, top + C.FENCE_HEIGHT), "back", C.FENCE_V)],
+                                "barrier_fence", C.FENCE_TILE_U)
+                if not m.empty:
+                    meshes.append(m)
         return meshes
 
     # -------------------------------------------------------------------------------------- bridges
@@ -1610,6 +2113,12 @@ class TrackGeometry:
         pts = np.stack([gx.ravel(), gy.ravel(), np.zeros(gx.size)], axis=1)
         z = self.terrain(pts).reshape(gx.shape)
         mat = "terrain"
+        # measured run-off: faces whose centre lies in a gravel trap or on a paved apron get those materials
+        face_mat = None
+        if self.runoff.active:
+            cxg, cyg = np.meshgrid((xs[:-1] + xs[1:]) / 2.0, (ys[:-1] + ys[1:]) / 2.0, indexing="ij")
+            code = self.runoff.at(np.stack([cxg.ravel(), cyg.ravel()], axis=1)).reshape(cxg.shape)
+            face_mat = np.array(["terrain", "terrain_trap", "terrain_apron"])[code]
         T = C.TERRAIN_TILE_CELLS
         tile = C.TEX_TILE["ground"]
         meshes = []
@@ -1623,7 +2132,7 @@ class TrackGeometry:
                 for i in range(tx, min(tx + T, nx)):
                     for j in range(ty, min(ty + T, ny)):
                         q = (ids[i, j], ids[i + 1, j], ids[i + 1, j + 1], ids[i, j + 1])
-                        mesh.face(q, mat, [(xs[a] / tile, ys[b] / tile) for a, b in
+                        mesh.face(q, mat if face_mat is None else str(face_mat[i, j]), [(xs[a] / tile, ys[b] / tile) for a, b in
                                            ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1))])
                 meshes.append(mesh)
         self.terrain_grid = (xs, ys, z)
@@ -1635,6 +2144,7 @@ class TrackGeometry:
         meshes += [m for m in (kerbs, limits, shoulders, self.build_edge_decals(), self.build_transition_decals())
                    if not m.empty]
         meshes += self.build_walls()
+        meshes += self.build_barriers()
         meshes += self.build_bridges()
         if self.pits is not None:
             meshes += self.pits.meshes(self.road_material(self.main, 0))

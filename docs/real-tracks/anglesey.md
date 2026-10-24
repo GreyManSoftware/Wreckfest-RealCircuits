@@ -227,3 +227,45 @@ DSM rasters only; the tile catalogue has no point-cloud or intensity links, and 
 the 1 m DTM's surface roughness, tried as a stand-in for intensity, shows no road edge. The width stays the
 published one: 12 m (the operator's minimum width; OSM `width` 12 on three ways), one width for the lap, no
 `widths` in the recipe.
+
+## Run-off, barriers and trees (2026-10-24)
+
+Measured from open data (method: `docs/real-tracks.md`, "Run-off, barriers and foliage"): DataMapWales DSM - DTM only (no open point cloud): barriers from the DSM and OSM, run-off from OSM;
+OSM run-off, barrier and woodland features; barrier types from `tools/real_tracks_data/runoff_evidence.json`.
+Data `tools/real_tracks/runoff/anglesey.json`, `tools/real_tracks/vegetation/anglesey.json`; overlays
+`.local\audit\anglesey\runoff-*.png`, `vegetation-overview.png`.
+
+| | Before (builder until 2026-10-24) | Now (measured) |
+|---|---|---|
+| Run-off | grass everywhere (no traps or aprons); 508 stock barrier props (concrete: grey concrete blocks) on 29 % / 21 % of the main lap's left / right sides | gravel 0 %, tarmac 0 %, grass 100 % of the main lap's sides; barriers armco 52 %, none 45 %, concrete 3 %; debris fence on 7 %; built barrier line on 98 % / 29 % (left / right) |
+| Trees | 0 trees: none (coastal preset) | 5 measured woods (0.9 ha in the 450 m box), 91 single trees, canopy 0.5 % of the box; 20 trees placed (98 candidates inside the terrain, cap 120) |
+| Look | grey concrete barrier blocks (barrier8_dirty) at fast corners and crowds; no trees | Armco along most of the outside (OSM: 31 guard-rail ways and the DSM's narrow raised line), grass run-off everywhere, no barrier on the open inside; the few measured trees and scrub only |
+
+Evidence per corner (main lap; the zone that holds the corner label; offsets from the road edge):
+
+| Corner (sM) | Side | Run-off | Barrier | Source |
+|---|---|---|---|---|
+| Start/finish straight (4) | left | grass | concrete at 2 m | OSM, LIDAR |
+| Start/finish straight (4) | right | grass | none | LIDAR |
+| Target (184) | left | grass | armco at 20 m | OSM, LIDAR |
+| Target (184) | right | grass | none | LIDAR |
+| Banking (456) | left | grass | armco at 30 m | OSM, LIDAR, circuit default |
+| Banking (456) | right | grass | none | LIDAR |
+| Church (862) | left | grass | armco at 37 m | OSM, LIDAR |
+| Church (862) | right | grass | none | LIDAR |
+| School (1228) | left | grass | armco at 18 m | OSM, LIDAR, circuit default |
+| School (1228) | right | grass | armco at 2 m | OSM, LIDAR, circuit default |
+| Rocket (1602) | left | grass | none | LIDAR |
+| Rocket (1602) | right | grass | none | LIDAR |
+| Peel (1898) | left | grass | armco at 23 m | OSM, LIDAR, circuit default |
+| Peel (1898) | right | grass | none | LIDAR |
+| Corkscrew (2142) | left | grass | armco at 10 m | OSM, LIDAR |
+| Corkscrew (2142) | right | grass | armco at 24 m | OSM, LIDAR |
+| Tom Pryce Straight (2401) | left | grass | armco at 10 m | OSM, LIDAR |
+| Tom Pryce Straight (2401) | right | grass | none | LIDAR, circuit default |
+| Hairpin (2633) | left | grass | armco at 55 m | OSM, LIDAR, circuit default |
+| Hairpin (2633) | right | grass | none | LIDAR |
+| Bus Stop (3149) | left | grass | armco at 32 m | OSM, LIDAR |
+| Bus Stop (3149) | right | grass | none | OSM, LIDAR |
+
+Uncertain: Wales has no open point cloud, so the run-off surface can't be measured (OSM maps no traps by the circuit): every zone is grass with low confidence; Church's exit may have gravel (forum report).

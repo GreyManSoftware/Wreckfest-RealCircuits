@@ -208,6 +208,8 @@ class Pits:
             off = np.maximum(dd - m.w / 2.0, 0.3)
             p["ok"] = p["ok"] & ~on
             p["divider"] = p["divider"] & ~on
+            if "fence" in p:
+                p["fence"] = p["fence"] & ~on
             margin = np.where(on, np.maximum(off - 0.8, 0.5), np.inf)
             p["ai_margin"] = np.minimum(p["ai_margin"], g._cone(m, on, margin, 0.5))
             # every route (alternative layouts' branches too): the AI run-off stops 0.8 m short of the built lane

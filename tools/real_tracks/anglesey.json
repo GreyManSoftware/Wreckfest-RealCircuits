@@ -85,6 +85,8 @@
   "expectedCornerOrder": ["Target", "Banking", "Church", "School", "Rocket", "Peel", "Seamans", "Corkscrew", "Tom Pryce Straight", "Hairpin", "Bus Stop"],
   "expectedCornerOrderNote": "Driving order of the named corners (clockwise). Seamans is the downhill left at the start of the Corkscrew way (not named in OSM, so not labelled).",
   "kerbsNote": "No kerb overrides: OSM has no kerb or run-off features here (Overpass 2026-10-19: barrier=kerb, kerb=*, area:highway=*, racing:kerb none; guard rails and a tyre wall only), the 1 m DTM can't resolve kerbs, and the track guides found (visordown.com, markhales.com) don't place any. Every corner gets the geometric apex/exit kerbs.",
+  "runoff": "measured",
+  "runoffNote": "Run-off surfaces, barriers (type, offset, debris fences) and trees measured from open LIDAR and OSM plus published sources: tools/real_tracks/runoff|vegetation/<slug>.json (tools/real_tracks_data/measure_runoff.py, runoff_evidence.json); docs/real-tracks.md, Run-off and foliage.",
   "options": {
     "surface": "tarmac",
     "kerbs": true,

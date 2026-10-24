@@ -16,14 +16,15 @@ class WoodMask:
     than ``soft`` metres inside it."""
 
     def __init__(self, polygons: list[np.ndarray], frame: tuple[float, float, float], cell: float = 2.0,
-                 soft: float = 10.0):
+                 soft: float = 10.0, weights: list[float] | None = None):
         self.frame = frame
         x0, y0, size = frame
         n = max(2, int(math.ceil(size / cell)))
         self.res, self.cell = n, size / n
         c = (np.arange(n) + 0.5) * self.cell
         cov = np.zeros((n, n))  # rows = y
-        for poly in polygons:
+        for pk, poly in enumerate(polygons):
+            wv = 1.0 if weights is None else float(weights[pk])  # measured cover per polygon (else 1)
             p = np.asarray(poly, dtype=np.float64)[:, :2]
             if len(p) < 3:
                 continue
@@ -41,7 +42,7 @@ class WoodMask:
                     i0 = max(0, int(math.ceil((xa - x0) / self.cell - 0.5)))
                     i1 = min(n - 1, int(math.floor((xb - x0) / self.cell - 0.5)))
                     if i1 >= i0:
-                        cov[j, i0:i1 + 1] = 1.0
+                        cov[j, i0:i1 + 1] = wv
         r = max(1, int(round(soft / self.cell)))
         g = cov
         for _ in range(2):
