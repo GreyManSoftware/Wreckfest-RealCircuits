@@ -33,7 +33,7 @@ from wfbuild import config as C
 from wfbuild.geometry import Mesh, TrackGeometry
 from wfbuild.layout import LayoutBuilder, strip_end_lines
 from wfbuild import backdrop as backdrop_mod
-from wfbuild import cameras, dressing, maps, materials, tcat
+from wfbuild import cameras, dressing, maps, materials, sponsor, tcat
 from wfbuild.fields import DistanceField
 from wfbuild.layout import Empty
 
@@ -210,8 +210,13 @@ def main() -> None:
     base_meshes += backdrop_meshes
     generated = bd.textures(mod_root)
     specs = materials.build(geo.options.get("environment"), slug, map_info, bd.n_textures, generated)
+    # our own sponsor boards: one mesh with our rendered textures (wfbuild/sponsor.py); the rest are stock props
+    sponsor_mesh = sponsor.build_mesh(scenery.placements)
+    if sponsor_mesh is not None:
+        base_meshes.append(sponsor_mesh)
+        specs.update(sponsor.material_specs(sponsor.write_textures(mod_root, slug)))
     props = [Empty(f"#xref ob/{p.asset}.scne", (p.x, p.y, p.z), p.yaw, display="PLAIN_AXES", size=1.0,
-                   scale=(p.scale, p.scale, p.scale)) for p in scenery.placements]
+                   scale=(p.scale, p.scale, p.scale)) for p in scenery.placements if not sponsor.is_mesh(p.asset)]
     # the start camera per layout (the view while the race loads in; wfbuild/cameras.py), model coordinates
     start_cams = {lay.name: cameras.start_camera(geo, lay, field, planner, scenery.placements) for lay in layouts}
     transform_info = {"rotateDeg": rot, "shift": [0.0, round(shift, 4), 0.0],
@@ -252,7 +257,7 @@ def main() -> None:
     bscene.MOD_ROOT[:] = [mod_root]
     bpy.context.scene.name = f"{slug}_base"
     groups = {"road": ("road", "kerb", "limits", "shoulder", "decal"), "walls": ("wall",), "bridges": ("bridge",),
-              "terrain": ("terrain",), "backdrop": ("backdrop",), "helpers": ("helper",)}
+              "terrain": ("terrain",), "backdrop": ("backdrop",), "helpers": ("helper",), "sponsor": ("sponsor",)}
     for group, kinds in groups.items():
         coll = bscene.collection(group)
         for m in base_meshes:

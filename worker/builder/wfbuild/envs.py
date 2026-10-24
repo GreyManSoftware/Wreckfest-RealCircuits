@@ -55,6 +55,12 @@ def env_name(name: str | None) -> str:
 
 
 def asset_info(name: str) -> dict:
+    if name.startswith("sponsor_"):  # our own sponsor boards (meshes, not stock objects)
+        from . import sponsor  # noqa: PLC0415 - sponsor imports this module
+
+        info = sponsor.asset_info(name)
+        if info is not None:
+            return info
     return table()["assets"].get(name, {"r": 1.0, "h": 2.0, "face": "+y"})
 
 
@@ -75,6 +81,9 @@ def allowed_assets(name: str | None) -> set[str]:
     for row in e.get("barriers", {}).values():
         out.update(row)
     out.add(e["crowdFence"])
+    from . import sponsor  # noqa: PLC0415
+
+    out.update(sponsor.asset_names())
     return out
 
 
