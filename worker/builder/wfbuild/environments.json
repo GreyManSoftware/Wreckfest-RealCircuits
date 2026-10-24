@@ -8,7 +8,7 @@
   "Nothing here is copied: every path is referenced in the mounted game install."
  ],
  "assets": {
-  "_comment": "Footprint radius r (metres, for spacing and no-go checks), height h, and the local axis that faces the road ('+y', '-y' or 'x' = spans the road along local X). Sizes measured from Toolbox imports (worker/docs/visual-assets.md).",
+  "_comment": "Footprint radius r (metres, for spacing and no-go checks), height h, and the local axis that faces the road ('+y', '-y' or 'x' = spans the road along local X; '+x' = faces oncoming cars with local +X, as the braking boards). Sizes measured from Toolbox imports (worker/docs/visual-assets.md).",
   "spectator_man_standing01": {"r": 0.6, "h": 1.9, "face": "+y"},
   "spectator_man_standing02": {"r": 0.6, "h": 1.9, "face": "+y"},
   "spectator_man_standing03": {"r": 0.6, "h": 1.9, "face": "+y"},
@@ -58,6 +58,9 @@
   "prop_cameratower": {"r": 3.6, "h": 5.8, "face": "-y"},
   "prop_camerastand01": {"r": 0.6, "h": 1.7, "face": "-y"},
   "prop_bigspeaker01": {"r": 0.5, "h": 2.0, "face": "-y"},
+  "gameplay_distanceboard150": {"r": 1.0, "h": 1.0, "face": "+x", "width": 0.06, "depth": 2.0},
+  "gameplay_distanceboard100": {"r": 1.0, "h": 1.0, "face": "+x", "width": 0.06, "depth": 2.0},
+  "gameplay_distanceboard50": {"r": 1.0, "h": 1.0, "face": "+x", "width": 0.06, "depth": 2.0},
   "prop_scoreboard": {"r": 2.0, "h": 17.2, "face": "-y"},
   "prop_fence_wood5": {"r": 2.1, "h": 1.0, "face": "-y", "width": 4.16},
   "prop_balefence": {"r": 2.3, "h": 1.0, "face": "-y", "width": 4.48},
@@ -164,7 +167,8 @@
   "adFence": ["prop_adfence3", "prop_adfence9"],
   "bigBoard": ["prop_ad_eu_huge01a", "prop_ad_eu_huge01c", "prop_ad_eu_huge01m"],
   "lights": ["prop_stadium_light_02"],
-  "cameras": ["prop_cameratower", "prop_camerastand01"]
+  "cameras": ["prop_cameratower", "prop_camerastand01"],
+  "brakeBoards": ["gameplay_distanceboard150", "gameplay_distanceboard100", "gameplay_distanceboard50"]
  },
  "environments": {
   "farmland": {
