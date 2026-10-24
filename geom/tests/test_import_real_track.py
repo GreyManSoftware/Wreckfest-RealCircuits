@@ -308,3 +308,64 @@ def test_imported_sample_drives_the_recipes_corner_order_in_every_layout(recipe_
         if len(secs) > 1:  # an alternative layout skips part of the lap: only the corners it passes count
             expected = [n for n in expected if n in names]
         assert irt.corner_order_problem(names, expected) is None, (secs, names)
+
+
+def _lap_profile(model, secs: list[dict]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """A layout's lap resampled every 1 m: (x, y) points, heights and camber (degrees), closed."""
+    pts = []
+    for sec in secs:
+        for q in model.route(sec["route"]).samples:
+            if sec["fromS"] - 1e-6 <= q.s <= sec["toS"] + 1e-6 and (not pts or math.hypot(q.x - pts[-1][0], q.y - pts[-1][1]) > 0.3):
+                pts.append((q.x, q.y, q.z, math.degrees(q.banking)))
+    a = np.array(pts)
+    s = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(np.vstack([a[:, :2], a[:1, :2]]), axis=0).T))])
+    t = np.arange(0.0, s[-1], 1.0)
+    c = [np.interp(t, s, np.concatenate([a[:, k], a[:1, k]])) for k in range(4)]
+    return np.column_stack(c[:2]), c[2], c[3]
+
+
+@pytest.mark.parametrize("recipe_path", _RECIPES, ids=[p.stem for p in _RECIPES])
+def test_imported_sample_has_no_wobble_height_steps_or_camber_flips(recipe_path: Path) -> None:
+    """Artefact classes found by the 2026-10-24 accuracy audit (docs/real-tracks.md, "Audit notes"), on every
+    layout of the committed sample:
+
+    - straight wobble: on a straight (30 m-scale curvature under 1/300 m for 80 m or more) no 6 m-scale bend
+      tighter than R 130 m; the registration shift's 0.5 m steps gave Cadwell's straights R 115 m jinks;
+    - height steps: the grade changes by at most 12 % over 10 m (a vertical radius of 83 m or more; the sharpest
+      real ones are Navarra's back-straight hump, 10 %, and Cadwell's Mountain crest, 8 %): a bridge deck, a DTM
+      gap or a registration jump would show here;
+    - camber flips: on straights the camber stays within 1.5 degrees of its 25 m-scale mean, and nowhere does it
+      change faster than 0.5 degrees per metre."""
+    from trackgen_geom import build_track_model
+
+    recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+    spec = json.loads((_ROOT / "geom" / "tests" / "samples" / f"{irt.recipe_slug(recipe)}.json").read_text(encoding="utf-8"))
+    model = build_track_model(spec).model
+    for lay in model.layouts or []:
+        xy, z, bank = _lap_profile(model, lay.sections)
+        n = len(z)
+        d = np.roll(xy, -3, axis=0) - np.roll(xy, 3, axis=0)
+        th = np.arctan2(d[:, 1], d[:, 0])
+        k = ((np.roll(th, -3) - np.roll(th, 3) + math.pi) % (2 * math.pi) - math.pi) / 6.0  # 1/R per metre
+        flat = np.abs(irt.gauss_closed(k, 15.0)) < 1 / 300.0
+        straight = np.zeros(n, dtype=bool)
+        if not flat.all():
+            k0 = int(np.flatnonzero(~flat)[0])
+            run: list[int] = []
+            for i in range(n + 1):
+                j = (k0 + i) % n
+                if i < n and flat[j]:
+                    run.append(j)
+                    continue
+                if len(run) >= 80:
+                    straight[run] = True
+                run = []
+        where = lambda m: f"{lay.id} at s {int(np.argmax(m))} m"  # noqa: E731
+        bend = np.abs(irt.gauss_closed(k, 3.0)) * straight
+        assert bend.max() <= 1 / 130.0, (where(bend), 1 / bend.max())
+        dg = np.abs((np.roll(z, -10) - z) - (z - np.roll(z, 10))) / 10.0
+        assert dg.max() <= 0.12, (where(dg), dg.max())
+        flip = np.abs(bank - irt.gauss_closed(bank, 25.0)) * straight
+        assert flip.max() <= 1.5, (where(flip), flip.max())
+        rate = np.abs(np.roll(bank, -2) - np.roll(bank, 2)) / 4.0
+        assert rate.max() <= 0.5, (where(rate), rate.max())
