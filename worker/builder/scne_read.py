@@ -387,6 +387,94 @@ def read_layout(path: str) -> CompiledLayout:
     return CompiledLayout(routes, sps, cps)
 
 
+# Collision surfaces by id, as bgeometry numbers them (Toolbox Mz's importer; the names are the stock
+# data/scene/surface/<name>.suse files a material's "#tag" selects).
+SURFACES = ['default', 'gravel', 'graveldark', 'gravelpacked', 'mud', 'offroadrocks', 'offroadfoliage', 'offroadsand',
+            'asphalt', 'concrete', 'metal', 'water', 'wood', 'nofriction', 'slowdown', 'slowdownsand', 'foliage',
+            'wettarmac', 'killplayer', 'resetplayer', 'curb', 'asphaltdusty', 'offroadasphalt', 'blender_glass',
+            'superslowdown', 'gravelredclay', 'global_barrier', 'concrete_barrier', 'metal_barrier', 'speedup', 'loop',
+            'resetplayer_delay', 'snow', 'crm_solid', 'crm_water_reset']
+RESET_SURFACES = {SURFACES.index(s) for s in ('killplayer', 'resetplayer', 'resetplayer_delay', 'crm_water_reset')}
+
+
+@dataclass
+class Collision:
+    """One collision shape of a model: vertices (n x 3, Blender axes, the scene's world space), triangles (m x 3)
+    and each triangle's surface id (SURFACES)."""
+    model: str
+    dyn: str
+    pos: object = field(repr=False)
+    tris: object = field(repr=False)
+    surface: object = field(repr=False)
+
+
+def _shape_mesh(b: bytes):
+    """A static collision shape's triangle mesh (layout found 2026-10-24 on stock scenes and ours): u32 magic, u32 0,
+    6 x i32 bounding box (fixed point), 3 x f32 scale (1/65536), 3 x f32 inverse scale, u32 tree bytes, u32 tree +
+    triangle bytes, the tree, triangles of 11 bytes (u8, u8 surface id, 3 x u24 vertex offset in dwords = 6 per
+    vertex), then 24-byte vertices (3 x i32 position x scale, Bugbear axes x, y up, z; 3 x i32 normal)."""
+    import numpy as np
+    if len(b) < 64:
+        return None
+    sc = struct.unpack_from("<3f", b, 32)
+    flen, tl = struct.unpack_from("<II", b, 56)
+    nt = (tl - flen) // 11
+    nv = (len(b) - 64 - tl) // 24
+    if nt <= 0 or nv <= 0:
+        return None
+    raw = np.frombuffer(b, np.uint8, count=nt * 11, offset=64 + flen).reshape(nt, 11).astype(np.int64)
+    idx = np.stack([(raw[:, 2 + 3 * k] | (raw[:, 3 + 3 * k] << 8) | (raw[:, 4 + 3 * k] << 16)) // 6 for k in range(3)], 1)
+    pos = np.frombuffer(b, "<i4", count=nv * 6, offset=64 + tl).reshape(nv, 6)[:, :3].astype(np.float64) * np.array(sc)
+    ok = (idx < nv).all(1)
+    return pos, idx[ok], raw[ok, 1]
+
+
+def read_collision(path: str) -> list[Collision]:
+    """The static collision triangle meshes of every model of a .scne (Wreckfest 1, model version < 6), placed by
+    the model's matrix, in Blender axes. Dynamic objects' box shapes and subscenes (props) aren't included."""
+    import numpy as np
+    with open(path, "rb") as f:
+        d = unbag(f.read())
+    r = _P(d)
+    p = r.find("modl", 0)
+    if p < 0:
+        return []
+    r.p = p + 4
+    mver, nm = r.i(), r.i()
+    out = []
+    for _ in range(nm if mver < 6 else 0):
+        name, dyn = r.text(), r.text()
+        if mver > 1:
+            r.p += 4
+            r.text()
+        mat = np.array(struct.unpack_from("<16f", d, r.p)).reshape(4, 4)
+        r.p += 64 + 24
+        _pmsh(r, False)
+        _pmsh(r, True)
+        r.header("shpe")
+        sv, ns = r.i(), r.i()
+        for _s in range(ns if sv else 0):
+            r.i()  # type
+            n = r.i()
+            mesh = _shape_mesh(d[r.p:r.p + n])
+            r.p += n
+            r.header("shbx")
+            r.i()
+            r.p += r.i() * 88
+            if mesh is not None:
+                pos, idx, surf = mesh
+                w = pos @ mat[:3, :3] + mat[3, :3]
+                out.append(Collision(name, dyn, w[:, [0, 2, 1]], idx, surf))
+        q = r.find("dmmy")
+        r.p = q + 4
+        r.i()
+        for _d in range(r.i()):
+            r.p += 64
+            r.text()
+        r.p += 12
+    return out
+
+
 # Limits for a base scene, with a margin below what stock tracks use (all 43 stock *_base.scne measured with
 # this reader, 2026-10-19; worker/docs/visual-assets.md "Scene budgets"). Stock maxima in the comments.
 LIMITS = {
