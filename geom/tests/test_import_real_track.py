@@ -390,6 +390,8 @@ def test_imported_sample_has_no_profile_artefacts(recipe_path: Path) -> None:
     im = spec["sketch"]["imported"]
     if recipe.get("widths"):
         _check_measured_widths(im, spec["options"]["widthM"])
+    if recipe.get("runoff"):
+        _check_measured_runoff(im)
     lines = [("main", im["centreline"], True)] + [(a["id"], a["centreline"], False) for a in im.get("altLayouts", [])]
     for name, cl, closed in lines:
         c = np.array([[p["x"], p["y"], p["z"], p["bankDeg"]] for p in cl])
@@ -407,6 +409,37 @@ def test_imported_sample_has_no_profile_artefacts(recipe_path: Path) -> None:
             tm = main[(j + 2) % len(main)] - main[(j - 2) % len(main)]
             ang = math.degrees(math.acos(float(np.clip(tm @ chord / np.hypot(*tm) / np.hypot(*chord), -1.0, 1.0))))
             assert ang <= 25.0, (a["id"], end, ang)
+
+
+def _check_measured_runoff(im: dict) -> None:
+    """Measured run-off (recipe "runoff": "measured"; measure_runoff.py + apply_runoff.py): zones on existing routes
+    and inside them, both sides of every route mostly covered, gravel traps at least 3 m deep with any hard barrier
+    behind them, red/white only with a cited source, and the measured woods and trees in range."""
+    lines = {"main": (im["centreline"], True), **{a["id"]: (a["centreline"], False) for a in im.get("altLayouts", [])}}
+    lengths = {}
+    for rid, (cl, closed) in lines.items():
+        xy = np.array([[p["x"], p["y"]] for p in cl])
+        q = np.vstack([xy, xy[:1]]) if closed else xy
+        lengths[rid] = float(np.hypot(*np.diff(q, axis=0).T).sum())
+    zones = im["runoff"]
+    assert zones, "recipe asks for measured run-off but the sample has none"
+    cover = {}
+    for z in zones:
+        L = lengths[z["route"]]
+        assert 0.0 <= z["fromS"] <= L + 0.5 and 0.0 <= z["toS"] <= L + 0.5, z
+        span = (z["toS"] - z["fromS"]) % L if lines[z["route"]][1] else z["toS"] - z["fromS"]
+        cover[(z["route"], z["side"])] = cover.get((z["route"], z["side"]), 0.0) + span
+        if z["surface"] == "gravel":
+            assert z["depthM"] >= 3.0, z
+            if z["barrier"] in ("armco", "tyres", "concrete"):
+                assert z["offsetM"] >= z["startM"] + z["depthM"] - 0.05, z
+        if z.get("colour") == "redwhite":
+            assert "evidence" in z.get("source", ""), z
+    for rid in lines:
+        for side in ("left", "right"):
+            assert cover.get((rid, side), 0.0) >= 0.9 * lengths[rid], (rid, side, cover.get((rid, side)), lengths[rid])
+    assert all(0.0 < w["cover"] <= 1.0 for w in im["woodland"] if "cover" in w)
+    assert len(im.get("trees", [])) <= 6000 and all(t["h"] > 0 for t in im.get("trees", []))
 
 
 def _check_measured_widths(im: dict, options_width: float) -> None:

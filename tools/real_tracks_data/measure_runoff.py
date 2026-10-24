@@ -561,6 +561,11 @@ def zones_for(res_route: dict, side: int, D: dict) -> list[dict]:
              "source": "; ".join(srcs + (["evidence: " + " | ".join(ev_src)] if ev_src else [])),
              "e": [round(float(res_route["P"][a % n][0]), 1), round(float(res_route["P"][a % n][1]), 1)],
              "e2": [round(float(res_route["P"][(b - 1) % n][0]), 1), round(float(res_route["P"][(b - 1) % n][1]), 1)]}
+        if z["surface"] == "gravel" and z["offsetM"] is not None and z["barrier"] in ("armco", "tyres", "concrete"):
+            # medians taken separately: keep the trap in front of the zone's barrier
+            z["depthM"] = round(min(z["depthM"], z["offsetM"] - 0.5 - z["startM"]), 1)
+            if z["depthM"] < MIN_RUN_M:
+                z["surface"], z["startM"], z["depthM"] = ("tarmac" if z["tarmacM"] >= MIN_RUN_M else "grass"), 0.0, 0.0
         if z["toS"] > r["length_local"] and not r["closed"]:
             z["toS"] = round(r["length_local"], 1)
         out.append(z)

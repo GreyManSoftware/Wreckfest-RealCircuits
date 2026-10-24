@@ -107,6 +107,8 @@
   ],
   "kerbsNote": "OSM has no kerb features here and the 1 m DTM can't resolve kerbs on the flat airfield; the Hangar Hairpin's apex kerb comes from the evo.co.uk guide, every other corner gets the geometric apex/exit kerbs.",
   "environmentNote": "airfield: the flat, open Thurleigh airfield (road heights within 7 m over 2.5 km, grades under 2.1 %) amid arable fields (OSM landuse=farmland round the site), the circuits separated by wide grass.",
+  "runoff": "measured",
+  "runoffNote": "Run-off surfaces, barriers (type, offset, debris fences) and trees measured from open LIDAR and OSM plus published sources: tools/real_tracks/runoff|vegetation/<slug>.json (tools/real_tracks_data/measure_runoff.py, runoff_evidence.json); docs/real-tracks.md, Run-off and foliage.",
   "options": {
     "surface": "tarmac",
     "kerbs": true,

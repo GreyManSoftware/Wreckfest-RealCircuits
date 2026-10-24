@@ -1749,6 +1749,15 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
                     "environment": o["environment"], "gridSize": o["gridSize"], "weathers": o["weathers"],
                     "reverseLayout": o["reverseLayout"], "defaultLaps": o["defaultLaps"]},
     }
+    runoff_report = None
+    if recipe.get("runoff") == "measured":
+        # measured run-off, barriers and trees (tools/real_tracks/runoff|vegetation/<slug>.json, measure_runoff.py)
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "real_tracks_data"))
+        import apply_runoff  # noqa: PLC0415
+
+        region = {"wales": "wales", "es-navarra": "navarra", "es-mdt05": "navarra"}.get(recipe.get("dtm"), "england")
+        runoff_report = apply_runoff.apply(spec, recipe_slug(recipe), {"centreE": float(centre[0]),
+                                           "centreN": float(centre[1]), "scale": k_scale}, region, log)
 
     # 8. Report.
     climb = float(np.clip(np.diff(np.concatenate([z, z[:1]])), 0, None).sum())
@@ -1777,6 +1786,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         "artefacts": profile_artefacts(loc, z, bank),
         "dtmCellM": dtm.cell, "dtmWholeMetreFraction": round(dtm_quantised_fraction(dtm), 3),
         **({"widths": width_report} if width_report else {}),
+        **({"runoff": runoff_report} if runoff_report else {}),
     }
     if alt_reports:
         report["mainLayoutName"] = recipe.get("mainLayoutName", "Main")

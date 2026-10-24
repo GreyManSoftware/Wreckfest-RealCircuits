@@ -59,6 +59,8 @@
     { "corner": "Clark Curve", "apex": true, "exit": false, "source": "coachdaveacademy.com GP guide: apex at the inside kerb's midway point; no exit kerb, lots of room on the exit" }
   ],
   "kerbsNote": "OSM has no kerb features on the circuit (Overpass 2026-10-20: the only barrier=kerb ways are karting traffic islands; no area:highway or kerb=*), and the 1 m DTM can't resolve kerbs, so these overrides come from track guides; Pilgrims Drop, Dingle Dell and McLaren get the geometric placement.",
+  "runoff": "measured",
+  "runoffNote": "Run-off surfaces, barriers (type, offset, debris fences) and trees measured from open LIDAR and OSM plus published sources: tools/real_tracks/runoff|vegetation/<slug>.json (tools/real_tracks_data/measure_runoff.py, runoff_evidence.json); docs/real-tracks.md, Run-off and foliage.",
   "options": {
     "surface": "tarmac",
     "kerbs": true,

@@ -82,6 +82,8 @@
     { "corner": "Lodge Corner", "apex": true, "exit": true, "green": true, "source": "coachdaveacademy.com: front right onto the inside kerb; the exit kerb is usable, the matting beyond it is track limits" }
   ],
   "kerbsNote": "OSM has no kerb or run-off features at Oulton Park (Overpass 2026-10-20: no barrier=kerb, kerb=* or area:highway), and the 1 m DTM can't resolve kerbs, so these overrides come from track guides; other corners (Dentons, Hilltop, Water Tower, Warwick Bridge, Deer Leap, the Island Hairpin and Fosters) get the geometric placement.",
+  "runoff": "measured",
+  "runoffNote": "Run-off surfaces, barriers (type, offset, debris fences) and trees measured from open LIDAR and OSM plus published sources: tools/real_tracks/runoff|vegetation/<slug>.json (tools/real_tracks_data/measure_runoff.py, runoff_evidence.json); docs/real-tracks.md, Run-off and foliage.",
   "options": {
     "surface": "tarmac",
     "kerbs": true,
