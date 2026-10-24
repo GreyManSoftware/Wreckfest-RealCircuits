@@ -275,3 +275,51 @@ alder4, group23, boulders, rock piles).
 - The render tool has no clutter grass, fog or game lighting, so ground colour is judged only roughly there.
 - Stock subscene groups (`foliage_bgrforest2..5.scne`) instead of our own cards.
 - Sky and weather already map to stock environments (`pipeline/weather.py`); `#static_cube_map` is unchanged.
+
+## Out of bounds (measured 2026-10-24)
+
+Chris: on our tracks, driving off the track far enough drops the car through the world; on stock tracks the game
+puts you back on the track, even with resets off. Found by decoding the compiled collision shapes of every stock
+scene (`scne_read.read_collision`: per model the static collision triangles and each one's surface id; ids named as
+in Toolbox Mz's importer, which match the stock `data/scene/surface/<name>.suse` files a material's `#tag` picks).
+
+**The mechanism is a surface, not a field.** 36 of the 43 stock bases (and 33 of 157 layout and other scenes)
+carry invisible collision with the surface **`resetplayer`** (id 19): objects named `resetwall`, `reset_wall`,
+`theresetwall`, `great_collision_wall`, `boundcollision`, `resetplane`, `resetti1` ... A car touching it is reset
+to the track. Variants: `resetplayer_delay` (fields11 containers and tents, wrecker01 pits), `crm_water_reset`
+(crm01's water), `killplayer` (unused in the levels). The rest have it in their layouts (fields13: `reset1`,
+`reset2`; urban01: `grandstandcollision1`) or are enclosed arenas (fields04, fields10, urban07, crm02). There is
+no `.tcat` or `.envi` field for it: the `.tcat`'s per-route special zones (`tszo`) only switch resets off
+(game strings "no reset zones", "resetting the 'no reset' flags here would interfere with the special zone
+flags"), and the race's car-reset setting is the player's reset button. Bugbear's Technical Art Guide says of the
+blue `#ai_route_*` sector borders: "outside this, you are totally lost ... should cover the whole area where a car
+can physically drive"; the reset meshes sit just outside them.
+
+Shape (heights against the ground collision below; distances in plan from the blue route border of layout `_1`):
+
+| Stock | Reset object | Wall: outside the blue route (p10 / median) | Wall top / foot | Lid above ground (median) | Ground collision beyond the route (max) |
+|---|---|---|---|---|---|
+| fields05 | `resetwall` | 0.7 / 24 m | +2.4 / −4.5 m | 2.0 m, reaching ~30 m out | 171 m |
+| forest01 | `resetwall` | 4.5 / 44 m | +1.9 / −3.7 m | 2.2 m | 290 m |
+| forest11 | `theresetwall` | 2.1 / 7 m | +0.4 / −8.8 m | 1.9 m | 423 m |
+| fields08 | `great_collision_wall` | 4.8 / 29 m | +3.6 / −6.6 m | 1.9 m | 3,483 m |
+| sandpit03 | `resetwall2` (+ `resetwall`) | 1.6 / 17 m | +0.2 / −8.3 m | 4.3 m | 1,515 m |
+| urban03 | `reset_wall` | 8.5 / 24 m | +3.7 / −9.1 m | 3.9 m | 451 m |
+| urban05 | `resetplayer_wall` | 5.5 / 14 m | +0.5 / −9.1 m | 1.1 m | 185 m |
+| fields13 (layouts) | `reset1`, `reset2` | flat sheet only, from ~2 m out | – | 0.5 m | 500 m |
+
+So stock: a low vertical reset wall a few metres outside the blue route, its foot several metres underground, and
+a flat reset lid 1-4 m above the ground reaching 10-50 m further out; mostly round the outside only (fields05's
+infield has none). The collidable ground runs on hundreds of metres beyond, so nothing falls before it is reset.
+Far ground (`#lofi` / `#noshadow`) mostly has no collision (902 of 1,044 such models), but some outer terrain
+does (fields06 `terrain_outer`, fields14 `midrange_terrain#lofi`, urban06/08 `outerterrain#lofi`). No stock level
+has a kill plane below the world.
+
+**Ours before (all eight circuits, shipped builds):** no reset surface at all; the terrain (the only ground
+collision) ends at the road's bounding box + 60 m, i.e. 48-111 m beyond the blue route at the nearest point
+(median 113-301 m per layout); beyond it the far ground had no collision, so a car fell forever.
+
+**Ours now** (`worker/builder/wfbuild/bounds.py`, checks `tests/check_bounds.py`): per layout a `bounds_reset`
+wall (4 m outside the blue route, top +2 m, foot −4 m) with a 16 m lid at +2 m round the outside; in the base
+invisible far-ground collision (~230 m past the terrain), `#resetplayer` sheets 0.3 m under imported lakes and the
+sea, and a `#resetplayer` kill floor 25 m below the lowest collision. See worker/README.md "Out of bounds".
