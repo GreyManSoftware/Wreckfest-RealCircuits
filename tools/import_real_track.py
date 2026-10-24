@@ -1011,9 +1011,60 @@ def fit_loop(bng: np.ndarray, dtm: Dtm, width: float, step: float,
     q = p + shift[:, None] * nl
     q = w[:, None] * q + (1.0 - w[:, None]) * gauss_closed(q, 1.5)
     p = resample_closed(q, step)
+    p = straighten(p, step, keep=w)
     need = (width / 2.0 + IMPORTED_MIN_INNER_EDGE_RADIUS_M) * 1.03  # rule min-corner-radius for real tracks, +3 %
     p, eased = ease_corners(p, need)
     return resample_closed(p, step), shift, eased
+
+
+STRAIGHTEN_COARSE_M = 10.0    # straighten: bi-Laplacian smoothing of the line sampled this far apart ...
+STRAIGHTEN_ITER = 300         # ... this many steps (a 120 m-long left-right snake falls to an eighth) ...
+STRAIGHTEN_MAX_MOVE_M = 1.2   # ... moving it at most this far ...
+STRAIGHTEN_MAX_CURV = 1.0 / 250.0  # ... and not where it bends tighter than this over ~20 m (a real corner) ...
+STRAIGHTEN_FEATHER_M = 20.0   # ... fading in and out over this
+
+
+def straighten(p: np.ndarray, step: float, keep: np.ndarray | None = None, resample: bool = True) -> np.ndarray:
+    """A closed line with the left-right snaking taken out: OSM traces a straight as a few nodes a metre or so
+    off line, which the 5 m smoothing turns into R 130-250 m S-bends (Cadwell Park's start straight towards
+    Coppice snaked left-right-left over 100 m, 1.4 m off its mean). Bi-Laplacian (fourth-difference) smoothing
+    of the line sampled every STRAIGHTEN_COARSE_M evens out changes of curvature (a snake) but leaves straights
+    and constant-radius arcs where they are; its displacement, at most STRAIGHTEN_MAX_MOVE_M, is interpolated
+    onto the line, so detail shorter than the coarse step (a chicane's corners) stays. ``keep`` (sharp chicane
+    samples) is held, the move fading out over STRAIGHTEN_FEATHER_M."""
+    n = len(p)
+    s = arc(np.vstack([p, p[:1]]))
+    L = float(s[-1])
+    m = max(16, int(round(L / STRAIGHTEN_COARSE_M)))
+    t = np.arange(m) * L / m
+    c0 = np.column_stack([np.interp(t, s, np.append(p[:, 0], p[0, 0])), np.interp(t, s, np.append(p[:, 1], p[0, 1]))])
+    # held: corners (tighter than STRAIGHTEN_MAX_CURV over ~20 m: real bends keep their shape) and ``keep``
+    d = np.roll(p, -5, axis=0) - np.roll(p, 5, axis=0)
+    th = np.arctan2(d[:, 1], d[:, 0])
+    k = ((np.roll(th, -5) - np.roll(th, 5) + math.pi) % (2 * math.pi) - math.pi) / (10.0 * step)
+    k = gauss_closed(k, 20.0 / step)
+    hold_f = (np.abs(k) > STRAIGHTEN_MAX_CURV).astype(float)
+    if keep is not None:
+        kp = np.asarray(keep, dtype=np.float64)
+        kp = np.interp(np.linspace(0.0, 1.0, n, endpoint=False), np.linspace(0.0, 1.0, len(kp), endpoint=False), kp)
+        hold_f = np.maximum(hold_f, (kp > 0.01).astype(float))
+    hold = np.interp(t, s[:-1], hold_f, period=L)
+    f = max(1, int(round(STRAIGHTEN_FEATHER_M / STRAIGHTEN_COARSE_M)))
+    for sh in range(1, f + 1):
+        hold = np.maximum(hold, np.maximum(np.roll(hold, sh), np.roll(hold, -sh)) * (1.0 - sh / (f + 1)))
+    c = c0.copy()
+    for _ in range(STRAIGHTEN_ITER):
+        lap = np.roll(c, -1, axis=0) - 2.0 * c + np.roll(c, 1, axis=0)
+        bil = np.roll(lap, -1, axis=0) - 2.0 * lap + np.roll(lap, 1, axis=0)
+        c = c - 0.1 * bil
+        dv = c - c0
+        mag = np.hypot(*dv.T)
+        scale = np.minimum(1.0, STRAIGHTEN_MAX_MOVE_M / np.maximum(mag, 1e-9)) * (1.0 - hold)
+        c = c0 + dv * scale[:, None]
+    disp = c - c0
+    sp = s[:-1]
+    out = p + np.column_stack([np.interp(sp, t, disp[:, 0], period=L), np.interp(sp, t, disp[:, 1], period=L)])
+    return resample_closed(out, step) if resample else out
 
 
 def node_bng(osm: dict, node: int) -> np.ndarray:
@@ -1555,8 +1606,10 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     road_w, width_report, main_shift = None, None, None
     if meas:
         road_w, off, matched = width_and_offset(meas["routes"]["main"], p, nl, width, closed=True)
-        main_shift = (p.copy(), nl * off[:, None])  # the main line before the move, and the move
-        moved = p + nl * off[:, None]
+        # onto the tarmac's middle, then straightened again: where the point cloud gave no confident edges the
+        # measured middle follows the line it was measured from, snaking with it
+        moved = straighten(p + nl * off[:, None], step, resample=False)
+        main_shift = (p.copy(), moved - p)  # the main line before the move, and the move
         q = np.vstack([moved, moved[:1]])
         sq = arc(q)
         t = np.arange(n) * sq[-1] / n

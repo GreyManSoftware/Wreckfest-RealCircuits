@@ -231,6 +231,39 @@ def test_corner_easing_reaches_the_rule_radius() -> None:
     assert 0 < moved < 8.0
 
 
+def test_straighten_takes_the_snake_out_of_a_straight_and_keeps_the_corners() -> None:
+    """OSM node noise on a straight (Cadwell Park's start straight towards Coppice snaked left-right-left at
+    R 200-250 m): straighten evens it out, but leaves the hairpins and a 15 m-radius corner alone."""
+    # a 1000 x 200 m stadium (100 m radius ends) with a 1.2 m, 120 m-long snake on its bottom straight and a
+    # tight 15 m kink-corner pair on the top one
+    t = np.linspace(0.0, 1.0, 4000, endpoint=False)
+    pts = []
+    for u in t:
+        d = u * (2000 + 2 * math.pi * 100)
+        if d < 1000:
+            x, y = d, 0.0
+            if 400 <= x <= 640:
+                y = 1.2 * math.sin(2 * math.pi * (x - 400) / 120.0)  # R 300 m left-right-left
+        elif d < 1000 + math.pi * 100:
+            a = (d - 1000) / 100 - math.pi / 2
+            x, y = 1000 + 100 * math.cos(a), 100 + 100 * math.sin(a)
+        elif d < 2000 + math.pi * 100:
+            x, y = 1000 - (d - 1000 - math.pi * 100), 200.0
+        else:
+            a = (d - 2000 - math.pi * 100) / 100 + math.pi / 2
+            x, y = 100 * math.cos(a), 100 + 100 * math.sin(a)
+        pts.append((x, y))
+    p = irt.resample_closed(np.array(pts), 2.0)
+    q = irt.straighten(p, 2.0, resample=False)
+    snake = (p[:, 1] < 5) & (p[:, 0] > 380) & (p[:, 0] < 660)
+    assert np.abs(p[snake, 1]).max() > 1.1
+    assert np.abs(q[snake, 1]).max() < 0.6  # flattened: half the offset, bends three times gentler or more
+    assert irt.radii(p)[snake].min() < 350.0 and irt.radii(q)[snake].min() > 450.0
+    ends = (p[:, 0] > 1010) | (p[:, 0] < -10)
+    assert np.abs(np.hypot(q[ends, 0] - np.where(p[ends, 0] > 500, 1000, 0), q[ends, 1] - 100) - 100).max() < 0.05
+    assert np.hypot(*(q - p).T).max() <= irt.STRAIGHTEN_MAX_MOVE_M + 1e-6
+
+
 def test_sharp_ways_keep_a_chicanes_corners() -> None:
     # a 600 x 300 m loop with a bus-stop chicane on its long bottom straight: 12 m right, 25 m along, 12 m left
     pts = [(0, 0), (250, 0), (262, -12), (287, -12), (299, 0), (600, 0), (600, 300), (0, 300)]
