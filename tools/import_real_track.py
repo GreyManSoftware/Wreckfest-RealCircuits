@@ -1421,6 +1421,24 @@ def width_and_offset(meas: dict, p: np.ndarray, nl: np.ndarray, fallback: float,
     return sm(w, 2.0), sm(off, 2.0), float(ok.mean())
 
 
+def follow_main_shift(pa: np.ndarray, p_old: np.ndarray, move: np.ndarray, near_m: float = 3.0,
+                      far_m: float = 6.0, fade_m: float = 15.0) -> np.ndarray:
+    """Move a layout's (closed, evenly sampled) line like the main line where it runs on the main road: fully
+    within ``near_m`` of the main line as it was, none beyond ``far_m``, the weight smoothed along the line
+    (sigma ``fade_m``) so a diverging branch bends gently."""
+    j = np.empty(len(pa), dtype=int)
+    dj = np.empty(len(pa))
+    for a0 in range(0, len(pa), 512):
+        q = pa[a0:a0 + 512]
+        d = np.hypot(q[:, None, 0] - p_old[None, :, 0], q[:, None, 1] - p_old[None, :, 1])
+        j[a0:a0 + 512] = np.argmin(d, axis=1)
+        dj[a0:a0 + 512] = d[np.arange(len(q)), j[a0:a0 + 512]]
+    f = np.clip((far_m - dj) / (far_m - near_m), 0.0, 1.0)
+    seg = float(np.mean(np.hypot(*np.diff(pa, axis=0).T)))
+    f = np.clip(gauss_closed(f, fade_m / max(seg, 1e-6)), 0.0, 1.0)
+    return pa + move[j] * f[:, None]
+
+
 def width_summary(w: np.ndarray, off: np.ndarray, matched: float) -> dict:
     return {"medianM": round(float(np.median(w)), 2), "minM": round(float(w.min()), 2), "maxM": round(float(w.max()), 2),
             "p10M": round(float(np.percentile(w, 10)), 2), "p90M": round(float(np.percentile(w, 90)), 2),
@@ -1473,9 +1491,10 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     # 2b. Measured widths: the line moves onto the tarmac's middle (OSM and the DTM registration leave it up to
     # 4 m off), resampled evenly from the start line; every sample gets the tarmac's width.
     meas = load_widths(recipe)
-    road_w, width_report = None, None
+    road_w, width_report, main_shift = None, None, None
     if meas:
         road_w, off, matched = width_and_offset(meas["routes"]["main"], p, nl, width, closed=True)
+        main_shift = (p.copy(), nl * off[:, None])  # the main line before the move, and the move
         moved = p + nl * off[:, None]
         q = np.vstack([moved, moved[:1]])
         sq = arc(q)
@@ -1522,6 +1541,10 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         if (signed_area(bng_a) < 0) != bool(alt.get("clockwise", clockwise)):
             raise ValueError(f"layout {alt['id']} runs the other way round from the main lap (or its recipe's clockwise)")
         pa, shift_a, eased_a = fit_loop(bng_a, dtm, width, step, max_shift, sharp_segments(marks_a, len(bng_a), sharp_ways))
+        if main_shift is not None:
+            # where the layout drives the main road, it moves with the main line (else the shared part would end
+            # up beside the moved main line and count as its own branch, overlapping the main road)
+            pa = follow_main_shift(pa, *main_shift)
         # branchOffM: how far off the main line a layout's line counts as its own (default 1 m; unregistered OSM
         # lines on shared ways match exactly but are sampled out of phase, up to 1 m apart vertex to vertex)
         # joinWithinM (per layout): a branch that runs beside the main road for a while before it merges (Bedford
