@@ -13,15 +13,18 @@ Method (every 5 m along each route, a cross-section +-16 m wide and 6 m long):
    single returns, the fraction classified as vegetation/buildings/unclassified objects, and the height off the
    road's cross plane (a robust line through the inner 3 m). In Navarre the RGBI (from the joint camera) adds a
    brightness / NDVI term: asphalt is dark and not green, the dry ground beside it pale.
-2. Walking out from the line, a side's edge is the first place where the surface stops being road for at least
-   1 m: intensity above a threshold halfway between the circuit's road and verge levels (per flight line), or a
-   step off the road plane over 0.25 m (banks, walls), or objects (tyre walls, barriers, trees, cars).
-3. Confidence per section: the road/verge contrast, the point count, whether both edges were found by the
-   surface change (an edge at the window limit is run-off tarmac or a junction), objects over the road
-   (tree cover), and agreement with the neighbouring sections.
-4. Per side: outliers against a 35 m running median are rejected, low-confidence sections (and those near a
-   junction with another route) are filled from their neighbours or the circuit's median, then smoothed
-   (Gaussian sigma 12 m, about a 40 m window) and clamped to 3.0-9.0 m per side and 7-18 m in total.
+2. Walking out from the darkest point within 5 m of the line (the built line can sit metres off the tarmac's
+   middle), a side's edge is the first place where the surface stops being road for at least 1 m: the score
+   above a threshold halfway between the local road and verge levels, or a step off the road plane over
+   0.25 m (banks, walls), or objects (tyre walls, barriers, trees, cars). A painted line with 2 m or more of
+   paving beyond it (pit lanes, hatched merges, aprons) is the edge.
+3. Confidence per section: the road/verge contrast, the point count, whether both edges were found (an edge
+   at the window limit is run-off tarmac or a junction), objects over the road (tree cover), no road near the
+   line, agreement with the neighbouring sections (35 m and 155 m running medians), and junction zones (40 m
+   round a branch end). UNMEASURED lists stretches the survey can't see (checked on the overlays).
+4. The width and the line's offset from the tarmac's middle are filled where confidence is low (from the
+   neighbours, relaxing to the circuit's median width / zero offset in long gaps), smoothed (width sigma 12 m,
+   offset sigma 40 m), clamped (7-18 m) and rate-limited (0.4 m per 5 m for the width, 0.1 m for the offset).
 
 Output: tools/real_tracks/widths/<slug>.json (derived, small, committed): per route the section centres in the
 recipe's grid with unit normals and left/right half-widths (left = the driver's left), confidences and summary
@@ -48,11 +51,29 @@ STEP_M = 5.0          # section spacing along the route
 HALF_LEN_M = 3.0      # section half length along the route
 MAX_D_M = 16.0        # cross-section half width
 BIN_M = 0.5
+RIDGE_MIN = 0.12      # a painted line: the mean score this much above the bins 1 m either side
 CORRIDOR_M = MAX_D_M + 4.0
 SMOOTH_SIGMA_M = 12.0
-MIN_HALF_M, MAX_HALF_M = 3.0, 9.0
 MIN_WIDTH_M, MAX_WIDTH_M = 7.0, 18.0
+MAX_WIDTH_STEP_M = 0.4   # per section (5 m)
+SEARCH_M = 5.0           # how far off the line the tarmac's darkest point may be
+OFFSET_SIGMA_M = 40.0     # the line's offset from the tarmac's middle
+MAX_OFFSET_M = 5.0
+MAX_OFFSET_STEP_M = 0.1   # per section (5 m)
 OUT_DIR = ROOT / "tools" / "real_tracks" / "widths"
+SOURCES = {
+    "england": {"source": "Environment Agency National LIDAR Programme point cloud (LAZ, 5 km tiles)",
+                "attribution": "Contains Environment Agency information (c) Environment Agency and/or database right",
+                "licence": "Open Government Licence v3.0"},
+    "navarra": {"source": "Gobierno de Navarra LiDAR 2024 point cloud with RGBI (LAZ, 1 km tiles, filescartografia.navarra.es)",
+                "attribution": "Servicio proporcionado por el Gobierno de Navarra (IDENA), LiDAR 2024",
+                "licence": "CC BY 4.0"},
+}
+# stretches the survey can't measure (checked on the overlays), filled from the circuit's median; s in grid m
+UNMEASURED = {
+    "navarra": [{"route": "main", "fromS": 2640.0, "toS": 3420.0,
+                 "reason": "the 2024 extension (Turns 11-14) was unpaved or half-paved in the 2024 LIDAR flight"}],
+}
 
 
 # ------------------------------------------------------------------------------------------------ routes
@@ -122,6 +143,9 @@ def _crop_tile(args: tuple[str, np.ndarray, float]) -> dict:
 
 
 def corridor_points(slug: str, routes: list[dict], workers: int, log) -> dict:
+    if REGION.get(slug) == "wales":
+        raise SystemExit(f"{slug}: no open point cloud in Wales (DataMapWales has the 2020-22 DTM/DSM only; DTM "
+                         "roughness was tried and shows no road edge): the recipe keeps its published width")
     pc = LOCAL / "realtracks" / slug / "pointcloud"
     cache = pc / "corridor.npz"
     tiles = sorted(pc.glob("*.laz"))
@@ -210,6 +234,7 @@ def section_profiles(pts: dict, rel: dict, score: np.ndarray, closed: bool, leng
     nb = int(2 * MAX_D_M / BIN_M)
     ns = int(length // STEP_M) if closed else int(length // STEP_M) + 1
     sc = np.full((ns, nb), np.nan)
+    mean = np.full((ns, nb), np.nan)
     dz = np.full((ns, nb), np.nan)
     obj = np.zeros((ns, nb))
     cnt = np.zeros((ns, nb), dtype=np.int32)
@@ -250,11 +275,12 @@ def section_profiles(pts: dict, rel: dict, score: np.ndarray, closed: bool, leng
             gm = m & ground & ll
             if gm.any():
                 sc[sec, bi] = float(np.nanmedian(ss[gm]))
+                mean[sec, bi] = float(np.nanmean(np.clip(ss[gm], -0.5, 2.0)))
                 dz[sec, bi] = float(np.median(res[gm]))
-    return {"score": sc, "dz": dz, "obj": obj, "cnt": cnt}
+    return {"score": sc, "mean": mean, "dz": dz, "obj": obj, "cnt": cnt}
 
 
-def find_edges(prof: dict, region: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def find_edges(prof: dict, region: str, closed: bool) -> tuple:
     """Per section: left and right half-widths, whether each edge was a real surface change, and a contrast."""
     sc, dz, obj = prof["score"], prof["dz"], prof["obj"]
     ns, nb = sc.shape
@@ -263,13 +289,27 @@ def find_edges(prof: dict, region: str) -> tuple[np.ndarray, np.ndarray, np.ndar
     fill = np.where(np.isnan(sc), ndimage.generic_filter(np.nan_to_num(sc, nan=np.nan), np.nanmedian, size=(3, 3),
                                                           mode="nearest"), sc)
     sm = ndimage.uniform_filter1d(np.nan_to_num(fill, nan=0.5), 2, axis=1)
-    thr = 0.5
+    # local threshold halfway between this stretch's road and verge levels (surfaces differ: Navarra's T4 is a
+    # paler asphalt), within 0.35-0.75; the circuit's 0.5 where there's no clear verge
+    md = "wrap" if closed else "nearest"
+    road_l = ndimage.uniform_filter1d(np.median(sm[:, centre - 3:centre + 3], axis=1), 5, mode=md)
+    verge_l = ndimage.uniform_filter1d(np.percentile(sm, 80, axis=1), 5, mode=md)
+    thr_l = np.where(verge_l - road_l > 0.4, np.clip(0.5 * (road_l + verge_l), 0.35, 0.75), 0.5)
     hw = np.full((ns, 2), np.nan)
     real = np.zeros((ns, 2), dtype=bool)
+    lined = np.zeros((ns, 2), dtype=bool)
+    ridge = ndimage.uniform_filter1d(np.nan_to_num(prof["mean"], nan=0.5), 5, axis=0, mode=md)
+    # the walk starts at the darkest point within SEARCH_M of the line (the built line can be off the tarmac's
+    # middle by metres: OSM and the DTM registration), smoothed over 25 m along and 1.5 m across
+    rs = ndimage.uniform_filter(sm, size=(5, 3), mode=(md, "nearest"))
+    k0 = int(SEARCH_M / BIN_M)
+    c0s = centre - k0 + np.argmin(rs[:, centre - k0:centre + k0], axis=1)
     contrast = np.full(ns, np.nan)
     for i in range(ns):
         row = sm[i]
-        for side, rng in ((0, range(centre, nb)), (1, range(centre - 1, -1, -1))):  # 0: +d (left), 1: -d (right)
+        thr = thr_l[i]
+        c0 = int(c0s[i])
+        for side, rng in ((0, range(c0, nb)), (1, range(c0 - 1, -1, -1))):  # 0: +d (left), 1: -d (right)
             edge = None
             run = 0
             for j in rng:
@@ -282,28 +322,46 @@ def find_edges(prof: dict, region: str) -> tuple[np.ndarray, np.ndarray, np.ndar
             if edge is None:
                 hw[i, side] = MAX_D_M
             else:
-                hw[i, side] = max(edge, BIN_M)
+                hw[i, side] = edge
                 real[i, side] = True
-        inside = row[max(centre - 4, 0):centre + 4]
-        outside = np.concatenate([row[:max(centre - int(hw[i, 1] / BIN_M) - 2, 0)][-6:],
-                                  row[min(centre + int(hw[i, 0] / BIN_M) + 2, nb):][:6]])
+            # a painted line with 2 m or more of paving beyond it (pit lanes and their hatched merges, aprons,
+            # run-off): the line is the edge. Lines show as a ridge in the mean score, smoothed over 25 m.
+            reach = int(round(hw[i, side] / BIN_M)) + (centre - c0 if side == 0 else c0 - centre)  # bins from c0
+            for t in range(int(3.5 / BIN_M), min(reach, int((MAX_D_M - 1.0) / BIN_M)) - int(2.0 / BIN_M)):
+                j = c0 + t if side == 0 else c0 - 1 - t
+                a_, b_ = (j - 2, j + 2)
+                if a_ < 0 or b_ >= nb:
+                    break
+                if ridge[i, j] - min(ridge[i, a_], ridge[i, b_]) > RIDGE_MIN and ridge[i, j] > 0.15:
+                    hw[i, side] = (j + 1 - centre) * BIN_M if side == 0 else (centre - j) * BIN_M
+                    real[i, side] = True
+                    lined[i, side] = True
+                    break
+        jl, jr = centre + int(round(hw[i, 0] / BIN_M)), centre - int(round(hw[i, 1] / BIN_M))
+        inside = row[max(c0 - 4, 0):c0 + 4]
+        outside = np.concatenate([row[:max(jr - 2, 0)][-6:], row[min(jl + 2, nb):][:6]])
         if outside.size:
             contrast[i] = float(np.median(outside) - np.median(inside))
-    objroad = np.array([float(np.nanmean(obj[i, centre - 6:centre + 6])) for i in range(ns)])
+    objroad = np.array([float(np.nanmean(obj[i, max(c0s[i] - 6, 0):c0s[i] + 6])) for i in range(ns)])
+    # no road near the line (not paved when surveyed: Navarra's 2024 extension; deep shade): no measurement
+    notroad = rs[np.arange(ns), c0s] > 0.35
+    real[notroad] = False
     npts = prof["cnt"][:, centre - 12:centre + 12].sum(1)
-    return hw, real, contrast, objroad, npts
+    return hw, real, contrast, objroad, npts, lined
 
 
 def running_median(v: np.ndarray, k: int, closed: bool) -> np.ndarray:
     return ndimage.generic_filter(v, np.nanmedian, size=k, mode="wrap" if closed else "nearest")
 
 
-def smooth_side(h: np.ndarray, conf: np.ndarray, closed: bool, fallback: float) -> np.ndarray:
-    good = conf >= 0.5
-    v = np.where(good, h, np.nan)
-    if not np.isfinite(v).any():
-        return np.full_like(h, fallback)
+def smooth_series(v: np.ndarray, good: np.ndarray, closed: bool, fallback: float, ramp: tuple[float, float],
+                  sigma_m: float, lo: float, hi: float, step: float) -> np.ndarray:
+    """Fill the sections that aren't ``good`` from their measured neighbours, relaxing towards ``fallback``
+    inside gaps (from ramp[0] to ramp[1] metres in from the gap's ends), smooth (Gaussian), clamp and limit the
+    change per section to ``step``."""
     n = len(v)
+    if not good.any():
+        return np.full(n, float(np.clip(fallback, lo, hi)))
     idx = np.arange(n)
     if closed:
         ii = np.concatenate([idx[good] - n, idx[good], idx[good] + n])
@@ -311,15 +369,30 @@ def smooth_side(h: np.ndarray, conf: np.ndarray, closed: bool, fallback: float) 
     else:
         ii, vv = idx[good], v[good]
     filled = np.interp(idx, ii, vv)
-    # gaps longer than 60 m relax towards the circuit's median half-width
-    gap = ~good
-    lab, nlab = ndimage.label(gap)
+    lab, nlab = ndimage.label(~good)
     for g in range(1, nlab + 1):
-        m = lab == g
-        if m.sum() * STEP_M > 60.0:
-            filled[m] = 0.5 * filled[m] + 0.5 * fallback
-    out = ndimage.gaussian_filter1d(filled, SMOOTH_SIGMA_M / STEP_M, mode="wrap" if closed else "nearest")
-    return np.clip(out, MIN_HALF_M, MAX_HALF_M)
+        ii_ = np.nonzero(lab == g)[0]
+        touches_end = not closed and (ii_[0] == 0 or ii_[-1] == n - 1)
+        e = np.minimum(ii_ - ii_[0] + 1, ii_[-1] - ii_ + 1) * STEP_M
+        if touches_end:
+            e = (ii_[-1] - ii_ + 1 if ii_[0] == 0 else ii_ - ii_[0] + 1) * STEP_M
+        w_ = np.clip((e - ramp[0]) / max(ramp[1] - ramp[0], 1e-6), 0.0, 1.0)
+        filled[ii_] = (1.0 - w_) * filled[ii_] + w_ * fallback
+    out = ndimage.gaussian_filter1d(filled, sigma_m / STEP_M, mode="wrap" if closed else "nearest")
+    return rate_limit(np.clip(out, lo, hi), step, closed)
+
+
+def rate_limit(v: np.ndarray, step: float, closed: bool) -> np.ndarray:
+    """The mean of the upper and lower envelopes that change by at most ``step`` per section: no faster
+    change anywhere (both are step-Lipschitz, so is their mean), a narrow dip and a wide spike shrink alike."""
+    n = len(v)
+    i = np.arange(n)
+    d = np.abs(i[:, None] - i[None, :]).astype(np.float64)
+    if closed:
+        d = np.minimum(d, n - d)
+    up = (v[None, :] - step * d).max(1)
+    lo = (v[None, :] + step * d).min(1)
+    return 0.5 * (up + lo)
 
 
 def measure(slug: str, workers: int, log) -> dict:
@@ -329,7 +402,8 @@ def measure(slug: str, workers: int, log) -> dict:
     rels = assign(routes, pts)
     calibrate(pts, rels)
     score = surface_score(pts, region)
-    result = {"slug": slug, "routes": []}
+    pts["_score"] = score
+    result = {"slug": slug, "routes": [], "_pts": pts, "_spec": spec, "_frame": fr}
     for r, rel in zip(routes, rels):
         sec_xy, sec_s = resample(r["xy"], STEP_M, r["closed"])
         q = np.vstack([r["xy"], r["xy"][:1]]) if r["closed"] else r["xy"]
@@ -337,10 +411,10 @@ def measure(slug: str, workers: int, log) -> dict:
         prof = section_profiles(pts, rel, score, r["closed"], length)
         ns = min(len(sec_xy), prof["score"].shape[0])
         prof = {k: v[:ns] for k, v in prof.items()}
-        hw, real, contrast, objroad, npts = find_edges(prof, region)
+        hw, real, contrast, objroad, npts, lined = find_edges(prof, region, r["closed"])
         result["routes"].append({"id": r["id"], "name": r["name"], "closed": r["closed"], "xy": sec_xy[:ns],
                                  "s": sec_s[:ns], "nl": normals(sec_xy[:ns], r["closed"]), "hw_raw": hw,
-                                 "real": real, "contrast": contrast, "objroad": objroad, "npts": npts, "prof": prof})
+                                 "real": real, "lined": lined, "contrast": contrast, "objroad": objroad, "npts": npts, "prof": prof})
     finish(result, routes)
     return result
 
@@ -370,6 +444,9 @@ def finish(result: dict, routes: list[dict]) -> None:
             med = running_median(np.where(real[:, side], hw[:, side], np.nan), 7, closed)
             dev = np.abs(hw[:, side] - med)
             conf[dev > 1.5, side] *= 0.2
+            # adjacent paved areas (pit lanes, aprons, run-off): a side far wider than its 155 m running median
+            long_med = running_median(np.where(real[:, side], hw[:, side], np.nan), 31, closed)
+            conf[hw[:, side] > long_med + 2.0, side] *= 0.1
         if len(ends):
             dj = cKDTree(ends).query(rr["xy"])[0]
             near_j = dj < 40.0
@@ -377,13 +454,20 @@ def finish(result: dict, routes: list[dict]) -> None:
             rr["junction"] = near_j
         else:
             rr["junction"] = np.zeros(ns, dtype=bool)
+        for ov in UNMEASURED.get(result["slug"], []):
+            if ov["route"] == rr["id"]:
+                conf[(rr["s"] >= ov["fromS"]) & (rr["s"] <= ov["toS"])] = 0.0
         rr["conf"] = conf
-        fb = circuit_median / 2.0
-        hl = smooth_side(hw[:, 0], conf[:, 0], closed, fb)
-        hr = smooth_side(hw[:, 1], conf[:, 1], closed, fb)
-        tot = hl + hr
-        scale = np.clip(tot, MIN_WIDTH_M, MAX_WIDTH_M) / np.maximum(tot, 1e-6)
-        rr["hl"], rr["hr"] = hl * scale, hr * scale
+        # the tarmac's width and the line's offset from its middle, smoothed separately: the width over ~40 m,
+        # the offset over ~130 m (it moves the driven line, which must stay free of wobble on straights)
+        good = conf.min(1) >= 0.5
+        width = hw.sum(1)
+        offset = 0.5 * (hw[:, 0] - hw[:, 1])
+        w_s = smooth_series(width, good, closed, circuit_median, (10.0, 40.0), SMOOTH_SIGMA_M, MIN_WIDTH_M,
+                            MAX_WIDTH_M, MAX_WIDTH_STEP_M)
+        o_s = smooth_series(offset, good, closed, 0.0, (60.0, 200.0), OFFSET_SIGMA_M, -MAX_OFFSET_M, MAX_OFFSET_M,
+                            MAX_OFFSET_STEP_M)
+        rr["hl"], rr["hr"] = 0.5 * w_s + o_s, 0.5 * w_s - o_s
     result["circuitRawMedianM"] = circuit_median
 
 
@@ -411,16 +495,168 @@ def to_json(result: dict, meta: dict) -> dict:
     return out
 
 
+# ------------------------------------------------------------------------------------------------ plots
+ZOOMS = {  # sections worth a close look (corner labels in the sample), besides the narrowest and widest
+    "cadwellpark": ["The Mountain", "Hall Bends", "Park Straight", "The Hairpin", "Coppice"],
+    "oultonpark": ["Cascades", "Island Hairpin", "Lodge", "Knickerbrook", "Old Hall"],
+    "brandshatch": ["Paddock Hill Bend", "Druids", "Clearways", "Hawthorns"],
+    "snetterton": ["Riches", "Bombhole", "Coram", "Agostini"],
+    "doningtonpark": ["Craner Curves", "Melbourne Hairpin", "Redgate", "Old Hairpin"],
+    "bedfordautodrome": ["Hangar Hairpin", "Turn 11", "Turn 15"],
+    "navarra": ["Turn 1", "Turn 11", "Turn 17", "Turn 3"],
+    "anglesey": ["Corkscrew", "Banking", "Bus Stop", "Rocket"],
+}
+
+
+def intensity_raster(pts: dict, lo: np.ndarray, hi: np.ndarray, res: float, region: str) -> np.ndarray:
+    """A grey image of the corridor: per-flight-line normalised intensity (or RGB in Navarre), north up."""
+    nx, ny = int((hi[0] - lo[0]) / res) + 1, int((hi[1] - lo[1]) / res) + 1
+    m = (pts["x"] >= lo[0]) & (pts["x"] < hi[0]) & (pts["y"] >= lo[1]) & (pts["y"] < hi[1])
+    m &= pts["return_number"] == pts["number_of_returns"]
+    ix = ((pts["x"][m] - lo[0]) / res).astype(np.int64)
+    iy = ((hi[1] - pts["y"][m]) / res).astype(np.int64)
+    flat = iy * nx + ix
+    sc = np.clip(pts["_score"][m], -0.2, 1.4)
+    s_ = np.bincount(flat, weights=sc, minlength=nx * ny)
+    c_ = np.bincount(flat, minlength=nx * ny)
+    # splat with a Gaussian the size of the point spacing, normalised by the point density
+    sig = max(0.35 / res, 0.6)
+    s2 = ndimage.gaussian_filter(s_.reshape(ny, nx), sig)
+    c2 = ndimage.gaussian_filter(c_.reshape(ny, nx).astype(np.float64), sig)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        img = np.where(c2 > 0.05 * c2.max() / max(1.0, (1.0 / res) ** 2) + 1e-9, s2 / c2, np.nan)
+    out = np.where(np.isnan(img), 0.0, np.clip((img + 0.2) / 1.6, 0, 1) * 0.85 + 0.15)
+    return (out * 255).astype(np.uint8)
+
+
+def write_plots(slug: str, result: dict, pts: dict, spec: dict, fr: dict, extra_s: list[float] = ()) -> list[Path]:
+    import matplotlib  # noqa: PLC0415
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt  # noqa: PLC0415
+
+    out = LOCAL / "audit" / slug
+    out.mkdir(parents=True, exist_ok=True)
+    region = REGION.get(slug, "england")
+    written = []
+    corners = spec["sketch"]["imported"].get("corners", [])
+    for rr in result["routes"]:
+        s, hl, hr, hw = rr["s"], rr["hl"], rr["hr"], rr["hw_raw"]
+        conf = rr["conf"].min(1)
+        fig, ax = plt.subplots(2, 1, figsize=(16, 7), sharex=True, gridspec_kw={"height_ratios": [3, 1]})
+        raw = np.where(rr["real"].all(1), hw.sum(1), np.nan)
+        ax[0].plot(s, raw, ".", ms=2, color="0.6", label="raw (both edges found)")
+        ax[0].plot(s, hl + hr, "-", color="C0", lw=2, label="width (smoothed)")
+        ax[0].plot(s, hl, "-", color="C2", lw=1, label="left half")
+        ax[0].plot(s, hr, "-", color="C3", lw=1, label="right half")
+        ax[0].set_ylim(0, 20)
+        ax[0].set_ylabel("m")
+        ax[0].grid(alpha=0.3)
+        if rr["id"] == "main":
+            for c in corners:
+                ax[0].axvline(c["sM"] * fr["scale"], color="0.8", lw=0.8)
+                ax[0].text(c["sM"] * fr["scale"], 19.5, c["name"], rotation=90, va="top", fontsize=7)
+        ax[0].legend(loc="lower right", fontsize=8)
+        ax[0].set_title(f"{slug} {rr['name']}: width {summary(rr)}", fontsize=9)
+        ax[1].plot(s, conf, color="C1")
+        ax[1].fill_between(s, 0, rr["junction"].astype(float), color="0.85", step="mid", label="junction zone")
+        ax[1].set_ylabel("confidence")
+        ax[1].set_xlabel("s along the route (grid m)")
+        ax[1].legend(fontsize=8)
+        fig.tight_layout()
+        p = out / f"width-{rr['id']}.png"
+        fig.savefig(p, dpi=110)
+        plt.close(fig)
+        written.append(p)
+
+    from PIL import Image, ImageDraw  # noqa: PLC0415
+
+    def overlay(lo: np.ndarray, hi: np.ndarray, res: float, name: str, label: str) -> Path:
+        g = intensity_raster(pts, lo, hi, res, region)
+        im = Image.fromarray(g).convert("RGB")
+        dr = ImageDraw.Draw(im)
+        px = lambda q: ((q[:, 0] - lo[0]) / res, (hi[1] - q[:, 1]) / res)  # noqa: E731
+        lw = max(1, int(round(0.4 / res)))
+        for rr in result["routes"]:
+            c = rr["xy"]
+            for side, col, h in ((1, (40, 220, 40), rr["hl"]), (-1, (230, 50, 50), rr["hr"])):
+                e = c + side * rr["nl"] * h[:, None]
+                x, y = px(e)
+                dr.line(list(zip(x, y)), fill=col, width=lw)
+                raw = c + side * rr["nl"] * rr["hw_raw"][:, 0 if side == 1 else 1][:, None]
+                xr, yr = px(raw)
+                si = 0 if side == 1 else 1
+                for a_, b_, ok, ln in zip(xr, yr, rr["real"][:, si], rr["lined"][:, si]):
+                    if ok:
+                        dr.ellipse([a_ - lw, b_ - lw, a_ + lw, b_ + lw], outline=(0, 230, 255) if ln else (255, 200, 0))
+            x, y = px(c)
+            dr.line(list(zip(x, y)), fill=(80, 140, 255), width=max(1, lw // 2))
+        dr.text((6, 6), label, fill=(255, 255, 0))
+        p = out / f"width-{name}.png"
+        im.save(p)
+        return p
+
+    allxy = np.vstack([rr["xy"] for rr in result["routes"]])
+    lo, hi = allxy.min(0) - 25, allxy.max(0) + 25
+    res = max(0.5, float((hi - lo).max()) / 2400)
+    written.append(overlay(lo, hi, res, "overlay", f"{slug}: green = left edge, red = right edge, yellow = raw edges (cyan: at a painted line), "
+                                                  f"blue = built centreline; {res:.2f} m/px"))
+    main = result["routes"][0]
+    w = main["hl"] + main["hr"]
+    picks = []
+    for c in corners:
+        if c["name"] in ZOOMS.get(slug, []):
+            picks.append((c["name"], c["sM"] * fr["scale"]))
+    picks += [("narrowest", float(main["s"][int(np.argmin(w))])), ("widest", float(main["s"][int(np.argmax(w))]))]
+    picks += [(f"s{int(v)}", float(v)) for v in extra_s]
+    for name, s0 in picks:
+        i = int(np.argmin(np.abs(main["s"] - s0)))
+        cxy = main["xy"][i]
+        lo_, hi_ = cxy - 70, cxy + 70
+        k = np.abs(main["s"] - s0) < 70
+        ws = w[k]
+        slugname = "".join(ch for ch in name.lower() if ch.isalnum())
+        written.append(overlay(lo_, hi_, 0.3, f"zoom-{slugname}",
+                               f"{slug} {name}: width {ws.min():.1f}-{ws.max():.1f} m within 70 m"))
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("slug")
     ap.add_argument("--workers", type=int, default=4, help="processes for cropping the tiles (at most 8)")
     ap.add_argument("--plots", action="store_true", help="write width plots and overlays to .local/audit/<slug>/")
+    ap.add_argument("--at", type=float, nargs="*", default=[], help="also zoom at these s on the main route (m)")
     a = ap.parse_args(argv)
     log = lambda m: print(m, file=sys.stderr, flush=True)  # noqa: E731
     result = measure(a.slug, min(a.workers, 8), log)
     for rr in result["routes"]:
         log(f"{a.slug} {rr['name']}: {summary(rr)}")
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    tiles = sorted(t.name for t in (LOCAL / "realtracks" / a.slug / "pointcloud").glob("*.laz"))
+    region = REGION.get(a.slug, "england")
+    meta = {
+        "description": f"Measured tarmac widths of {a.slug} (tools/real_tracks_data/measure_width.py; derived data). "
+                       "Per route, sections every 5 m: centre (e, n) in the recipe's grid (BNG, or ETRS89 / UTM 30N "
+                       "in Spain), unit left normal (nx, ny), half-widths to the left and right tarmac edges "
+                       "(leftM, rightM; the built line's offset from the tarmac's middle is (leftM - rightM) / 2) "
+                       "and the lower edge confidence (conf, 0-1; below 0.5 the value is filled from neighbours or "
+                       "the circuit's median).",
+        "source": SOURCES[region]["source"], "attribution": SOURCES[region]["attribution"],
+        "licence": SOURCES[region]["licence"], "tiles": tiles,
+        "method": "LIDAR intensity (and RGB in Navarre) across the road every 5 m, edges where the surface stops "
+                  "being asphalt for 1 m (or a height step, objects, a painted line with paving beyond); "
+                  f"width smoothed (sigma {SMOOTH_SIGMA_M:g} m, at most {MAX_WIDTH_STEP_M:g} m per 5 m, "
+                  f"{MIN_WIDTH_M:g}-{MAX_WIDTH_M:g} m), the line's offset smoothed (sigma {OFFSET_SIGMA_M:g} m)",
+        "circuitRawMedianM": round(result["circuitRawMedianM"], 2),
+        "unmeasured": UNMEASURED.get(a.slug, []),
+    }
+    out = OUT_DIR / f"{a.slug}.json"
+    out.write_text(json.dumps(to_json(result, meta), separators=(",", ":")) + "\n", encoding="utf-8", newline="\n")
+    log(f"wrote {out}")
+    if a.plots:
+        for p in write_plots(a.slug, result, result["_pts"], result["_spec"], result["_frame"], a.at):
+            log(f"wrote {p}")
     return 0
 
 

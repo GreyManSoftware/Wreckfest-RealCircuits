@@ -31,7 +31,9 @@ REGION = {"navarra": "navarra", "anglesey": "wales"}  # everything else: England
 
 
 def report_path(slug: str) -> Path:
-    for p in (LOCAL / "realtracks" / slug / "report.json", LOCAL / slug / "report.json"):
+    """The file holding the committed sample's local frame: frame.json from import_frame.py, else a report."""
+    for p in (LOCAL / "realtracks" / slug / "frame.json", LOCAL / "realtracks" / slug / "report.json",
+              LOCAL / slug / "report.json"):
         if p.exists():
             return p
     raise FileNotFoundError(f"no import report for {slug} (it holds the local frame)")
