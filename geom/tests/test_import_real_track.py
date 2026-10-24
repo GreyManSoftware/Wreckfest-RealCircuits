@@ -340,3 +340,13 @@ def test_imported_sample_has_no_profile_artefacts(recipe_path: Path) -> None:
         for k, lim in ARTEFACT_LIMITS.items():
             assert m[k] <= lim, (name, k, m)
         assert min(m["minCrestRadiusM"], m["minDipRadiusM"]) >= MIN_VERTICAL_RADIUS_M, (name, m)
+    # a branch meets the main line along it, not at a kink (Navarra Short's hook ended at 47 degrees, Bedford SEN's
+    # ends at 43 and 27: fillet_ends); over its last 6 m, at most 25 degrees off the main line's direction
+    main = np.array([[p["x"], p["y"]] for p in im["centreline"]])
+    for a in im.get("altLayouts", []):
+        b = np.array([[p["x"], p["y"]] for p in a["centreline"]])
+        for end, chord in ((0, b[3] - b[0]), (-1, b[-1] - b[-4])):
+            j = int(np.argmin(np.hypot(*(main - b[end]).T)))
+            tm = main[(j + 2) % len(main)] - main[(j - 2) % len(main)]
+            ang = math.degrees(math.acos(float(np.clip(tm @ chord / np.hypot(*tm) / np.hypot(*chord), -1.0, 1.0))))
+            assert ang <= 25.0, (a["id"], end, ang)

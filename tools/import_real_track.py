@@ -912,6 +912,35 @@ JOIN_BLEND_MIN_M = 30.0       # a branch end's height/camber mismatch with the m
 JOIN_BLEND_MAX_GRADE = 0.015  # ... and long enough that it adds at most this to the grade
 
 
+def merge_onto_main(xy_b: np.ndarray, z_b: np.ndarray, bank_b: np.ndarray, xy_m: np.ndarray, z_m: np.ndarray,
+                    bank_m: np.ndarray, width: float) -> tuple[np.ndarray, np.ndarray]:
+    """A branch's heights and camber (degrees) where its road overlaps the main road (centrelines closer than one
+    width): moved onto the main road's cambered surface there, fully where the centrelines meet and fading out
+    where the roads only touch. Two roads meeting at a shallow angle are one paved surface; fitted separately they
+    differed by up to 16 cm side by side (Navarra Short's hook merging onto the T7-T8 road: the AI racing strip left
+    the road surface by 5.7 cm)."""
+    z_b, bank_b = z_b.astype(np.float64).copy(), bank_b.astype(np.float64).copy()
+    _, nl_m = normals(xy_m)
+    near = [int(np.argmin(np.hypot(*(xy_m - q).T))) for q in xy_b]
+    dist = np.array([float(np.hypot(*(xy_m[j] - q))) for j, q in zip(near, xy_b)])
+    s = arc(xy_b)
+    # only the merges at the branch's ends: the runs from each end while the roads overlap, within 80 m
+    zone = np.zeros(len(xy_b), dtype=bool)
+    for idx in (range(len(xy_b)), range(len(xy_b) - 1, -1, -1)):
+        for i in idx:
+            if dist[i] >= width or min(s[i], s[-1] - s[i]) > 80.0:
+                break
+            zone[i] = True
+    for i in np.flatnonzero(zone):
+        q, j = xy_b[i], near[i]
+        w = float(np.clip((width - dist[i]) / (0.5 * width), 0.0, 1.0))
+        lat = float(np.dot(q - xy_m[j], nl_m[j]))  # to the left of the main road
+        z_surf = z_m[j] + math.tan(math.radians(bank_m[j])) * lat
+        z_b[i] = w * z_surf + (1.0 - w) * z_b[i]
+        bank_b[i] = w * bank_m[j] + (1.0 - w) * bank_b[i]
+    return z_b, bank_b
+
+
 def join_blend(s: np.ndarray, z: np.ndarray, bank: np.ndarray, z_main: tuple[float, float],
                bank_main: tuple[float, float]) -> tuple[np.ndarray, np.ndarray]:
     """An open branch's heights and camber (degrees) with its ends set to the main road's at the joins, the
@@ -1015,7 +1044,50 @@ def branch_of(alt: np.ndarray, main: np.ndarray, step: float, blend_m: float = 3
         bl = max(blend_m, 5.0 * float(np.hypot(*move)))
         w = np.clip(1.0 - (s if end == 0 else s[-1] - s) / bl, 0.0, 1.0)
         b += move[None, :] * w[:, None]
-    return resample_open(b, step)
+    return fillet_ends(resample_open(b, step), main, step)
+
+
+FILLET_MIN_ANGLE_DEG = 15.0  # a branch meeting the main line at more than this ...
+FILLET_LENGTH_M = 30.0       # ... is curved onto it over this far (about a 25 m radius for a 70 degree join)
+
+
+def fillet_ends(b: np.ndarray, main: np.ndarray, step: float, length: float = FILLET_LENGTH_M) -> np.ndarray:
+    """An open branch whose ends meet the (closed, driving-order) main line at an angle (a shallow merge trimmed by
+    joinWithinM: Navarra Short's hook ended at 47 degrees to the T7-T8 road, Bedford SEN's ends at 43 and 27
+    degrees) with its last ``length`` metres at each such end replaced by a cubic curve that leaves or joins the
+    main line along it: a 2 m kink in the road and the AI line becomes a curve."""
+    n_m = len(main)
+    for end in (0, -1):
+        s = arc(b)
+        if s[-1] < 3.0 * length:
+            break
+        j = int(np.argmin(np.hypot(*(main - b[end]).T)))
+        tm = main[(j + 2) % n_m] - main[(j - 2) % n_m]
+        tm /= max(float(np.hypot(*tm)), 1e-9)
+        k = 3 if end == 0 else len(b) - 4
+        tb = (b[k] - b[0]) if end == 0 else (b[-1] - b[k])
+        tb /= max(float(np.hypot(*tb)), 1e-9)
+        if math.degrees(math.acos(float(np.clip(tm @ tb, -1.0, 1.0)))) < FILLET_MIN_ANGLE_DEG:
+            continue
+        if end == 0:  # from the main line (along it) to the branch point `length` in
+            ia = int(np.searchsorted(s, length))
+            A, TA = b[0], tm
+            B = b[ia]
+            TB = b[min(ia + 1, len(b) - 1)] - b[ia - 1]
+        else:         # from the branch point `length` before the end onto the main line (along it)
+            ia = int(np.searchsorted(s, s[-1] - length))
+            A = b[ia]
+            TA = b[ia + 1] - b[max(ia - 1, 0)]
+            B, TB = b[-1], tm
+        TA = TA / max(float(np.hypot(*TA)), 1e-9)
+        TB = TB / max(float(np.hypot(*TB)), 1e-9)
+        c = float(np.hypot(*(B - A)))
+        u = np.linspace(0.0, 1.0, max(int(round(c / step * 4)), 8))[:, None]
+        h00, h10, h01, h11 = 2 * u**3 - 3 * u**2 + 1, u**3 - 2 * u**2 + u, -2 * u**3 + 3 * u**2, u**3 - u**2
+        curve = h00 * A + h10 * c * TA + h01 * B + h11 * c * TB
+        b = np.vstack([curve, b[ia + 1:]]) if end == 0 else np.vstack([b[:ia], curve])
+        b = resample_open(b, step)
+    return b
 
 
 def start_finish_point(sf: dict, osm: dict) -> np.ndarray:
@@ -1339,6 +1411,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         # (Navarra Short's hook, 12 m off: 1 m lower, a 14 % grade spike and a camber step at the join)
         j0 = int(np.argmin(np.hypot(*(loc - loc_b[0]).T)))
         j1 = int(np.argmin(np.hypot(*(loc - loc_b[-1]).T)))
+        zb, bank_b = merge_onto_main(loc_b, zb, bank_b, loc, z, bank, width / k_scale)
         zb, bank_b = join_blend(arc(loc_b), zb, bank_b, (z[j0], z[j1]), (bank[j0], bank[j1]))
         zb = ease_vertical(zb, step, closed=False)
         alt_specs.append({"id": alt["id"], "name": alt["name"],
