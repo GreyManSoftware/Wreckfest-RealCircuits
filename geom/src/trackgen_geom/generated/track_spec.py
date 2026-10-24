@@ -686,6 +686,37 @@ class NamedSpot:
 
 
 @dataclass(kw_only=True)
+class BrakeBoardOverrides:
+    """Corrections to the builder's heavy-braking-corner rule for the 150/100/50 m braking boards, by corner name (corners[].name), for every layout that drives the corner."""
+
+    add: list[str] | None = None
+    remove: list[str] | None = None
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> BrakeBoardOverrides:
+        return cls(
+            add=None if data.get("add") is None else [str(v0) for v0 in data["add"]],
+            remove=None if data.get("remove") is None else [str(v0) for v0 in data["remove"]],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.add is not None:
+            out["add"] = [v0 for v0 in self.add]
+        if self.remove is not None:
+            out["remove"] = [v0 for v0 in self.remove]
+        return out
+
+    @classmethod
+    def defaults(cls) -> BrakeBoardOverrides:
+        """Schema defaults for BrakeBoardOverrides."""
+        return cls(
+            add=[],
+            remove=[],
+        )
+
+
+@dataclass(kw_only=True)
 class KerbOverride:
     """Real-world kerbs and track-limit strips at one corner of an imported track (from OSM, LIDAR or a track guide), overriding the builder's geometric placement (apex kerb inside, exit kerb outside, a green strip beyond the exit kerb on fast corners) at the corner nearest sM."""
 
@@ -821,6 +852,7 @@ class ImportedTrack:
     corners: list[NamedSpot] | None = None
     viewing_spots: list[NamedSpot] | None = None
     kerbs: list[KerbOverride] | None = None
+    brake_boards: BrakeBoardOverrides | None = None
     main_layout_name: str | None = None
     alt_layouts: list[ImportedAltLayout] | None = None
     roads: list[ImportedRoad] | None = None
@@ -842,6 +874,7 @@ class ImportedTrack:
             corners=None if data.get("corners") is None else [NamedSpot.from_dict(v0) for v0 in data["corners"]],
             viewing_spots=None if data.get("viewingSpots") is None else [NamedSpot.from_dict(v0) for v0 in data["viewingSpots"]],
             kerbs=None if data.get("kerbs") is None else [KerbOverride.from_dict(v0) for v0 in data["kerbs"]],
+            brake_boards=None if data.get("brakeBoards") is None else BrakeBoardOverrides.from_dict(data["brakeBoards"]),
             main_layout_name=None if data.get("mainLayoutName") is None else str(data["mainLayoutName"]),
             alt_layouts=None if data.get("altLayouts") is None else [ImportedAltLayout.from_dict(v0) for v0 in data["altLayouts"]],
             roads=None if data.get("roads") is None else [ImportedRoad.from_dict(v0) for v0 in data["roads"]],
@@ -872,6 +905,8 @@ class ImportedTrack:
             out["viewingSpots"] = [v0.to_dict() for v0 in self.viewing_spots]
         if self.kerbs is not None:
             out["kerbs"] = [v0.to_dict() for v0 in self.kerbs]
+        if self.brake_boards is not None:
+            out["brakeBoards"] = self.brake_boards.to_dict()
         if self.main_layout_name is not None:
             out["mainLayoutName"] = self.main_layout_name
         if self.alt_layouts is not None:
@@ -1371,6 +1406,7 @@ __all__ = [
     "Attachment",
     "BarrierColour",
     "BarrierType",
+    "BrakeBoardOverrides",
     "BranchRef",
     "Canvas",
     "Crossing",
