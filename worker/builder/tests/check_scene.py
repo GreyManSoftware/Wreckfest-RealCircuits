@@ -346,13 +346,21 @@ def check_runoff(out: str, obs: dict, model: dict, spec: dict, manifest: dict) -
         cc = np.stack([gx.ravel(), gy.ravel()], axis=1)
         dist = exact_edge_distance(geo, cc)
         band = (dist >= 15.0) & (dist <= 150.0)
-        cov = wm.at(cc) if wm is not None else np.zeros(len(cc))
+        # a cell's cover: the mean of 4 x 4 points in it (wooded); open = no point in it under canopy
+        sub = (np.arange(4) + 0.5) / 4.0 * cell - cell / 2.0
+        offs = np.array([(a, b) for a in sub for b in sub])
+        if wm is not None:
+            cs = wm.at((cc[:, None, :] + offs[None, :, :]).reshape(-1, 2)).reshape(len(cc), -1)
+            cov, cmax = cs.mean(1), cs.max(1)
+        else:
+            cov, cmax = np.zeros(len(cc)), np.zeros(len(cc))
         if len(singles):
             ii = np.floor((singles - [x0, y0]) / cell).astype(int)
             nxc = gx.shape[1]
             ok = (ii[:, 0] >= 0) & (ii[:, 0] < nxc) & (ii[:, 1] >= 0) & (ii[:, 1] < gx.shape[0])
             idx = ii[ok, 1] * nxc + ii[ok, 0]
             cov[idx] = np.maximum(cov[idx], 0.5)
+            cmax[idx] = np.maximum(cmax[idx], 0.5)
         meas = band & (cov >= 0.4) & ~(ro.at(cc) > 0) & ~ro.at(cc, "band")
         got = np.zeros(len(cc), dtype=bool)
         if len(trees):
@@ -360,7 +368,7 @@ def check_runoff(out: str, obs: dict, model: dict, spec: dict, manifest: dict) -
             ok = (ti[:, 0] >= 0) & (ti[:, 0] < gx.shape[1]) & (ti[:, 1] >= 0) & (ti[:, 1] < gx.shape[0])
             got[ti[ok, 1] * gx.shape[1] + ti[ok, 0]] = True
         hit = float(got[meas].mean()) if meas.any() else 1.0
-        open_ = band & (cov < 0.05)
+        open_ = band & (cmax < 0.05)
         stray = float(got[open_].mean()) if open_.any() else 0.0
         check(hit >= 0.6 and stray <= 0.03,
               "runoff: tree density near the track within tolerance of the measured canopy (15-150 m from the road)",
@@ -786,8 +794,18 @@ def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manife
     nums = [int(pat.match(n).group(1)) for n in cps if pat.match(n)]
     check(len(nums) == len(cps) and nums == list(range(1, len(cps) + 1)) and len(cps) >= 2,
           f"{name}: checkpoints #checkpointNN numbered 1..N", ", ".join(cps))
-    rw = np.linalg.norm(np.subtract(*strip_lines(r)[0])[:2])
-    narrow = [n for n in cps if np.linalg.norm((world_verts(obs[n])[0] - world_verts(obs[n])[1])[:2]) < rw]
+    # each checkpoint spans the AI route where it stands (the route is narrower where a measured barrier is close)
+    lines = strip_lines(r)
+    mids = np.array([(np.array(a)[:2] + np.array(b)[:2]) / 2.0 for a, b in lines])
+    widths = np.array([np.linalg.norm(np.subtract(a, b)[:2]) for a, b in lines])
+
+    def local_width(n: str) -> float:
+        v = world_verts(obs[n])
+        c = (v[0, :2] + v[1, :2]) / 2.0
+        near = np.argsort(np.hypot(*(mids - c).T))[:2]
+        return float(widths[near].max())
+
+    narrow = [n for n in cps if np.linalg.norm((world_verts(obs[n])[0] - world_verts(obs[n])[1])[:2]) < local_width(n) - 0.05]
     check(not narrow, f"{name}: checkpoint planes span the AI route", ", ".join(narrow))
     first = lay["checkpoints"][0]
     own = lay_def is not None and lay_def.get("grid") is not None  # an imported layout with its own line and grid
