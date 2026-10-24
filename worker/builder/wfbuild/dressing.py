@@ -21,21 +21,132 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import config as C
-from . import envs
+from . import envs, sponsor
 from .fields import DistanceField
+from .geometry import dist_to_polyline
 from .noise import Noise2D, seed_for
 from .woods import WoodMask
 
 # categories that may stand inside measured run-off (the gantry spans the road; flags, staff and the start grandstand
 # belong to the grid sector)
-RUNOFF_EXEMPT = ("gantry", "flags", "staff", "grandstand", "barriers", "shore")
+RUNOFF_EXEMPT = ("gantry", "flags", "staff", "grandstand", "barriers", "shore", "brakeBoards")
 
 FORMAT = "trackgen-scenery/1"
+
+# ---- braking boards (stock gameplay_distanceboard{150,100,50}: breakable 2 x 1 m panels, numbers on local +X)
+BRAKE_BOARDS = (150, 100, 50)    # metres before the turn-in, furthest first
+BRAKE_MAX_RADIUS = 90.0          # a braking corner's apex radius is at most this...
+BRAKE_MIN_TURN_DEG = 30.0        # ...it turns through at least this much...
+BRAKE_MIN_DROP_KMH = 50.0        # ...and the lap-speed estimate drops by at least this much into it
+BRAKE_SPEED = {"vtop": 55.0, "lat": 11.0, "acc": 4.0, "dec": 9.0}  # m/s, m/s^2: a rough Wreckfest car
+BRAKE_GAP = 2.0                  # board's near end this far beyond the road edge (or kerb / green strip)
+BRAKE_HALF = 1.0                 # half the board's width (across the road)
+BRAKE_MIN_APPROACH = 150.0       # no boards when the previous corner's exit is closer than this to the turn-in
+BRAKE_APPROACH_SLACK = 10.0      # a board stands at least this far after the previous corner's exit
+BRAKE_DEDUP_M = 6.0              # boards of two layouts this close (same number, same facing) are one
 
 
 def yaw_to(d) -> float:
     """Yaw that turns local +Y towards direction d (x, y)."""
     return math.atan2(-float(d[0]), float(d[1]))
+
+
+def yaw_x_to(d) -> float:
+    """Yaw that turns local +X towards direction d (x, y)."""
+    return math.atan2(float(d[1]), float(d[0]))
+
+
+def layout_routes(geo) -> list[tuple[str, object, int]]:
+    """The closed lap each layout drives: (layout key, Route, direction along s). An imported track's
+    alternative layouts drive their composite routes (``layout.composite_route``); a drawn track has the main
+    route forward and, with ``reverse``, backwards."""
+    model = geo.model
+    if model.get("layouts"):
+        from .layout import composite_route
+        return [("forward" if d["id"] == "main" else d["id"], geo.main if d["id"] == "main"
+                 else composite_route(model, d), 1) for d in model["layouts"]]
+    out = [("forward", geo.main, 1)]
+    if model.get("reverse"):
+        out.append(("reverse", geo.main, -1))
+    return out
+
+
+def _smoothed_curvature(geo, r) -> np.ndarray:
+    seg = float(np.median(r.seg_len())) if r.n > 1 else 2.0
+    w = max(1, int(round(C.CORNER_SMOOTH_M / max(seg, 1e-6) / 2)))
+    ker = np.ones(2 * w + 1) / (2 * w + 1)
+    k = r.curvature
+    return (np.convolve(np.concatenate([k[-w:], k, k[:w]]), ker, mode="valid") if r.closed
+            else np.convolve(np.pad(k, w, mode="edge"), ker, mode="valid"))
+
+
+def speed_profile(geo, r, direction: int) -> np.ndarray:
+    """A rough lap-speed estimate (m/s) per sample of route r driven ``direction`` along s: the cornering limit
+    sqrt(lat / |curvature|) capped at vtop, with acceleration and braking limits (forward and backward passes,
+    twice round a closed lap)."""
+    p = BRAKE_SPEED
+    k = np.abs(_smoothed_curvature(geo, r))
+    vlim = np.minimum(p["vtop"], np.sqrt(p["lat"] / np.maximum(k, 1e-9)))
+    order = np.arange(r.n) if direction > 0 else np.arange(r.n)[::-1]
+    seg = r.seg_len()
+    v = vlim.copy()
+    loops = 2 if r.closed else 1
+
+    def ds(a: int, b: int) -> float:  # distance between neighbouring samples a -> b
+        return float(seg[min(a, b)] if abs(a - b) == 1 else seg[-1])
+
+    for _ in range(loops):  # accelerate in the driving direction
+        for n in range(1, len(order) + (1 if r.closed else 0)):
+            a, b = order[n - 1], order[n % len(order)]
+            v[b] = min(v[b], math.sqrt(v[a] ** 2 + 2 * p["acc"] * ds(a, b)))
+    for _ in range(loops):  # brake: backwards against it
+        for n in range(len(order) - 2 + (1 if r.closed else 0), -1, -1):
+            a, b = order[n], order[(n + 1) % len(order)]
+            v[a] = min(v[a], math.sqrt(v[b] ** 2 + 2 * p["dec"] * ds(a, b)))
+    return v
+
+
+def brake_zones(geo, r, direction: int) -> list[dict]:
+    """The braking corners of route r driven ``direction`` along s: corners (``corner_runs``) tighter than
+    BRAKE_MAX_RADIUS, turning at least BRAKE_MIN_TURN_DEG, into which the speed estimate drops by at least
+    BRAKE_MIN_DROP_KMH. Per zone: the turn-in sample and s (the corner's first sample in driving order), the
+    outside side (+1 left of the route's s direction), the apex radius, the approach (metres from the previous
+    corner's exit to the turn-in) and the speeds."""
+    if r.n < 8 or not r.closed:
+        return []
+    runs = geo.corner_runs(r)
+    if not runs:
+        return []
+    v = speed_profile(geo, r, direction)
+    L = r.length
+
+    def ahead(a: float, b: float) -> float:  # metres driven from s=a to s=b
+        return ((b - a) * direction) % L
+
+    ends = [(float(r.s[c["i_in" if direction > 0 else "i_out"]]), float(r.s[c["i_out" if direction > 0 else "i_in"]]))
+            for c in runs]
+    out = []
+    for c, (s_in, _s_out) in zip(runs, ends):
+        if c["radius"] > BRAKE_MAX_RADIUS or c["turnDeg"] < BRAKE_MIN_TURN_DEG:
+            continue
+        # the approach: back to the exit of the previous corner in driving order (any kerbed-radius corner)
+        prev = [ahead(e_out, s_in) for (e_in, e_out) in ends if (e_in, e_out) != (s_in, _s_out)]
+        approach = min(prev) if prev else L - ahead(s_in, _s_out)
+        # speeds: the peak over the approach (up to 250 m back) and the slowest in the corner
+        back = r.signed_s(r.s, s_in) * direction
+        win = (back <= 0.0) & (back >= -min(approach, 250.0))
+        lo, hi = sorted((c["i_in"], c["i_out"]))
+        idx = np.arange(lo, hi + 1) if hi - lo < r.n / 2 else np.r_[hi:r.n, 0:lo + 1]
+        v_peak = float(v[win].max()) if win.any() else float(v[c["i_in"]])
+        v_min = float(v[idx].min())
+        drop = (v_peak - v_min) * 3.6
+        if drop < BRAKE_MIN_DROP_KMH:
+            continue
+        i_in = c["i_in"] if direction > 0 else c["i_out"]
+        out.append({"i_in": int(i_in), "s_in": s_in, "outside": -int(c["inside"]), "radius": float(c["radius"]),
+                    "turnDeg": float(c["turnDeg"]), "approach": float(approach), "vPeak": v_peak, "vMin": v_min,
+                    "dropKmh": drop, "i_apex": int(c["i_apex"])})
+    return out
 
 
 @dataclass
@@ -87,8 +198,9 @@ class Scenery:
             "coordinates": "TrackModel metres (x east, y north, z up); yaw radians CCW about +z, 0 = local +Y north",
             "transform": transform or {"rotateDeg": 0, "shift": [0.0, 0.0, 0.0],
                                        "note": "scene = rotate(model, rotateDeg about +z) + shift"},
-            "assets": {a: {"path": f"data/art/objects/{a}.scne", **{k: v for k, v in envs.asset_info(a).items()}}
-                       for a in assets},
+            # our own meshes (sponsor boards, "mesh": true) have no stock path
+            "assets": {a: {"path": None if envs.asset_info(a).get("mesh") else f"data/art/objects/{a}.scne",
+                           **{k: v for k, v in envs.asset_info(a).items()}} for a in assets},
             "counts": self.counts(),
             "total": len(self.placements),
             "placements": [p.to_json() for p in self.placements],
@@ -510,18 +622,79 @@ class Planner:
     def ad_fences(self, straights) -> None:
         r = self.main
         n = 0
+        sp = sponsor.config() if sponsor.enabled() else None
+        share = float(sp.get("fenceShare", 0.0)) if sp else 0.0
         for k, (i, length) in enumerate(straights[:6]):
             side = 1 if k % 2 == 0 else -1
             run = min(length - 10.0, 80.0)
             for j in self.walk(r, i, run, 3.84):
                 q, tw, tg = self.side_point(r, j, side, self.edge_min + 1.0)
-                a = self.common["adFence"][(n // 6) % len(self.common["adFence"])]
-                if self.try_place(a, "adFence", q[0], q[1], self.face_yaw(a, tw, tg), self.edge_min - 0.5, r=1.92):
+                block = n // 6
+                # a share of the 6-panel blocks are our own sponsor panels (evenly spread: Bresenham on the share)
+                if share > 0 and math.floor((block + 1) * share) > math.floor(block * share):
+                    a, cat = f"sponsor_fence{(block // 2) % sponsor.n_colourways()}", sponsor.CATEGORY
+                else:
+                    a, cat = self.common["adFence"][block % len(self.common["adFence"])], "adFence"
+                if self.try_place(a, cat, q[0], q[1], self.face_yaw(a, tw, tg), self.edge_min - 0.5, r=1.92):
                     n += 1
             if k < 2:
                 q, tw, tg = self.side_point(r, i, -side, self.edge_min + 14.0)
                 a = self.pick(self.common["bigBoard"])
                 self.try_place(a, "bigBoard", q[0], q[1], self.face_yaw(a, tw, tg), self.edge_min + 8.0)
+
+    def sponsor_billboards(self, straights) -> None:
+        """Our sponsor billboards (sponsor.py) at the classic spots, up to the configured number: beside the
+        start/finish straight facing the grid's view and across from the grandstand, then on the outside of the
+        biggest braking zones (``info.brakeBoards``) at the turn-in. Each stands behind the run-off clearance,
+        BILLBOARD_OFF metres out (the nearest that fits), its printed face (local -Y) turned to the oncoming
+        view: between straight back up the road and square to it."""
+        if not sponsor.enabled():
+            return
+        cap = int(sponsor.config().get("billboards", 6))
+        ncw = sponsor.n_colourways()
+        r0 = self.main
+        spots: list[tuple[object, int, int, int, str]] = []  # (route, sample, side, direction, why)
+        L = r0.length
+        for s_off in (90.0, -140.0):  # the start/finish straight, ahead of the grid and before the line
+            i = r0.index_at(s_off % L)
+            spots.append((r0, i, 1 if s_off > 0 else -1, 1, "startFinish"))
+        gs = next((p for p in self.sc.placements if p.category == "grandstand"), None)
+        if gs is not None:  # facing the grandstand, across the road from it
+            j = int(np.argmin(np.hypot(r0.p[:, 0] - gs.x, r0.p[:, 1] - gs.y)))
+            side = 1 if float(np.dot([gs.x - r0.p[j, 0], gs.y - r0.p[j, 1]], r0.nl[j])) > 0 else -1
+            spots.append((r0, r0.index_at((r0.s[j] + 30.0) % L), -side, 0, "grandstand"))
+        zones = sorted((self.sc.info.get("brakeBoards") or {}).get("zones", []), key=lambda z: -z["dropKmh"])
+        routes = {key: (r, d) for key, r, d in layout_routes(self.geo)}
+        for z in zones:
+            r, d = routes[z["layout"]]
+            spots.append((r, r.index_at(z["turnInS"]), 1 if z["side"] == "left" else -1, d, "braking"))
+        for i, length in straights[:2]:
+            spots.append((r0, i, -1, 1, "straight"))
+        n, used = 0, []
+        for r, i, side, direction, why in spots:
+            if n >= cap:
+                break
+            for off in self.BILLBOARD_OFF:
+                q, tw, tg = self.side_point(r, i, side, max(off, self.edge_min + 4.0))
+                if any(math.hypot(q[0] - x, q[1] - y) < 120.0 for x, y in used):
+                    break  # one billboard per spot (two layouts' zones on the same corner)
+                # printed face towards the road and back up it (towards the oncoming view)
+                view = tw if direction == 0 else tw + (-tg * direction) * 1.0
+                view = view / max(float(np.linalg.norm(view)), 1e-9)
+                yaw = yaw_to((-view[0], -view[1]))
+                a = f"sponsor_billboard{n % ncw}"
+                info = envs.asset_info(a)
+                ax = np.array([math.cos(yaw), math.sin(yaw)])
+                ends = np.array([q + ax * info["width"] / 2.0, q - ax * info["width"] / 2.0])
+                if (self.field.dist(ends) < self.edge_min + 2.0).any() or self.in_nogo(ends, 1.0, False).any():
+                    continue
+                if self.try_place(a, sponsor.CATEGORY, q[0], q[1], yaw, self.edge_min + 2.0, r=info["r"]):
+                    used.append((float(q[0]), float(q[1])))
+                    n += 1
+                    break
+        self.sc.info["sponsorBillboards"] = n
+
+    BILLBOARD_OFF = (16.0, 22.0, 30.0, 40.0)  # metres beyond the road edge, nearest first
 
     def corner_markers(self, corners) -> None:
         if self.measured:
@@ -538,6 +711,100 @@ class Planner:
                 q, tw, tg = self.side_point(r, j, -side, off)
                 a = self.pick(markers)
                 self.try_place(a, "cornerMarkers", q[0], q[1], self.face_yaw(a, tw, tg), off - 1.0, r=0.6)
+
+    def _kerb_out(self, q: np.ndarray) -> float:
+        """Kerb plus green-strip width at the road edge nearest point q (0 without kerbs)."""
+        k = int(self.field.nearest(q)[0])
+        if k < 0:
+            return 0.0
+        r = self.geo.routes[int(self.field.ri[k])]
+        i = int(self.field.si[k])
+        side = 1 if float(np.dot(q - r.p[i, :2], r.nl[i])) > 0 else -1
+        kw, gw = self.geo.kerb_plan().get((r.index, side), (np.zeros(r.n), np.zeros(r.n)))
+        return float(kw[i] + gw[i])
+
+    def _wall_lines(self) -> list[np.ndarray]:
+        if not hasattr(self, "_wl"):
+            self._wl = [np.asarray(w["points"], dtype=np.float64)[:, :2] for w in self.geo.wall_runs()]
+        return self._wl
+
+    def brake_boards(self) -> None:
+        """Braking boards (stock ``gameplay_distanceboard150/100/50``) 150, 100 and 50 m before the turn-in of
+        every braking corner (``brake_zones``) of every layout, in its driving direction, on the outside of the
+        corner (the side cars brake on: left before a right-hander), BRAKE_GAP beyond the road edge or kerb, the
+        numbered face (local +X) towards oncoming cars. A board is skipped when the approach is too short for it
+        or it would stand on or near another road (a divider), behind a wall line, in a no-go zone or on another
+        placement; boards of two layouts that coincide are placed once."""
+        assets = {d: f"gameplay_distanceboard{d}" for d in BRAKE_BOARDS}
+        if not set(assets.values()) <= self.allowed:
+            return
+        zones_out, placed = [], []  # placed: (number, x, y, facing unit, placement index)
+        skipped: dict[str, int] = {}
+
+        for key, r, direction in layout_routes(self.geo):
+            for z in brake_zones(self.geo, r, direction):
+                if z["approach"] < BRAKE_MIN_APPROACH:
+                    continue
+                rec = {"layout": key, "turnInS": round(z["s_in"], 1), "side": "left" if z["outside"] > 0 else "right",
+                       "radiusM": round(z["radius"], 1), "approachM": round(z["approach"], 1),
+                       "dropKmh": round(z["dropKmh"]), "boards": [], "skipped": {}}
+                if r is self.geo.main:
+                    name = self.geo._named(float(r.s[z["i_apex"]]))
+                    if name:
+                        rec["corner"] = name
+
+                def skip(why: str, dist: int, rec=rec) -> None:
+                    skipped[why] = skipped.get(why, 0) + 1
+                    rec["skipped"][str(dist)] = why
+
+                side = z["outside"]
+                for dist in BRAKE_BOARDS:
+                    if dist > z["approach"] - BRAKE_APPROACH_SLACK:
+                        skip("approach", dist)
+                        continue
+                    s = (z["s_in"] - direction * dist) % r.length
+                    i = r.index_at(s)
+                    edge = (r.left if side > 0 else r.right)[i, :2]
+                    out = r.nl[i] * side
+                    probe = edge + out * BRAKE_GAP
+                    off = BRAKE_GAP + self._kerb_out(probe) + BRAKE_HALF
+                    q = edge + out * off
+                    face = -r.tangent[i] * direction  # towards the oncoming cars
+                    ends = np.array([q - out * BRAKE_HALF, q, q + out * BRAKE_HALF])
+                    # own road nearest and no other road close behind it (a divider between two sections)
+                    far = q + out * 9.0
+                    d_ends = self.field.dist(np.vstack([ends, far]))
+                    if d_ends[0] < off - BRAKE_HALF - 0.8 or d_ends[3] < off + 9.0 - 2.5:
+                        skip("otherRoad", dist)
+                        continue
+                    seg = edge[None, :] + out[None, :] * np.linspace(0.0, off + BRAKE_HALF + 0.4, 9)[:, None]
+                    if any(float(dist_to_polyline(seg, wl).min()) < 0.6 for wl in self._wall_lines() if len(wl) > 1):
+                        skip("wall", dist)
+                        continue
+                    if self.in_nogo(ends, 0.5, False).any():
+                        skip("noGo", dist)
+                        continue
+                    if self.measured and (self.runoff.at(ends) == 1).any():  # never in a measured gravel trap
+                        skip("gravelTrap", dist)
+                        continue
+                    if not self.inside(q[0], q[1], 2.0) or not self.dry(q[0], q[1]):
+                        skip("terrain", dist)
+                        continue
+                    dup = next((k for (dd, x, y, f, k) in placed if dd == dist and math.hypot(
+                        x - q[0], y - q[1]) < BRAKE_DEDUP_M and float(np.dot(f, face)) > 0.85), None)
+                    if dup is not None:  # another layout's board on the shared road
+                        rec["boards"].append({"m": dist, "placement": dup, "s": round(s, 1), "shared": True})
+                        continue
+                    if not self.occ.free(q[0], q[1], BRAKE_HALF):
+                        skip("occupied", dist)
+                        continue
+                    self.occ.add(q[0], q[1], BRAKE_HALF)
+                    rec["boards"].append({"m": dist, "placement": len(self.sc.placements), "s": round(s, 1)})
+                    placed.append((dist, float(q[0]), float(q[1]), face, len(self.sc.placements)))
+                    self.sc.placements.append(Placement(assets[dist], "brakeBoards", float(q[0]), float(q[1]), 0.0,
+                                                        yaw_x_to(face)))
+                zones_out.append(rec)
+        self.sc.info["brakeBoards"] = {"zones": zones_out, "placed": len(placed), "skipped": skipped}
 
     def barriers(self) -> None:
         """The visible containment: a row of the environment's stock barrier props (concrete blocks, muddy
@@ -963,9 +1230,11 @@ class Planner:
         corners = self.corners()
         straights = self.straights()
         paddock_side = self.start_finish()
+        self.brake_boards()
         self.corner_markers(corners)
         self.barriers()
         self.viewing_spots(corners)
+        self.sponsor_billboards(straights)
         self.ad_fences(straights)
         self.paddock(paddock_side)
         self.lights()
@@ -981,7 +1250,9 @@ class Planner:
                              # barriers pass beneath the deck)
                              "nearRoadM": {"barriers": [C.DIVIDER_MIN - 1.0,
                                                         max(C.CROWD_WALL, C.FAST_CORNER_WALL) + 2.0],
-                                           "cornerMarkers": [C.SHOULDER_W, None]},
+                                           "cornerMarkers": [C.SHOULDER_W, None],
+                                           "brakeBoards": [BRAKE_GAP + BRAKE_HALF - 0.8,
+                                                           BRAKE_GAP + BRAKE_HALF + C.KERB_W + C.GREEN_W + 0.8]},
                              "treeThreshold": round(self.tree_thr, 4)})
         return self.sc
 

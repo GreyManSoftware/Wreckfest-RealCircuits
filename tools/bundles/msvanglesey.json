@@ -1,19 +1,28 @@
 {
   "slug": "msvanglesey",
-  "title": "MSV + Anglesey Tracks",
+  "title": "Greyman Software Track Pack 1",
   "publishedId": 3826192302,
   "visibility": "public",
   "homepage": "https://git.greymansoftware.com",
-  "tracks": ["cadwellpark", "brandshatch", "oultonpark", "snetterton", "doningtonpark", "bedfordautodrome", "navarra", "anglesey"],
-  "intro": "[h1]MSV + Anglesey Tracks[/h1]\nThe seven MotorSport Vision circuits plus Anglesey Circuit (Trac Mon), rebuilt from open map and LIDAR data: {circuits} circuits, {layouts} layouts. Each circuit has its current official layouts with the real racing direction and start/finish lines, real elevation and camber, measured track widths, a 24-car grid, AI and the in-race minimap.",
+  "tracks": [
+    "cadwellpark",
+    "brandshatch",
+    "oultonpark",
+    "snetterton",
+    "doningtonpark",
+    "bedfordautodrome",
+    "navarra",
+    "anglesey"
+  ],
+  "intro": "[h1]Greyman Software Track Pack 1[/h1]\n[b]Flatshiftcars presents[/b] eight best-loved track day hero circuits, seven from the UK and one from Spain, brought to Wreckfest as faithfully as we could make them. Every layout is rebuilt from real survey data: the racing line from OpenStreetMap, the elevation, gradients and camber from laser-scanned (LIDAR) ground models, and the track width measured section by section. You get the real corners, the real crests and the real start/finish lines, with kerbs, braking boards, gravel traps, a 24-car grid, AI and the in-race minimap.\n{circuits} circuits, {layouts} layouts. Follow [b]@flatshiftcars[/b] on Instagram for track days and builds.",
   "lapNote": "Lap lengths are as built in the game.",
   "usage": [
-    "Subscribe, then enable [b]MSV + Anglesey Tracks[/b] in the Mods menu and restart the game. Each layout is an event, e.g. \"Brands Hatch Indy\".",
+    "Subscribe, then enable [b]Greyman Software Track Pack 1[/b] in the Mods menu and restart the game. Each layout is an event, e.g. \"Brands Hatch Indy\".",
     "Online: the server and every player need the mod enabled (server: copy the mod folder into the server's mods folder and add that folder's name to mods= in server_config.cfg).",
     "Don't enable it together with separate single-circuit versions of these tracks: the same track in two mods clashes."
   ],
-  "changeNote": "First release: {circuits} circuits, {layouts} layouts.",
-  "previewSubtitle": "7 MotorSport Vision circuits + Anglesey  |  {layouts} layouts  |  real elevation and camber",
+  "changeNote": "Renamed to Greyman Software Track Pack 1. Fixes: start camera, Oulton Hislop's straight, Cadwell junctions and dividers, verge gaps; new 150/100/50 m braking boards.",
+  "previewSubtitle": "8 real circuits  |  {layouts} layouts  |  real elevation and camber",
   "credits": [
     "Circuit layouts and woodland: © OpenStreetMap contributors, ODbL 1.0",
     "Heights in England: Environment Agency LIDAR Composite DTM, © Environment Agency copyright and/or database right, Open Government Licence v3.0",
@@ -29,5 +38,15 @@
     "Heights, camber, terrain and track widths in Spain (Circuito de Navarra): Gobierno de Navarra 2024 LIDAR flight, MDT 2 m and point cloud, via IDENA (idena.navarra.es). © Gobierno de Navarra. CC BY 4.0.",
     "The tracks are derived data (centrelines, a terrain grid, simplified woods); the game's own textures and objects are referenced, not included."
   ],
-  "disclaimer": "Unofficial fan-made tracks, not affiliated with or endorsed by MotorSport Vision or the circuits; circuit names are trademarks of their owners."
+  "disclaimer": "Unofficial fan-made tracks, not affiliated with or endorsed by MotorSport Vision or the circuits; circuit names are trademarks of their owners.",
+  "blurbs": {
+    "cadwellpark": "The \"Mini-Nurburgring\" in the Lincolnshire Wolds: narrow, twisting and full of elevation. Climb the Mountain, where bikes famously get airborne over the crest, thread Hall Bends and the Gooseneck, and lose time everywhere if you overdrive it.",
+    "brandshatch": "Kent's natural amphitheatre. The plunge into Paddock Hill Bend is one of the great corners in British racing, followed by the climb to the Druids hairpin. The Grand Prix loop adds the fast, tree-lined run through Hawthorn, Westfield and Dingle Dell.",
+    "oultonpark": "Cheshire parkland at its most beautiful and most unforgiving. A rollercoaster of blind crests and fast sweepers, from Old Hall and Cascades down past the lake to Shell Oils, then Knickerbrook, Clay Hill and Druids. The Hislop's and Brittens chicanes keep you honest.",
+    "snetterton": "A former WWII airfield in Norfolk and one of the longest circuits in the UK. Flat, fast and technical: the long Bentley Straight, heavy braking zones and a tricky infield on the 300 layout, plus the shorter 200 and 100.",
+    "doningtonpark": "Leicestershire's historic home of racing. Turn in at Redgate and drop through the sweeping Craner Curves, one of the finest sequences anywhere, then the Old Hairpin, McLeans and Coppice before the Grand Prix loop out to the Melbourne Hairpin.",
+    "bedfordautodrome": "A wide, flat airfield circuit in Bedfordshire with huge run-off and four very different layouts. Ideal for learning car control and for close, side-by-side racing.",
+    "navarra": "A modern circuit near Los Arcos in northern Spain: flowing, wide and fast, with a long main straight and a dry, open landscape. Main Track, Medium and Short layouts.",
+    "anglesey": "Trac Mon sits on a windswept headland on the North Wales coast, with sea views and the mountains of Snowdonia on the horizon. Fast and flowing, with the Banking and the plunging Corkscrew, across four layouts."
+  }
 }

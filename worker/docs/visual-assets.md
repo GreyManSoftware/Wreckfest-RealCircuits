@@ -160,6 +160,49 @@ The facing was measured against the stock fields13 AI route:
   - bales `prop_bale1`, `prop_straw_bale1`, `prop_balefence`;
   - `prop_concrete_element3`.
 - **Big boards:** `prop_ad_eu_huge01a..v` (7 × 5.6 m).
+- **Braking boards:** `gameplay_distanceboard50`, `100`, `150` and `200` (see "Braking boards" below).
+
+### Braking boards (2026-10-24)
+
+Stock `data/art/objects/gameplay_distanceboard{50,100,150,200}.scne`, measured with `scne_read.py` (model
+transforms plus batch boxes):
+
+- **Size.** One panel 2.0 m wide (local Y) × 1.0 m tall (origin at its foot) × 0.06 m thick (local X); 636
+  vertices, material `distanceboard`, texture `data/art/textures/gameplay_distanceboard_c`.
+- **Dynamics.** Breakable: the root is `data/property/object/distanceboard1.dntp`, with two halves
+  (`distanceboard1_bigpiece`) of four wooden pieces each (`generic_wood_small`). Hitting one shatters it,
+  so it is no wall.
+- **Facing.** The numbered face is local **+X**. Every one of urban03's 19 boards (and forest04's 100 and 50
+  boards) has local +X pointing against the travel direction, i.e. towards oncoming cars.
+- **Stock use.** forest04 has 12, forest06 3, urban03 19 (with 200 m boards) and urban04 1, in sets 50 m apart.
+
+The planner (`dressing.brake_boards`, category `brakeBoards`) uses the 150, 100 and 50 boards; nothing is
+copied. Placement rules: `worker/docs/scenery-manifest.md`.
+
+### Sponsor boards: our own meshes and textures (2026-10-24)
+
+Stock ad props (`prop_adfence*`, `prop_ad_eu_huge*`) carry stock artwork, so the "@flatshiftcars" boards are
+our own (`wfbuild/sponsor.py`, category `sponsorBoards`):
+
+- **Meshes.** Built into the base scene as one solid mesh `sponsor_boards` (`col = true`, material
+  `sponsor_<kind><k>#metal`, albedo in slot 1 and the stock `default_zero_spec_s` in slot 9), not `#xref`
+  subscenes. A fence panel is 3.84 × 1.0 m (as `prop_adfence3`), 0.05 m thick, 0.08 m off the ground on two feet;
+  a billboard is a 7 × 3.5 m panel from 2 m up on two posts sunk 0.6 m. The printed face is local −Y, as the stock
+  ad fences.
+- **Textures.** Rendered by the builder with Pillow (DejaVu Sans Bold in the worker image): the handle in bold, a
+  camera glyph in the Instagram manner drawn from primitives (no logo files), a slanted accent band; the billboard
+  adds the tagline. One sheet per board kind and colourway (fence 1024 × 512, billboard 1024 × 1024: printed face
+  in the top half, a plain back colour below), written as `data/track/<slug>/textures/<slug>_sponsor_<kind><k>_c.tga`
+  and bimage'd with the generated maps.
+- **Configuration.** `environments.json` `"sponsor"`: `enabled`, `text`, `tagline`, `fenceShare` (share of the
+  6-panel ad-fence blocks that become ours), `billboards` (at most this many), `colourways` (`background`, `text`,
+  `accent`, `back`). The JSON file named in `TRACKGEN_SPONSOR` is merged over it (e.g. another handle for a
+  different pack, or `{"enabled": false}`).
+- **Placement** (`dressing.sponsor_billboards`, `ad_fences`): billboards beside the start/finish straight (ahead of
+  the grid and before the line), across the road from the grandstand, then on the outside of the biggest braking
+  zones at the turn-in, then mid-straight; 16–40 m beyond the road edge (behind the run-off clearance, no-go zones
+  and other roads respected), one per spot, the printed face turned between square to the road and back up it
+  towards the oncoming view. Measured on the samples: 2–6 billboards and 0–48 fence panels per track.
 
 ### Buildings
 
