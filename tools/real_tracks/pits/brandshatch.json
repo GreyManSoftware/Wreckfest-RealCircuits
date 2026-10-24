@@ -1,0 +1,96 @@
+{
+ "select": {
+  "pitLanes": [
+   {
+    "id": "pit",
+    "ways": [4906930],
+    "widthM": 9.5,
+    "mode": "closed",
+    "centreFromTrackM": 13.0,
+    "taperM": 80,
+    "widthSource": "estimated: the paved strip between the pit wall and the garage fronts (OSM Pit Garages 28767014, LIDAR) is about 12 m wide, the garages' fronts 18.7 m from the track's centre; OSM maps the lane about 10 m from the track's centre, so its middle part is moved out to 13 m (track edge 6.5 m + pit wall + half the lane)",
+    "modeReason": "the entry is on the exit of Clark Curve, fast and blind, and the lane is 7 m shorter than the track (a short cut if open)"
+   }
+  ],
+  "buildings": [
+   {
+    "way": 28767014,
+    "kind": "garages"
+   },
+   {
+    "way": 1014115927,
+    "kind": "media"
+   },
+   {
+    "way": 1014115929,
+    "kind": "control"
+   },
+   {
+    "way": 115380266,
+    "kind": "hospitality"
+   },
+   {
+    "way": 1014415629,
+    "kind": "hospitality"
+   }
+  ],
+  "grandstands": [
+   {
+    "way": 842276415
+   },
+   {
+    "way": 1014415628
+   },
+   {
+    "way": 115380227
+   },
+   {
+    "way": 115380274
+   },
+   {
+    "way": 842276416
+   }
+  ],
+  "paddocks": [
+   {
+    "way": 115483816,
+    "kind": "paddock"
+   },
+   {
+    "way": 28767032,
+    "kind": "paddock"
+   }
+  ],
+  "gantries": [
+   {
+    "kind": "startLights",
+    "name": "start line",
+    "sM": 19.0,
+    "source": "driver61.com start/finish coordinates (51 21'37.1\"N 0 15'37.2\"E), 19 m past the OSM raceway=start-finish node 1825805766 (the finish line); BARC Indy briefing notes: start and finish lines about 20 m apart"
+   },
+   {
+    "kind": "footbridge",
+    "name": "Hailwood Hill footbridge",
+    "osmWay": 842276417,
+    "source": "OSM way 842276417 (highway=footway, bridge=covered, layer=1) over Hailwood Hill; LIDAR (EA NLP 2018) shows the span across the whole road, top 7.6-8.0 m"
+   },
+   {
+    "kind": "bridge",
+    "name": "service bridge (Pilgrims Drop)",
+    "osmWay": 115385663,
+    "source": "OSM way 115385663 (highway=service, bridge=yes, layer=1) over the GP loop; LIDAR (EA NLP 2018) shows the deck across the road, top 5.2-5.7 m"
+   },
+   {
+    "kind": "bridge",
+    "name": "service bridge (Clearways)",
+    "osmWay": 115380228,
+    "source": "OSM way 115380228 (highway=service, bridge=yes, layer=1); LIDAR (EA NLP 2018) shows the deck across the road, top 4.4-5.8 m"
+   }
+  ]
+ },
+ "sources": {
+  "osm": "OpenStreetMap (c) OpenStreetMap contributors, ODbL 1.0: Overpass over the recipe bbox, 2026-10-24 (tools/real_tracks_data/fetch_pits_osm.py)",
+  "lidar": "Environment Agency National LIDAR Programme point cloud 2018 (TQ5560) minus the LIDAR Composite DTM 1 m, OGL v3",
+  "maps": "MSV official GP map (brandshatch.co.uk circuit layouts): pit lane along Brabham Straight on the inside, entry after Clark Curve, exit before Paddock Hill Bend; the pit garages, media centre and race control behind it; the Pit Straight Grandstand opposite"
+ }
+}

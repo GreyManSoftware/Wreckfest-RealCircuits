@@ -1,0 +1,67 @@
+{
+ "select": {
+  "pitLanes": [
+   {
+    "id": "pit",
+    "ways": [264840723],
+    "widthM": 10.0,
+    "mode": "closed",
+    "centreFromTrackM": 13.0,
+    "taperM": 60,
+    "modeReason": "the lane runs inside the last corners and is 43 m shorter than the track: a short cut if open",
+    "widthSource": "estimated from the gap between the track's edge and the garages (OSM 1234485402, LIDAR)"
+   }
+  ],
+  "buildings": [
+   {
+    "way": 1234485402,
+    "kind": "garages"
+   },
+   {
+    "way": 1234485401,
+    "kind": "garages"
+   },
+   {
+    "way": 1234485403,
+    "kind": "control"
+   },
+   {
+    "way": 883383354,
+    "kind": "other"
+   }
+  ],
+  "grandstands": [],
+  "paddocks": [
+   {
+    "way": 264841306,
+    "kind": "paddock"
+   },
+   {
+    "way": 1234495011,
+    "kind": "paddock",
+    "name": "Parc Ferme"
+   },
+   {
+    "way": 1234446731,
+    "kind": "paddock"
+   },
+   {
+    "way": 1234446732,
+    "kind": "paddock"
+   }
+  ],
+  "gantries": [
+   {
+    "kind": "startLights",
+    "name": "start/finish line",
+    "sM": 0.0,
+    "source": "OSM node 11458386749 'Start/Finish' (the recipe's line) by the 2007 pits"
+   }
+  ]
+ },
+ "sources": {
+  "osm": "OpenStreetMap (c) OpenStreetMap contributors, ODbL 1.0: Overpass over the recipe bbox, 2026-10-24 (tools/real_tracks_data/fetch_pits_osm.py)",
+  "lidar": "Welsh Government / NRW LIDAR composite DSM and DTM 1 m (DataMapWales COGs), OGL v3",
+  "maps": "racingcircuits.info Anglesey International map"
+ }
+}

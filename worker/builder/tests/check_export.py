@@ -619,6 +619,16 @@ def main() -> None:
                 gone = [a for a in set(built) if not os.path.isfile(os.path.join(WF, "data/art/objects", a + ".scne"))]
                 check(built == planned and not gone, f"{scene}: braking boards exported as stock distance-board subscenes",
                       f"{len(built)} built, {len(planned)} planned; unresolved {gone}")
+                # real pits (wfbuild/pits.py): every planned pit prop exported as its stock subscene, resolving
+                with open(sc_path, encoding="utf-8") as f:
+                    pit = sorted(p["asset"] for p in json.load(f)["placements"]
+                                 if p["category"] in ("pitWall", "pitBuildings", "pitPaddock", "bridges", "realGrandstand"))
+                if pit:
+                    names = sorted(o.xref.split("/")[-1][:-4] for o in props)
+                    missing = [a for a in set(pit) if names.count(a) < pit.count(a)
+                               or not os.path.isfile(os.path.join(WF, "data/art/objects", a + ".scne"))]
+                    check(not missing, f"{scene}: pit wall, buildings, paddock and bridges exported as stock subscenes",
+                          f"{len(pit)} planned; missing or unresolved {missing[:3]}")
             badm = [m.name for m in b.materials if m.name != "ghost" and ("#" not in m.name or not m.textures
                     or not all(t.path.startswith("data/") and t.path.endswith(".tga") for t in m.textures))]
             check(not badm, f"{scene}: materials keep name#surface and data/... texture paths", ", ".join(badm))

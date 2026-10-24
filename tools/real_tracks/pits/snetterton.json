@@ -1,0 +1,69 @@
+{
+ "select": {
+  "pitLanes": [
+   {
+    "id": "pit",
+    "ways": [145755934],
+    "widthM": 10.0,
+    "mode": "closed",
+    "centreFromTrackM": 13.0,
+    "taperM": 80,
+    "modeReason": "closed for now, though it could be drivable (a straight, parallel lane beside Senna Straight, no short cut: 0.3 m): a car in the lane would miss the finish checkpoint (it spans the track only) and the track's barrier plan has no gaps for the merges yet",
+    "widthSource": "estimated from the gap between the track's edge and the pit building (OSM 145755929, LIDAR)"
+   }
+  ],
+  "buildings": [
+   {
+    "way": 145755929,
+    "kind": "garages",
+    "name": "Pit garages"
+   },
+   {
+    "way": 419561276,
+    "kind": "control"
+   },
+   {
+    "way": 161988859,
+    "kind": "other"
+   },
+   {
+    "way": 161988852,
+    "kind": "hospitality"
+   }
+  ],
+  "grandstands": [],
+  "paddocks": [
+   {
+    "way": 161988861,
+    "kind": "paddock"
+   },
+   {
+    "way": 161988857,
+    "kind": "paddock"
+   },
+   {
+    "way": 161988860,
+    "kind": "paddock"
+   }
+  ],
+  "gantries": [
+   {
+    "kind": "startLights",
+    "name": "start/finish line",
+    "sM": 0.0,
+    "source": "OSM node 1717542072 'Start/finish line' (raceway=start-finish), the recipe's line on Senna Straight"
+   },
+   {
+    "kind": "bridge",
+    "name": "service bridge (Brundle)",
+    "osmWay": 98718314,
+    "source": "OSM way 98718314 (highway=service, bridge=yes, layer=1); LIDAR (EA NLP 2018/2021): deck across the road over 10 m, top 5.2-7.0 m"
+   }
+  ]
+ },
+ "sources": {
+  "osm": "OpenStreetMap (c) OpenStreetMap contributors, ODbL 1.0: Overpass over the recipe bbox, 2026-10-24 (tools/real_tracks_data/fetch_pits_osm.py)",
+  "lidar": "Environment Agency National LIDAR Programme point cloud (TL9585 2018, TM0085 2021) minus the LIDAR Composite DTM 1 m, OGL v3",
+  "maps": "MSV Snetterton 300 map (.local/realtracks/snetterton/maps/300.pdf): pit lane beside Senna Straight, paddock behind the pits"
+ }
+}

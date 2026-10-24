@@ -150,6 +150,32 @@ The facing was measured against the stock fields13 AI route:
 | `prop_container2` / `4` | 6 m |
 | `prop_trailer2` | |
 
+### Real pits: pit garages, buildings, bridges, start lights (2026-10-24)
+
+Measured with Toolbox imports in the worker container (`.local/probe`: bounding boxes, the lowest geometry over the
+span, workbench renders from both sides). Used by `wfbuild/pits.py` for the real circuits' pits:
+
+| Prop | Size (m, X × Y × Z) | Use | Front / notes |
+|---|---|---|---|
+| `prop_tarmac2_pitstop_part2` | 28.4 × 12.4 × 10.4 | pit garages, tiled along the footprint | roller doors on **+Y** |
+| `prop_tarmac2_pitstop_part1` | 28.4 × 19.3 × 11.6 | (not used) | doors on −Y |
+| `prop_tarmac2_pitstop_midpart*` | 30.6 × 7.8 × 10.3 | (not used: an open canopy) | |
+| `prop_startbuilding_fields14` | 21.8 × 9.3 × 10.5 | race control, media centre | windows on **+Y** |
+| `prop_start_building_forest11` / `forest09` | 21.5 × 14.8 × 6.9 / 20.9 × 8.8 × 6.1 | hospitality, other buildings | −Y |
+| `prop_commentatorbuilding_forest09` | 6.9 × 6.3 × 5.6 | buildings under 12 m long | −Y |
+| `prop_tarmac2_tenthall` | 15 × 35 × 6 | paddock buildings | −Y |
+| `prop_concrete_element3` | 6.0 × 1.41 × 2.54 | the pit wall and the closures | along X |
+| `prop_bridge03_green` | 55.1 × 4.0 × 9.1 | bridges and footbridges over the road | span along X: inner pillars ±11 m, more at ±15 m, stairs to ±27.5 m; deck underside 5.97 m |
+| `prop_forest5_startlight01` | 11.1 × 0.9 × 8.2 | the start lights | a pole at x = 0 and an arm 7.2 m up reaching to x = 10.5 |
+| `prop_start_startlights1` | 32.7 × 8.7 × 9.5 | (generated tracks' gantry) | legs ±16.35 m; the banner's lower edge is only **4.0 m** up (5.0 m in the middle) |
+| `prop_start_archway01` | 32.7 × 8.7 × 9.1 | (not used) | 5.3 m clear |
+| `prop_bridge02` / `02b` / `02c` / `02d`, `prop_bridge03b` / `03c` | 22-33 m / 55 m | (not used) | 02*: stairs to the ground at ±7.5-8 m (short span); 03b: pillars at ±8 m |
+| `forest13_pitbuilding_01..05` | 3-10 × 7-19 × 4-10 | (not used) | small wooden huts |
+
+Scaled uniformly (Wreckfest scales `#xref` subscenes; only uniform scales are used): the garages and buildings by
+the real height (0.55-1.4), the footbridge so its inner pillars stand outside the road, its walls and any pit lane
+and its deck stays at least 5 m over the road.
+
 ### Trackside
 
 - **Flags and pennants:** `prop_flagpole12` (10 m), `prop_pennant_anim_1*` and `5a`.

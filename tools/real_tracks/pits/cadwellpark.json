@@ -1,0 +1,70 @@
+{
+ "select": {
+  "pitLanes": [
+   {
+    "id": "pit",
+    "ways": [117976650],
+    "widthM": 7.0,
+    "mode": "closed",
+    "centreFromTrackM": 9.5,
+    "taperM": 50,
+    "modeReason": "narrow lane squeezed between the start straight and the run to the Mountain; closed keeps it out of the racing",
+    "widthSource": "estimated: Cadwell's pit lane is narrow (the start straight is 8.6-9.5 m); OSM maps it about 9 m from the track's centre"
+   }
+  ],
+  "buildings": [
+   {
+    "way": 396424042,
+    "kind": "control"
+   },
+   {
+    "way": 396424043,
+    "kind": "garages"
+   }
+  ],
+  "grandstands": [
+   {
+    "way": 117987846
+   }
+  ],
+  "paddocks": [
+   {
+    "kind": "paddock",
+    "name": "Paddock (west of the run to the Mountain)",
+    "polygon": [
+     [-40, 150],
+     [90, 172],
+     [96, 92],
+     [30, 74],
+     [-40, 95]
+    ],
+    "source": "hand-drawn over the LIDAR relief: the open ground reached by OSM's 'Paddock Entry' (142058939) and 'Paddock Exit' (117976649) service roads, beside the Club House and the scrutineering shed (117990859); OSM has no paddock polygon"
+   }
+  ],
+  "gantries": [
+   {
+    "kind": "startLights",
+    "name": "start/finish line",
+    "sM": 0.0,
+    "source": "the recipe's start/finish line (where the pit garage lane rejoins the pit lane; ukCircuits: the lights opposite the start of the pit exit lane)"
+   },
+   {
+    "kind": "footbridge",
+    "name": "footbridge before Coppice",
+    "sM": 260.0,
+    "source": "LIDAR (EA NLP 2019, TF2580): a span across the whole road at s 259-261 m, top 8.0-8.2 m; not in OSM"
+   },
+   {
+    "kind": "footbridge",
+    "name": "footbridge at Woodland",
+    "sM": 2466.0,
+    "source": "LIDAR (EA NLP 2019, TF2580): a span across the whole road at s 2465-2467 m, top 7.9-8.3 m; not in OSM"
+   }
+  ]
+ },
+ "sources": {
+  "osm": "OpenStreetMap (c) OpenStreetMap contributors, ODbL 1.0: Overpass over the recipe bbox, 2026-10-24 (tools/real_tracks_data/fetch_pits_osm.py)",
+  "lidar": "Environment Agency National LIDAR Programme point cloud 2019 (TF2580) minus the LIDAR Composite DTM 1 m, OGL v3",
+  "maps": "MSV car circuit map (cadwellpark.co.uk): pit lane on the inside of the start straight, the paddock beyond the run to the Mountain"
+ }
+}

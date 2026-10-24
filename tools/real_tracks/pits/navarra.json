@@ -1,0 +1,61 @@
+{
+ "select": {
+  "pitLanes": [
+   {
+    "id": "pit",
+    "ways": [195101700],
+    "widthM": 12.0,
+    "mode": "closed",
+    "centreFromTrackM": 16.0,
+    "taperM": 80,
+    "modeReason": "the lane bypasses the Turn 17 hairpin (225 m shorter than the track): a big short cut if open",
+    "widthSource": "estimated from the gap between the track's edge and the pit building (OSM 837270939, LIDAR)"
+   }
+  ],
+  "buildings": [
+   {
+    "way": 837270939,
+    "kind": "garages",
+    "name": "Pit building"
+   },
+   {
+    "way": 837270938,
+    "kind": "other"
+   },
+   {
+    "way": 367164726,
+    "kind": "control"
+   },
+   {
+    "way": 367164727,
+    "kind": "other"
+   }
+  ],
+  "grandstands": [],
+  "paddocks": [
+   {
+    "way": 1100715697,
+    "kind": "paddock"
+   }
+  ],
+  "gantries": [
+   {
+    "kind": "startLights",
+    "name": "start/finish line",
+    "sM": 0.0,
+    "source": "the recipe's line opposite the middle of the pit building (MSV map)"
+   },
+   {
+    "kind": "gantry",
+    "name": "gantry over the main straight",
+    "sM": 156.0,
+    "source": "LIDAR (Gobierno de Navarra 2024): a span across the road at s 154-158 m, top 6.7-6.9 m; not in OSM"
+   }
+  ]
+ },
+ "sources": {
+  "osm": "OpenStreetMap (c) OpenStreetMap contributors, ODbL 1.0: Overpass over the recipe bbox, 2026-10-24 (tools/real_tracks_data/fetch_pits_osm.py)",
+  "lidar": "Gobierno de Navarra LiDAR 2024 point cloud minus the IDENA 2 m DTM, CC BY 4.0 (heights relative to the median ground: the cloud is ellipsoidal)",
+  "maps": "MSV Main Track map (.local/realtracks/navarra/maps/main.jpg)"
+ }
+}

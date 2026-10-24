@@ -277,7 +277,7 @@ def main() -> None:
     bscene.set_specs(specs)
     bscene.MOD_ROOT[:] = [mod_root]
     bpy.context.scene.name = f"{slug}_base"
-    groups = {"road": ("road", "kerb", "limits", "shoulder", "decal"), "walls": ("wall", "barrier"), "bridges": ("bridge",),
+    groups = {"road": ("road", "kerb", "limits", "shoulder", "decal", "pit"), "walls": ("wall", "barrier"), "bridges": ("bridge",),
               "terrain": ("terrain",), "backdrop": ("backdrop",), "helpers": ("helper",), "sponsor": ("sponsor",),
               "bounds": ("bounds",)}
     for group, kinds in groups.items():

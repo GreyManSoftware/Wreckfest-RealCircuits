@@ -69,6 +69,14 @@ The same slug always gives the same file (seeded by the slug).
   start, `asset`, `how` = `placed` | `relaxed` | `along` | `fence` | `infield`, and the driver's `eye` that sees it),
   `info.sponsorCleared` (props dropped from those sight lines) and `info.sponsorCredit` (`style` `plaque` | `line`,
   `text`, `fallback` when the plaque found no room).
+  Also additive (2026-10-24, imported tracks with `sketch.imported.pits`, `wfbuild/pits.py`): `pitWall` (stock
+  `prop_concrete_element3` on the real pit wall and across both ends of a closed pit lane), `pitBuildings` (stock pit
+  garages and buildings tiled along the real footprints, front towards the road), `pitPaddock` (trucks, tents and crew
+  buses on the real paddock), `bridges` (`prop_bridge03_green` over the road at a real bridge, footbridge or gantry,
+  `face: "x"`); the start lights are the `gantry` (`prop_forest5_startlight01`, a cantilever on the pit wall, its arm
+  along local +X over the track). Real grandstands are `realGrandstand` (at their real positions, which may be nearer the road than edgeMinM). `info.pits` reports the lanes (`wallSM`,
+  `wallFromEdgeM`, `builtLengthM`), counts, and per gantry the `scale`, `clearanceM` over the road and any `problems`;
+  `info.nearRoadM` lists the pit categories. Zones of kind `paved` (the pit lane) carry no clutter grass.
 
 ## Rules the planner follows (and `tests/check_scene.py` re-checks)
 

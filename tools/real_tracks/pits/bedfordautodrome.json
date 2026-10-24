@@ -1,0 +1,58 @@
+{
+ "select": {
+  "pitLanes": [
+   {
+    "id": "pit",
+    "ways": [27782783],
+    "widthM": 10.0,
+    "mode": "closed",
+    "centreFromTrackM": 13.0,
+    "taperM": 70,
+    "modeReason": "the lane runs inside the corner before the line and is 19 m shorter than the track: a short cut if open",
+    "widthSource": "estimated from the gap between the track's edge and the pit building (OSM 115513704, LIDAR)"
+   }
+  ],
+  "buildings": [
+   {
+    "way": 115513704,
+    "kind": "garages",
+    "name": "Pit building"
+   },
+   {
+    "way": 115513744,
+    "kind": "other"
+   },
+   {
+    "way": 115513755,
+    "kind": "other"
+   }
+  ],
+  "grandstands": [],
+  "paddocks": [
+   {
+    "kind": "paddock",
+    "name": "Paddock (behind the pit building)",
+    "polygon": [
+     [-195, 15],
+     [-118, 80],
+     [-78, 44],
+     [-150, -20]
+    ],
+    "source": "hand-drawn over the LIDAR relief: the open apron behind the pit building (OSM 115513704) and its two outbuildings, clear of the kart circuit; OSM has no paddock polygon"
+   }
+  ],
+  "gantries": [
+   {
+    "kind": "startLights",
+    "name": "start/finish line",
+    "sM": 0.0,
+    "source": "the recipe's line: OSM node 305063847 on the inner (pit) straight (racingcircuits.info flag)"
+   }
+  ]
+ },
+ "sources": {
+  "osm": "OpenStreetMap (c) OpenStreetMap contributors, ODbL 1.0: Overpass over the recipe bbox, 2026-10-24 (tools/real_tracks_data/fetch_pits_osm.py)",
+  "lidar": "Environment Agency National LIDAR Programme point cloud 2023 (TL0060, TL0560) minus the LIDAR Composite DTM 1 m, OGL v3",
+  "maps": "MSV GT map (.local/realtracks/bedfordautodrome/maps/msv1.jpg)"
+ }
+}

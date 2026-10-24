@@ -242,6 +242,10 @@ def generate(geo, field_, planner, root: str, res: int = C.MAP_RES) -> dict:
     # keep within the stock clutter budget (config.CLUTTER_MAX_*): thin the whole mask evenly
     clutter_scale = min(1.0, C.CLUTTER_MAX_HA / max(ha, 1e-9), C.CLUTTER_MAX_LOCAL / max(local, 1e-9))
     clutter = clutter * clutter_scale * 255.0
+    # no grass blades through paved ground (an imported track's pit lane: pits.py "paved" zones)
+    paved = [z for z in planner.sc.zones if z.kind == "paved"]
+    if paved:
+        clutter = clutter * (1.0 - smooth01(zone_mask(paved, fr, n) * 2.0))[:, :, None]
     clutter_a = np.full((n, n), float(e.get("clutterAlpha", 128)))
 
     out_dir = os.path.join(root, "data", "track", slug, "textures")

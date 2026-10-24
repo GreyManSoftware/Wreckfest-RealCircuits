@@ -35,6 +35,11 @@ TrackSpec
 │     │     barrier armco|tyres|concrete|bank|none, offsetM?, fence?, colour? black|redwhite, confidence?, source? }
 │     │     measured run-off and barriers per route side and stretch (tools/real_tracks_data/measure_runoff.py)
 │     ├─ kerbs[≤60] { corner, sM, entry?, apex?, exit?, green?, source }  real-data kerb overrides per corner
+│     ├─ pits?  { source?, pitLanes[≤4] { id, mode drivable|closed, widthM 4–20, side?, entrySM?, exitSM?,
+│     │          centreline[4–2000] {x, y}, wall? { points[2–2000], sM[2]?, heightM? } },
+│     │          buildings[≤60] / grandstands[≤20] { kind, name?, footprint[3–400], heightM 1–60, facing? {x, y} },
+│     │          paddocks[≤20] { name?, points[3–1000] }, gantries[≤20] { kind startLights|bridge|footbridge|gantry,
+│     │          name?, route?, sM, topM? } }  the real pits (tools/real_tracks/pits; built by wfbuild/pits.py)
 └─ options   all required (the schema has the UI defaults)
    lapLengthKm 0.8–7 (1.5; drawn tracks ≤ 5) · widthM 8–20 (12) · surface tarmac|gravel|mixed|sand (mixed) · kerbs (true)
    walls concrete|tyres|none (tyres) · elevation flat|gentle|hilly|custom|imported (gentle)
