@@ -14,10 +14,17 @@ LIDAR sees, corner facts from published sources).
   2024 flight's colour (asphalt dark) plus OSM gravel-trap polygons; Wales (no point cloud) from OSM only. OSM
   ``natural=shingle|sand``, ``surface=gravel|sand`` areas and ``raceway=gravel trap`` are gravel, ``area:highway``
   and paved areas asphalt;
-- barrier: the first narrow raised object (0.35-3 m above the ground, not trees, at most 4 m deep) or an OSM
-  ``barrier=guard_rail|tyres|wall|jersey_barrier`` (a fence within 25 m is a debris fence); the type comes from
-  OSM where a tagged barrier lies within 4 m, else from the evidence (``trapBarrier`` behind a gravel trap,
-  ``barrier`` elsewhere) and corner overrides; a bank where the ground rises over 1.2 m within 12 m first;
+- barrier: a LIDAR candidate is the first narrow raised object with a barrier's build (its top 0.45-1.6 m above
+  the ground, at most 2.5 m deep, not trees) within BARRIER_FAR_M of the edge or BARRIER_TRAP_GAP_M behind the
+  gravel trap; an object on an OSM ``barrier=hedge|fence`` line is that hedge or fence, not a barrier. A barrier
+  is only kept where something corroborates it (``BARRIER_CONF``, kept from BARRIER_MIN_CONF): an OSM
+  ``barrier=guard_rail|tyres|wall|jersey_barrier`` (type from OSM), the back of a measured gravel trap, another
+  section of track beside this one (a divider), or a corner override in the evidence. A lone LIDAR line is open
+  run-off: in sparse LIDAR field fences, hedges and service-road fences read just like Armco (Chris, 2026-10-24:
+  Armco round Cadwell's and Donington's outer edges that isn't there). The type comes from OSM, else the
+  evidence (``trapBarrier`` behind a gravel trap, ``barrier`` elsewhere); a debris fence only where OSM maps a
+  fence on a corroborated barrier line (within FENCE_ON_BARRIER_M) or the evidence says so; a bank where the
+  ground rises over 1.2 m within 12 m first;
 - each section: tarmac contiguous from the edge (apron depth), the first gravel run of 3 m or more starting within
   15 m (start and depth), the barrier's offset and type; profiles stop half way to another road.
 
@@ -56,7 +63,18 @@ MAX_OUT_M = 60.0
 SKIP_M = 0.75            # kerb / painted edge
 MIN_RUN_M = 3.0          # a gravel or tarmac run-off is at least this deep
 GRAVEL_START_MAX_M = 15.0
-BARRIER_MAX_DEPTH_M = 4.0
+BARRIER_MAX_DEPTH_M = 2.5    # a barrier is narrow: Armco, a tyre wall or a wall, not a hedge or a parked car
+BARRIER_H_M = (0.45, 1.6)    # its top above the ground (Armco ~0.75 m, tyre walls and walls up to ~1.2 m)
+BARRIER_FAR_M = 15.0         # LIDAR candidates further from the edge than this ...
+BARRIER_TRAP_GAP_M = 6.0     # ... or this far behind the gravel trap are field fences, hedges, service roads
+BOUNDARY_NEAR_M = 3.0        # an object this close to an OSM hedge/fence line is that hedge or fence
+FENCE_ON_BARRIER_M = 1.5     # an OSM fence this close to a corroborated barrier is its debris fence
+# what corroborates a barrier, and how much; a barrier is kept from BARRIER_MIN_CONF (lidar alone is not enough)
+BARRIER_CONF = {"osm": 0.9, "evidence": 0.8, "trap": 0.7, "divider": 0.7, "lidar": 0.4}
+BARRIER_MIN_CONF = 0.6
+OSM_FAR_M = 30.0             # an OSM guard rail / tyre wall further out needs the LIDAR to see it too
+SEPARATE_PART_M = 400.0     # another stretch of the same lap at least this far along is a separate part of it
+DIVIDER_GAP_M = 30.0         # ... and corroborates a barrier between them when its edge is this close
 MODE_SECTIONS = 7
 MIN_ZONE_M = 16.0
 OUT_RUNOFF = ROOT / "tools" / "real_tracks" / "runoff"
@@ -108,7 +126,8 @@ def grid_proj(slug: str, osm: dict):
 # ------------------------------------------------------------------------------------------------ OSM
 GRAVEL_TAGS = (("natural", ("shingle", "sand")), ("surface", ("gravel", "sand", "fine_gravel", "pebblestone")))
 BARRIER_TYPES = {"guard_rail": "armco", "tyres": "tyres", "tyers": "tyres", "wall": "concrete",
-                 "jersey_barrier": "concrete", "fence": "fence", "retaining_wall": "concrete"}
+                 "jersey_barrier": "concrete", "fence": "fence", "retaining_wall": "concrete", "hedge": "hedge"}
+BOUNDARY = ("fence", "hedge")  # field and spectator boundaries: never a trackside barrier themselves
 
 
 def osm_features(osm: dict, proj) -> dict:
@@ -284,7 +303,8 @@ def profile_section(lab, H, Z, off, cut: float) -> dict:
     lim = int(min(cut, MAX_OUT_M) / BIN_M)
     k0 = int(SKIP_M / BIN_M)
     out = {"tarmacM": 0.0, "startM": None, "depthM": 0.0, "barrierM": None, "fence": False, "bank": None, "treeM": None}
-    # barrier: first object run (gap of one bin allowed) no deeper than BARRIER_MAX_DEPTH_M
+    # barrier: first object run (gap of one bin allowed) with a barrier's build: no deeper than
+    # BARRIER_MAX_DEPTH_M, its top within BARRIER_H_M; taller or deeper objects (hedges, cars, sheds) are skipped
     k = k0
     while k < lim:
         if lab[k] == "O":
@@ -292,9 +312,9 @@ def profile_section(lab, H, Z, off, cut: float) -> dict:
             while e + 1 < lim and (lab[e + 1] == "O" or (e + 2 < lim and lab[e + 2] == "O")):
                 e += 1
             depth = (e - k + 1) * BIN_M
-            if depth <= BARRIER_MAX_DEPTH_M or k * BIN_M < 12.0:
+            top = float(np.nanmax(H[k:e + 1]))
+            if depth <= BARRIER_MAX_DEPTH_M and BARRIER_H_M[0] <= top <= BARRIER_H_M[1]:
                 out["barrierM"] = round(off[k] - BIN_M / 2, 2)
-                win = H[max(k - 2, 0):min(e + 3, nb)]
                 break
             k = e + 1
             continue
@@ -399,13 +419,21 @@ def measure(D: dict, log) -> dict:
             lab, H, Z, Q, off = classify_bins(D, S, cal, P, nl, W, side, gmask, pmask)
             # profiles stop half way to another road (other routes, or this one further than 60 m along)
             cut = np.full(len(P), MAX_OUT_M)
+            sep = np.zeros(len(P), dtype=bool)
+            own_s = r["s_local"][np.clip(np.searchsorted(r["s_local"], t / scale), 0, len(r["s_local"]) - 1)]
             for kk, oo in enumerate(off[::4]):
                 q = Q[:, kk * 4, :]
                 dd, jj = tree.query(q)
-                other = (rid_all[jj] != ri) | (np.abs(s_all[jj] - r["s_local"][np.clip(np.searchsorted(r["s_local"], t / scale), 0, len(r["s_local"]) - 1)]) > 60.0)
+                ds = np.abs(s_all[jj] - own_s)
+                if r["closed"]:
+                    ds = np.minimum(ds, r["length_local"] - ds)
+                other = (rid_all[jj] != ri) | (ds > 60.0)
                 near = other & (dd < w_all[jj] / 2 * scale + 1.0)
-                newcut = (oo - w_all[jj] / 2 * 0) / 2.0
-                cut = np.where(near & (cut == MAX_OUT_M), np.maximum(oo / 2.0, 1.0), cut)
+                first = near & (cut == MAX_OUT_M)
+                # a divider's corroboration: a separate part of the same lap beside this one within DIVIDER_GAP_M
+                # (not a chicane's or a hairpin's other leg, not a branch or a link merging into it)
+                sep |= first & (rid_all[jj] == ri) & (ds >= SEPARATE_PART_M) & (oo <= DIVIDER_GAP_M)
+                cut = np.where(first, np.maximum(oo / 2.0, 1.0), cut)
             secs = []
             for i in range(len(P)):
                 sec = profile_section(lab[i], H[i], Z[i], off, cut[i])
@@ -416,14 +444,13 @@ def measure(D: dict, log) -> dict:
                     if len(poly) < 2:
                         continue
                     for tt in seg_intersect(p0, nl[i] * side, min(cut[i], MAX_OUT_M), poly):
-                        if typ == "fence" and tt > 25.0:
-                            continue
                         if typ == "concrete" and tt > 30.0:
                             continue
                         hits.append((tt, typ))
                 hits.sort()
-                sec["osm"] = hits[:3]
+                sec["osm"] = hits
                 sec["cut"] = float(cut[i])
+                sec["divider"] = bool(sep[i])  # a separate part of the lap close out on this side
                 secs.append(sec)
             sides[side] = {"secs": secs, "lab": lab}
         result["routes"].append({"route": r, "t": t, "P": P, "nl": nl, "W": W, "k": k, "sides": sides,
@@ -435,22 +462,43 @@ def measure(D: dict, log) -> dict:
 def section_values(sec: dict, defaults: dict) -> dict:
     """Run-off and barrier of one section, with OSM barrier types where they agree with the LIDAR."""
     surface = "gravel" if sec["startM"] is not None else ("tarmac" if sec["tarmacM"] >= MIN_RUN_M else "grass")
-    barrier, off, src, fence = "none", None, "lidar", sec["fence"]
-    hard = [(t_, y) for t_, y in sec["osm"] if y != "fence"]
-    fences = [(t_, y) for t_, y in sec["osm"] if y == "fence"]
-    if sec["barrierM"] is not None:
-        off = sec["barrierM"]
+    barrier, off, src, fence, conf = "none", None, "lidar", False, 0.0
+    trap_end = (sec["startM"] + sec["depthM"]) if surface == "gravel" else 0.0
+    far = max(BARRIER_FAR_M, trap_end + BARRIER_TRAP_GAP_M, sec["tarmacM"] + BARRIER_TRAP_GAP_M)
+    # OSM guard rails and tyre walls are trackside wherever they are; an OSM wall only near the run-off's end
+    # (beyond it: garden, paddock and boundary walls)
+    # ... and beyond OSM_FAR_M only where the LIDAR sees a barrier there too (a second source): further out a mapped
+    # rail is boundary fencing, not a trackside barrier (Chris 2026-10-24, Anglesey)
+    raw = sec["barrierM"]
+    hard = [(t_, y) for t_, y in sec["osm"] if y not in BOUNDARY and (y != "concrete" or t_ <= far)
+            and (t_ <= OSM_FAR_M or (raw is not None and abs(raw - t_) <= 4.0))]
+    bounds = [t_ for t_, y in sec["osm"] if y in BOUNDARY]
+    fences = [t_ for t_, y in sec["osm"] if y == "fence"]
+    lid = sec["barrierM"]
+    if lid is not None and not any(abs(t_ - lid) <= 4.0 for t_, _ in hard):
+        # a lone LIDAR line: an OSM hedge or fence there, or too far out for a trackside barrier, rules it out
+        if any(abs(b_ - lid) <= BOUNDARY_NEAR_M for b_ in bounds) or lid > far:
+            lid = None
+    if lid is not None:
+        off = lid
         near = [y for t_, y in hard if abs(t_ - off) <= 4.0]
         if near:
-            barrier, src = near[0], "osm+lidar"
+            barrier, src, conf = near[0], "osm+lidar", BARRIER_CONF["osm"]
         else:
             barrier = defaults["trapBarrier"] if surface == "gravel" else defaults["barrier"]
-            src = "lidar+evidence"
-        if any(abs(t_ - off) <= 4.0 for t_, _ in fences):
-            fence = True
+            # corroboration: the back of a measured gravel trap, or a divider from another section of track
+            if surface == "gravel" and off <= trap_end + BARRIER_TRAP_GAP_M:
+                src, conf = "lidar+trap", BARRIER_CONF["trap"]
+            elif sec.get("divider"):
+                src, conf = "lidar+divider", BARRIER_CONF["divider"]
+            else:
+                src, conf = "lidar", BARRIER_CONF["lidar"]
     elif hard:
-        off, barrier, src = hard[0][0], hard[0][1], "osm"
-    elif sec["bank"] is not None:
+        off, barrier, src, conf = hard[0][0], hard[0][1], "osm", BARRIER_CONF["osm"]
+    if barrier not in ("none", "bank") and src.startswith("osm") and any(abs(t_ - off) <= FENCE_ON_BARRIER_M
+                                                                          for t_ in fences):
+        fence = True  # OSM maps a fence on the barrier line itself: its debris fence
+    if barrier == "none" and sec["bank"] is not None:
         off, barrier, src = sec["bank"], "bank", "lidar"
     if surface == "gravel" and off is not None and barrier not in ("bank",):
         # the trap ends at the barrier at the latest
@@ -461,7 +509,17 @@ def section_values(sec: dict, defaults: dict) -> dict:
         off = None
     return {"surface": surface, "tarmacM": sec["tarmacM"], "startM": sec["startM"] or 0.0,
             "depthM": sec["depthM"] if surface == "gravel" else 0.0, "barrier": barrier,
-            "offsetM": off, "fence": bool(fence) and barrier not in ("none", "bank"), "src": src}
+            "offsetM": off, "fence": bool(fence) and barrier not in ("none", "bank"), "src": src, "bconf": conf,
+            "bank": sec["bank"]}
+
+
+def corroborated(v: dict) -> None:
+    """Drop a hard barrier nothing corroborates (BARRIER_MIN_CONF): open run-off, or the bank behind it."""
+    if v["barrier"] in ("none", "bank") or v["bconf"] >= BARRIER_MIN_CONF:
+        return
+    v["barrier"], v["offsetM"], v["fence"], v["src"] = "none", None, False, "lidar"
+    if v["bank"] is not None:
+        v["barrier"], v["offsetM"] = "bank", v["bank"]
 
 
 def zones_for(res_route: dict, side: int, D: dict) -> list[dict]:
@@ -487,9 +545,15 @@ def zones_for(res_route: dict, side: int, D: dict) -> list[dict]:
                     v[key] = o[key]
             if "barrier" in o and (v["barrier"] not in ("none", "bank") or "offsetM" in o):
                 v["barrier"] = o["barrier"]
+                if o["barrier"] not in ("none", "bank"):  # a sourced corner fact corroborates the line
+                    v["bconf"] = max(v["bconf"], BARRIER_CONF["evidence"])
             if "fence" in o and v["barrier"] not in ("none", "bank"):
                 v["fence"] = bool(o["fence"])
+                if o["fence"]:  # a sourced debris fence stands on a barrier
+                    v["bconf"] = max(v["bconf"], BARRIER_CONF["evidence"])
             ovsrc[i] = o["source"]
+    for v in vals:
+        corroborated(v)
     # mode filter on the categorical parts, then zones
     key = [f"{v['surface']}|{v['barrier']}|{int(v['fence'])}" for v in vals]
     key = mode_filter(key, MODE_SECTIONS, closed)
@@ -522,10 +586,12 @@ def zones_for(res_route: dict, side: int, D: dict) -> list[dict]:
             if b - a < min_secs:
                 nb_ = [x for x in (q - 1, q + 1) if 0 <= x < len(runs)] if not closed else [(q - 1) % len(runs), (q + 1) % len(runs)]
                 tgt = max(nb_, key=lambda x: runs[x][1] - runs[x][0])
-                ta, tb = runs[tgt]
-                runs[tgt] = (min(a, ta), max(b, tb)) if tgt != q else runs[tgt]
-                if closed and abs(tgt - q) > 1:  # wrap neighbour
-                    runs[tgt] = (ta, tb + (b - a)) if tgt < q else (a - n if a >= n else a, tb)
+                if tgt != q:
+                    # runs are consecutive (round the lap when closed): the short run extends its neighbour's end
+                    # (it follows it) or start (it precedes it); the wrap-round neighbour too
+                    ta, tb = runs[tgt]
+                    follows = tgt == (q - 1) % len(runs) if closed else tgt == q - 1
+                    runs[tgt] = (ta, tb + (b - a)) if follows else (ta - (b - a), tb)
                 del runs[q]
                 changed = True
                 break
@@ -546,6 +612,13 @@ def zones_for(res_route: dict, side: int, D: dict) -> list[dict]:
         srcs = sorted({x["src"] for x in v})
         ev_src = sorted({ovsrc[i] for i in sel if ovsrc[i]})
         conf = round(min(1.0, agree * (0.9 if D["region"] == "england" else 0.6 if D["region"] == "navarra" else 0.4)), 2)
+        if barrier in ("armco", "tyres", "concrete"):
+            # a barrier zone's confidence is its corroboration's (every section kept has BARRIER_MIN_CONF)
+            bc = [x["bconf"] for x in v if x["barrier"] == barrier and x["bconf"] >= BARRIER_MIN_CONF]
+            if bc:
+                conf = round(float(np.mean(bc)), 2)
+            else:  # only the mode filter's: no section of it has a corroborated barrier
+                barrier, fence = "none", False
         z = {"side": "left" if side > 0 else "right",
              "fromS": round(float(t[a % n] / scale), 1),
              "toS": round(float(t[(b - 1) % n] / scale + STEP_M / scale), 1),

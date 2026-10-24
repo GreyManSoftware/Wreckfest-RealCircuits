@@ -1480,6 +1480,8 @@ class TrackGeometry:
                 edge = r.left if side > 0 else r.right
                 gap = np.full(r.n, np.inf)
                 owner = np.zeros(r.n, dtype=bool)
+                hit_ri = np.full(r.n, -1, dtype=np.int32)   # the other road: its route ...
+                hit_s = np.full(r.n, np.nan)                # ... and metres along it
                 todo = ~skip
                 for t in probes:
                     if not todo.any():
@@ -1498,10 +1500,21 @@ class TrackGeometry:
                         gap[ii] = t
                         owner[ii] = (self.index.ri[jj] > r.index) | ((self.index.ri[jj] == r.index)
                                                                      & (self.index.s[jj] > r.s[ii]))
+                        hit_ri[ii], hit_s[ii] = self.index.ri[jj], self.index.s[jj]
                         todo[ii] = False
-                out[(r.index, side)] = {"gap": gap, "owner": owner}
+                out[(r.index, side)] = {"gap": gap, "owner": owner, "hit_ri": hit_ri, "hit_s": hit_s}
         self._gaps = out
         return out
+
+    def separate_part(self, r: Route, g: dict) -> np.ndarray:
+        """Per sample of r, whether the road its ``road_gaps`` probe hit is a separate part of the same lap: the
+        same route, at least SEPARATE_PART_M away along it (not the other leg of a chicane, esses or hairpin, not a
+        branch or link merging into it)."""
+        same = (g["hit_ri"] == r.index) & np.isfinite(g["hit_s"])
+        d = np.abs(np.where(same, g["hit_s"], 0.0) - r.s)
+        if r.closed:
+            d = np.minimum(d, r.length - d)
+        return same & (d >= C.SEPARATE_PART_M)
 
     def _merging(self, r: Route, own: np.ndarray, hits: np.ndarray, gap: float) -> np.ndarray:
         """Per probe of route r (own sample indices) that hit road at SampleIndex ``hits`` ``gap`` metres out:
@@ -1618,6 +1631,12 @@ class TrackGeometry:
                     hard = np.isin(btype, ("armco", "tyres", "concrete")) & np.isfinite(boff)
                     default = str(self.runoff.default_type)
                 div = np.isfinite(g["gap"]) & g["owner"]
+                if measured:
+                    # a real circuit: a divider only between separate parts of the lap (Cadwell Park's start
+                    # straight beside the run to the Mountain), never between a chicane's, an esses' or a hairpin's
+                    # legs, nor beside a branch or link (Chris 2026-10-24: concrete walls in Donington's Fogarty Esses
+                    # and between Anglesey's Coastal and International branches); other barriers come from the data
+                    div &= self.separate_part(r, g)
                 half = np.maximum(g["gap"] / 2.0, C.DIVIDER_MIN)
                 # a divider runs DIVIDER_OVERRUN samples past the last probe that saw the other road, so a road
                 # that turns away right there (Oulton Park's Island Hairpin link beside Brittens) is still divided
@@ -1643,9 +1662,8 @@ class TrackGeometry:
                     if sr is r and sside == side:
                         crowd |= r.s_dist(r.s, r.s[i]) <= length / 2.0 + C.CROWD_WALL_EXTEND
                 if measured:
-                    # crowds stand behind the real barrier where there is one (else a spectator barrier in front)
-                    reasons.append((crowd & ~hard, np.full(r.n, C.CROWD_WALL)))
-                    kinds.append("crowd")
+                    # crowds stand behind the real barrier, or well back on the open grass behind the reset wall
+                    # (dressing.crowd): no spectator barrier of our own (Chris 2026-10-24, Anglesey's Peel)
                     # the measured barriers, each at its own offset; where offsets step between zones the line
                     # angles across (MEASURED_WALL_SLOPE metres out per metre along)
                     reasons.append((hard, np.where(hard, boff, np.inf)))
@@ -1926,6 +1944,28 @@ class TrackGeometry:
                                [(0.0, 0.0), (0.25, 0.0), (0.25, 1.0), (0.0, 1.0)])
         mesh.oriented_face(tuple(hi), mat, np.array([0.0, 0.0, 1.0]), [(0, 0), (0.1, 0), (0.1, 0.1), (0, 0.1)])
 
+    @staticmethod
+    def _smooth_barrier_line(xy: np.ndarray, z: np.ndarray, s: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """A visible barrier's line runs smoothly: plan position and height averaged over about
+        BARRIER_LINE_SMOOTH_M (ends kept), the height within BARRIER_Z_FOLLOW of the ground below it, so the beams
+        don't kink over every terrain step and zone join (Chris 2026-10-24, Anglesey's Corkscrew)."""
+        n = len(xy)
+        if n < 5:
+            return xy, z
+        step = max(float(np.median(np.diff(s))), 0.25)
+        k = int(max(1, round(C.BARRIER_LINE_SMOOTH_M / step / 2)))
+        k = min(k, (n - 1) // 2)
+        ker = np.ones(2 * k + 1) / (2 * k + 1)
+
+        def sm(v: np.ndarray) -> np.ndarray:
+            p = np.pad(v, (k, k), mode="reflect", reflect_type="odd")  # straight on past the ends
+            return np.convolve(p, ker, "valid")
+
+        out = np.column_stack([sm(xy[:, 0]), sm(xy[:, 1])])
+        out[0], out[-1] = xy[0], xy[-1]
+        zs = np.clip(sm(z), z + C.BARRIER_Z_FOLLOW[0], z + C.BARRIER_Z_FOLLOW[1])
+        return out, zs
+
     def build_barriers(self) -> list[Mesh]:
         """The visible measured barriers of an imported track (runoff.py), as stock bases build theirs: meshes on
         the wall line with stock textures, no collision of their own (the collision wall under them has the
@@ -1949,8 +1989,7 @@ class TrackGeometry:
             if run["closed"]:
                 F = np.append(F, F[:1])
             h = C.WALL_HALF[typ]
-            front = P[:, :2] - O * h          # the collision wall's road face
-            z0 = P[:, 2]
+            front, z0 = self._smooth_barrier_line(P[:, :2] - O * h, P[:, 2], S)  # the collision wall's road face
             spec = C.BARRIER_MESH[typ]
             for a in range(0, len(P) - 1, C.BARRIER_CHUNK):
                 b = min(a + C.BARRIER_CHUNK + 1, len(P))

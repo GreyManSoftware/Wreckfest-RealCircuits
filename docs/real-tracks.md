@@ -424,10 +424,19 @@ py tools\real_tracks_data\apply_runoff.py <slug>                          # into
   everywhere (Donington maps its traps as shingle), `area:highway` and paved areas are tarmac.
 - **Profiles**: every 4 m along every route, each side, 0.5 m bins from the measured road edge out to 60 m, cut
   half way to another road. Per profile: tarmac contiguous from the edge (an apron), the first gravel run of 3 m or
-  more starting within 15 m (a trap), the first narrow raised object no deeper than 4 m (a barrier; OSM
-  `barrier=guard_rail|tyres|wall|jersey_barrier` crossing the profile give its type when within 4 m, an OSM fence
-  there adds a debris fence), an earth bank where the ground rises 1.2 m within 12 m first. Sections are
-  mode-filtered (7) and merged into zones of at least 16 m.
+  more starting within 15 m (a trap), a barrier candidate, an earth bank where the ground rises 1.2 m within 12 m
+  first. Sections are mode-filtered (7) and merged into zones of at least 16 m.
+- **Barriers need corroboration (2026-10-25).** Chris drove Cadwell, Donington and Anglesey: long Armco and fence
+  runs round the outer edges that aren't there. Cause: every raised LIDAR object 0.35-3 m high up to 60 m out
+  (hedges, field and service-road fences, banks) was a barrier, typed Armco by the circuit default, and any OSM fence
+  within 25 m made it a debris fence. Now a LIDAR candidate needs a barrier's build (top 0.45-1.6 m above the ground,
+  at most 2.5 m deep) within 15 m of the edge or 6 m behind the trap/apron, and an object on an OSM hedge or fence
+  line is that hedge or fence. A barrier is kept only with a confidence of at least 0.6 from what corroborates it:
+  OSM `guard_rail|tyres|wall|jersey_barrier` 0.9 (walls only near the run-off's end; rails and tyre walls beyond 30 m
+  only where the LIDAR sees them too: further out OSM's rails are boundary fencing, Anglesey), a sourced corner
+  override 0.8, the back of a measured gravel trap 0.7, a separate part of the same lap (at least 400 m along it)
+  within 30 m 0.7; a lone LIDAR line (0.4) is open run-off. A debris fence needs an OSM fence on the barrier line
+  (1.5 m) or the evidence. The zone's `confidence` is the barrier's corroboration, its `source` names it.
 - **Barrier types** the LIDAR can't tell (it sees a raised line, not its material): `runoff_evidence.json`, per
   circuit a default (`barrier`, `trapBarrier` behind a gravel trap) and corner overrides, each with its source
   (oversteer48, driver61, MSV and circuit news, Geobrugg's Navarra project, Wikipedia, crash reports). A research
@@ -440,6 +449,13 @@ py tools\real_tracks_data\apply_runoff.py <slug>                          # into
   offsetM, fence, colour, confidence, source), `sketch.imported.trees` and `woodland[].cover` (schema
   `RunoffZone`, `ImportedTree`). `apply_runoff.py` re-projects every zone by its ends' grid positions, so a
   re-imported sample keeps its zones; recipes opt in with `"runoff": "measured"` (all eight).
+
+Hard barriers on the main lap, left / right side, before → after the corroboration rule (2026-10-25; fence = debris
+fence): Cadwell Armco 74 / 35 % → 3 / 0 % (fence 16 / 16 → 0); Donington 97 / 74 % → 27 / 18 % (tyre walls behind the
+traps, OSM walls; fence 32 / 5 → 0 / 1); Brands Hatch 95 / 76 % → 3 / 8 % (fence 62 / 41 → 0); Oulton Park 86 / 59 % →
+1 / 6 %; Snetterton 28 / 67 % → 0 / 20 % (OSM walls along the pit straight and after Riches); Navarra 91 / 78 % →
+84 / 66 % (63 OSM guard rails); Anglesey 97 / 13 % → 88 / 10 % (OSM guard rails within 30 m; fence 15 → 5 %); Bedford
+none. The table below is the first measurement (2026-10-24).
 
 | Circuit | Data | Gravel / tarmac / grass (main lap, both sides) | Barriers (share of the sides) | Woods / single trees (450 m box) |
 |---|---|---|---|---|
@@ -463,9 +479,15 @@ py tools\real_tracks_data\apply_runoff.py <slug>                          # into
 - **Tarmac run-off**: `terrain_apron_<env>#asphalt#blend` with an older, cracked tarmac (`ground_tarmac08f_fields`;
   arid `road_sandpit_tarmac03`) from the edge out to the measured depth; the shoulder takes it too. The AI safe and
   race strips stay on the road; the AI route covers the run-off up to the barrier as before.
-- **Barriers**: the wall plan takes each zone's barrier at its measured offset (behind every trap and apron, steps
-  between zones eased over 24 m and joined at 45°), plus dividers between close sections and the grid sector's pit
-  wall (concrete; pit lanes and paddocks are another agent's); the generic fast-corner and drop-off barriers are off.
+- **Barriers**: the wall plan takes each zone's barrier at its measured offset (behind every trap and apron, at least
+  2 m beyond the kerb and green strip, steps between zones eased over 24 m and joined at 45°), plus dividers and the
+  grid sector's pit wall (concrete); the generic fast-corner and drop-off barriers are off. Dividers on real circuits
+  only between separate parts of the lap (the same route at least 400 m along it, `geometry.separate_part`: Cadwell's
+  start straight beside the run to the Mountain), never between a chicane's, an esses' or a hairpin's legs or beside
+  a branch (2026-10-25: concrete walls in Donington's Fogarty Esses and between Anglesey's Coastal and International
+  branches). No spectator barrier or crowd fence of our own: crowds stand behind the real barrier, else at least
+  20 m out, past the reset wall. The visible line is smoothed over 12 m in plan and height (within -0.2/+0.15 m of
+  the ground), so Armco doesn't kink over terrain steps and zone joins.
   Collision walls (invisible, as before) take the type's surface (`#metal_barrier` Armco, `#global_barrier` tyres,
   `#concrete_barrier`). The visible barrier is our own mesh with stock textures, as stock bases build theirs
   (fields08/forest05 guardrail, forest04 tyre walls), no collision of its own: **Armco** two W-beams
@@ -486,7 +508,9 @@ every built type has its visible mesh (no collision), no red/white barrier witho
 nothing in the run-off, trees only on measured canopy (≥ 98 %) and density near the track (15-150 m: ≥ 60 % of the
 wooded 20 m cells have a tree, ≤ 3 % of the open ones); `check_export`: the traps exported with `#slowdown`, the
 barrier materials with their stock textures, and the stock scene limits; `geom/tests/test_import_real_track.py`:
-every recipe's zones on their routes, both sides covered, traps ≥ 3 m deep and in front of their barrier.
+every recipe's zones on their routes, both sides covered, traps ≥ 3 m deep and in front of their barrier, every
+hard barrier corroborated (confidence ≥ 0.6, source OSM / trap / divider / evidence), debris fences only from OSM
+or the evidence; `check_scene`: real circuits divide only separate parts of the lap.
 
 ## Pits, paddocks, bridges and gantries (2026-10-24)
 

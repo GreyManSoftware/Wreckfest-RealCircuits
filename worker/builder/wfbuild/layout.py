@@ -436,6 +436,42 @@ class LayoutBuilder:
         self.warnings.append(f"checkpoint at s {s:.0f} of {r.id}: no built road within {reach:.0f} m")
         return s
 
+    def cone_off_main(self, branch_id: str) -> list[Empty]:
+        """A row of stock traffic cones (CONE_ASSET) across the main road where the layout's branch has left it
+        (``coneOffMain``): the first main sample past the split whose centre is clear of the branch's road by
+        CONE_CLEAR_M, cones every CONE_SPACING_M from edge to edge. Layout scene props: the other layouts don't
+        have them."""
+        geo = self.geo
+        br = geo.by_id.get(branch_id)
+        if br is None or not br.start_join or br.start_join["route"] != "main":
+            self.warnings.append(f"cones: layout {branch_id} has no branch leaving the main road; none placed")
+            return []
+        m = geo.main
+        i0 = int(br.start_join["sampleIndex"])
+        bp = br.p[:, :2]
+        for k in range(m.n):
+            i = (i0 + k) % m.n
+            if m.s_dist(m.s[i], m.s[i0]) > 150.0:
+                break
+            d = np.hypot(*(bp - m.p[i, :2]).T) - br.w / 2.0
+            if float(d.min()) >= m.w[i] / 2.0 + C.CONE_CLEAR_M:
+                break
+        else:
+            i = i0
+        if m.s_dist(m.s[i], m.s[i0]) > 150.0:
+            self.warnings.append(f"cones: layout {branch_id}'s branch never clears the main road; none placed")
+            return []
+        L, R = m.left[i], m.right[i]
+        width = float(np.hypot(*(L[:2] - R[:2])))
+        n = max(2, int(width // C.CONE_SPACING_M) + 1)
+        out = []
+        yaw = math.atan2(m.tangent[i][1], m.tangent[i][0])
+        for t in np.linspace(0.04, 0.96, n):
+            q = L + (R - L) * t
+            out.append(Empty(f"#xref ob/{C.CONE_ASSET}.scne", (float(q[0]), float(q[1]), float(q[2])), yaw,
+                             display="PLAIN_AXES", size=0.5))
+        return out
+
     def _build_imported(self, defs: list[dict]) -> list[Layout]:
         """One layout per TrackModel ``layouts`` entry (imported tracks with alternative layouts): the main
         layout drives the main route only (no alternative-route strips), each alternative one its own closed
@@ -458,6 +494,11 @@ class LayoutBuilder:
             self.lap_checkpoints(lay, r, first_s)
             lay.empties.append(Empty(f"#xref {self.slug}_base.scne", (0.0, 0.0, 0.0), 0.0, "vis = true|col = true",
                                      display="PLAIN_AXES", size=5.0, xdir=f"data/track/{self.slug}"))
+            alt = {a.get("id"): a for a in ((self.geo.imported or {}).get("altLayouts") or [])}.get(d["id"], {})
+            if not is_main and alt.get("coneOffMain"):
+                cones = self.cone_off_main(d["id"])
+                lay.empties += cones
+                lay.info["cones"] = len(cones)
             if self.warnings:
                 lay.info.setdefault("warnings", []).extend(self.warnings)
                 self.warnings = []

@@ -357,8 +357,8 @@ def check_track_data(scene: str, scne: str, track: str) -> dict | None:
     it resolves beside the .scne and parses (v20, stock layout), lists every compiled AI route with nothing
     hidden from the minimap and a non-zero zoom, and has cameras like stock layouts (decoded by raw_cameras):
     one start camera with the pole in view, and trackside cameras with sector activation whose sector ranges
-    cover every sector of the compiled main route (the race intro cuts between them; without them it was under
-    the ground on every circuit, Chris 2026-10-23/24), each near its sectors; every camera
+    cover every sector of the compiled main route (the game's trackside camera mode cuts between them), each near
+    its sectors; every camera
     CAM_MIN_ABOVE_M..CAM_MAX_ABOVE_M above the exported terrain (the base .scne's raw vertices) and its view
     ray reaching the ground within CAM_TARGET_NEAR_ROUTE_M of a compiled AI route. Needs only the shipped
     files (layout and base .scne, .tcat), so tools/build_track_bundle.py runs it on every track of a bundle:
@@ -450,7 +450,43 @@ def check_track_data(scene: str, scne: str, track: str) -> dict | None:
     check(cams and not bad, f"{scene}: cameras {CAM_MIN_ABOVE_M:.0f}-{CAM_MAX_ABOVE_M:.0f} m above the exported "
           "terrain, the start camera looking at the grid, trackside cameras by their sectors",
           "; ".join(bad[:3]) or desc)
+    check_result_camera(scene, scne, track, ter, route_pts)
     return td
+
+
+def result_camera_nodes(*scenes: str) -> dict:
+    """World positions (box centres, each model's matrix applied) of the objects named resultcamera and
+    resultcamera_target in the given .scne files, as {name: [positions]}."""
+    out: dict = {n: [] for n in ("resultcamera", "resultcamera_target")}
+    for path in scenes:
+        if not os.path.isfile(path):
+            continue
+        for m in scne_read.read(path, geometry="resultcamera").meshes:
+            if m.name in out:
+                pts = [b.pos for b in m.batches if b.pos is not None and len(b.pos)]
+                if pts:
+                    out[m.name].append(np.concatenate(pts).mean(axis=0))
+    return out
+
+
+def check_result_camera(scene: str, scne: str, track: str, ter, route_pts) -> None:
+    """The race intro ("WELCOME TO ...") and results view: the game's animated camera looks from the object named
+    resultcamera at resultcamera_target; without them it sits at the world origin, under our terrain (Chris,
+    2026-10-23/24; build_scene.result_camera). Exactly one of each in the layout or its base, the camera
+    CAM_MIN_ABOVE_M..CAM_MAX_ABOVE_M above the exported terrain, the target within CAM_TARGET_NEAR_ROUTE_M of an AI
+    route."""
+    slug = os.path.basename(os.path.normpath(track))
+    nodes = result_camera_nodes(scne, os.path.join(track, f"{slug}_base.scne"))
+    cams, tgts = nodes["resultcamera"], nodes["resultcamera_target"]
+    why = f"{len(cams)} resultcamera, {len(tgts)} resultcamera_target"
+    ok = len(cams) == 1 and len(tgts) == 1
+    if ok and ter is not None:
+        g = ter.height(cams[0][0], cams[0][1])
+        near = float(np.min(np.hypot(*(route_pts - tgts[0][:2]).T)))
+        ok = g is not None and CAM_MIN_ABOVE_M <= cams[0][2] - g <= CAM_MAX_ABOVE_M and near <= CAM_TARGET_NEAR_ROUTE_M
+        why = (f"camera ({cams[0][0]:.0f}, {cams[0][1]:.0f}, {cams[0][2]:.1f}) "
+               f"{'?' if g is None else f'{cams[0][2] - g:.1f}'} m above the terrain, target {near:.0f} m from a route")
+    check(ok, f"{scene}: intro view objects resultcamera/resultcamera_target above the terrain, aimed at the road", why)
 
 
 # Stock layouts whose cameras check_stock_cameras reads with raw_cameras and scene_ground: the regression that

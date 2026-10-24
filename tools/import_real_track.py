@@ -1787,7 +1787,8 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         br, loc_b, zb, bank_b, road_w_b, res_b = pc["br"], pc["loc"], pc["z"], pc["bank"], pc["w"], pc["res"]
         alt_branches.append(br)
         alt_specs.append({"id": alt["id"], "name": alt["name"], "centreline": pc["centreline"],
-                          **({"roads": list(alt["roads"])} if alt.get("roads") else {})})
+                          **({"roads": list(alt["roads"])} if alt.get("roads") else {}),
+                          **({"coneOffMain": True} if alt.get("coneOffMain") else {})})
         if alt.get("startFinish"):  # the layout's own line, snapped onto the fitted road (main or branch)
             q_sf = start_finish_point(alt["startFinish"], osm)
             both = np.vstack([p, br])

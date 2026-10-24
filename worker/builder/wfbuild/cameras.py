@@ -5,9 +5,9 @@ Wreckfest 1 reads every camera from the layout's ``.tcat`` (BagEdit's bbTrackCam
 table: 2 "start camera", 4 "sector activation"). Stock layouts carry, besides one fixed start camera, a set of
 trackside cameras: rotating (they turn to follow the target) or moving, each active between two sectors of the
 compiled main AI route, together covering the lap (crm01_1: 17, sandpit01_1: 15; 1162 cameras over 118 stock
-files). The race intro ("WELCOME TO ..." while the race loads in) and replays cut between those; a layout with
-none leaves the game at its default camera, the world origin: under the ground on every generated circuit
-(Chris, 2026-10-23 and 2026-10-24, with a start camera alone already in the ``.tcat``).
+files). The game's trackside camera (the cinematic camera button, replays) cuts between those. The race intro
+("WELCOME TO ...") is not one of them: it is the animated result camera, the scene objects ``resultcamera`` and
+``resultcamera_target`` (build_scene.result_camera puts them at the start camera's eye and target).
 
 Measured on stock (camera vs the stock base terrain with each model's matrix applied, 2026-10-24): start cameras
 2-10 m above the ground near the grid (sandpit01_1 4.2 m, forest01_1 10.4 m, crm01_1 3.1 m), trackside cameras
