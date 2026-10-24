@@ -62,6 +62,8 @@
   "publishedLapLengthM": 4307,
   "measuredLapLengthM": 4324,
   "widthM": 10.0,
+  "widths": "measured",
+  "widthsNote": "Measured tarmac widths (tools/real_tracks/widths/oultonpark.json, tools/real_tracks_data/measure_width.py) from the open LIDAR point cloud; widthM is only the nominal width the registration and the fallback use; the spec's options.widthM becomes the measured median.",
   "widthNote": "Not published; about 9-11 m on imagery. One value for the whole lap.",
   "clockwise": true,
   "viewingSpots": ["Lodge Corner", "Old Hall Corner", "Knickerbrook", "Druids Corner"],

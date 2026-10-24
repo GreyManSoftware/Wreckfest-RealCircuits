@@ -78,8 +78,13 @@ UNMEASURED = {
 
 # ------------------------------------------------------------------------------------------------ routes
 def load_routes(slug: str) -> tuple[list[dict], dict, dict]:
-    spec = json.loads((ROOT / "geom" / "tests" / "samples" / f"{slug}.json").read_text(encoding="utf-8"))
-    fr = json.loads(report_path(slug).read_text(encoding="utf-8"))["frame"]
+    sample = ROOT / "geom" / "tests" / "samples" / f"{slug}.json"
+    spec = json.loads(sample.read_text(encoding="utf-8"))
+    frame_file = report_path(slug)
+    if frame_file.stat().st_mtime < sample.stat().st_mtime:
+        raise SystemExit(f"{frame_file} is older than {sample}: run import_frame.py {slug} first (the frame moves "
+                         "when the sample is re-imported)")
+    fr = json.loads(frame_file.read_text(encoding="utf-8"))["frame"]
     imp = spec["sketch"]["imported"]
     out = [{"id": "main", "name": imp.get("mainLayoutName", "Main"), "closed": True, "c": imp["centreline"]}]
     out += [{"id": a["id"], "name": a["name"], "closed": False, "c": a["centreline"]} for a in imp.get("altLayouts", [])]

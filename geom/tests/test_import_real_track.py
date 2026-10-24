@@ -383,10 +383,13 @@ def test_profile_artefacts_flag_terraces_wobble_and_camber_flips() -> None:
 @pytest.mark.parametrize("recipe_path", _RECIPES, ids=[p.stem for p in _RECIPES])
 def test_imported_sample_has_no_profile_artefacts(recipe_path: Path) -> None:
     """Every layout line of the committed sample: straights straight, no grade ripple (DTM terraces, tile seams),
-    no camber flicking, no crest or dip tighter than 75 m (DTM spikes, bridges)."""
+    no camber flicking, no crest or dip tighter than 75 m (DTM spikes, bridges); with measured widths, every point
+    has one, within 7-18 m, changing at most 0.5 m per 5 m outside junctions, options.widthM their median."""
     recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
-    im = json.loads((_ROOT / "geom" / "tests" / "samples" / f"{irt.recipe_slug(recipe)}.json")
-                    .read_text(encoding="utf-8"))["sketch"]["imported"]
+    spec = json.loads((_ROOT / "geom" / "tests" / "samples" / f"{irt.recipe_slug(recipe)}.json").read_text(encoding="utf-8"))
+    im = spec["sketch"]["imported"]
+    if recipe.get("widths"):
+        _check_measured_widths(im, spec["options"]["widthM"])
     lines = [("main", im["centreline"], True)] + [(a["id"], a["centreline"], False) for a in im.get("altLayouts", [])]
     for name, cl, closed in lines:
         c = np.array([[p["x"], p["y"], p["z"], p["bankDeg"]] for p in cl])
@@ -404,6 +407,51 @@ def test_imported_sample_has_no_profile_artefacts(recipe_path: Path) -> None:
             tm = main[(j + 2) % len(main)] - main[(j - 2) % len(main)]
             ang = math.degrees(math.acos(float(np.clip(tm @ chord / np.hypot(*tm) / np.hypot(*chord), -1.0, 1.0))))
             assert ang <= 25.0, (a["id"], end, ang)
+
+
+def _check_measured_widths(im: dict, options_width: float) -> None:
+    main = np.array([[p["x"], p["y"]] for p in im["centreline"]])
+    ends = np.array([[a["centreline"][k]["x"], a["centreline"][k]["y"]] for a in im.get("altLayouts", []) for k in (0, -1)])
+    lines = [("main", im["centreline"], True)] + [(a["id"], a["centreline"], False) for a in im.get("altLayouts", [])]
+    for name, cl, closed in lines:
+        assert all("widthM" in p for p in cl), name
+        xy = np.array([[p["x"], p["y"]] for p in cl])
+        w = np.array([p["widthM"] for p in cl])
+        assert 7.0 - 0.05 <= w.min() and w.max() <= 18.0 + 0.05, (name, w.min(), w.max())
+        s = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(xy, axis=0).T))])
+        t = np.arange(0.0, s[-1], 5.0)
+        w5 = np.interp(t, s, w)
+        step = np.abs(np.diff(w5))
+        # junctions: within 40 m of a branch end (where the measured profile fades between the two roads)
+        if len(ends):
+            p5 = np.column_stack([np.interp(t, s, xy[:, 0]), np.interp(t, s, xy[:, 1])])
+            dj = np.hypot(p5[:, None, 0] - ends[None, :, 0], p5[:, None, 1] - ends[None, :, 1]).min(1)
+            step = step[(dj[:-1] > 40.0) & (dj[1:] > 40.0)]
+        assert step.size == 0 or step.max() <= 0.5, (name, float(step.max()))
+    med = float(np.median([p["widthM"] for p in im["centreline"]]))
+    assert options_width == pytest.approx(min(max(round(med, 1), 8.0), 20.0), abs=0.11)
+    assert "Widths:" in im["source"]
+    assert len(main) == len(im["centreline"])
+
+
+def test_measured_widths_move_the_line_onto_the_tarmacs_middle() -> None:
+    """widths_at reads the measured edges along each sample's own normal, also from sections measured the other
+    way round, and width_and_offset gives the move onto the tarmac's middle."""
+    # a straight road along x, measured from a line 1.5 m left of the true middle: 4 m to its left edge, 7 m right
+    xs = np.arange(0.0, 200.0, 5.0)
+    sec = {"c": np.column_stack([xs, np.full(len(xs), 1.5)]), "n": np.tile([0.0, 1.0], (len(xs), 1)),
+           "l": np.full(len(xs), 4.0), "r": np.full(len(xs), 7.0)}
+    p = np.column_stack([np.arange(20.0, 180.0, 2.0), np.zeros(80)])
+    nl = np.tile([0.0, 1.0], (len(p), 1))
+    left, right, ok = irt.widths_at(sec, p, nl)
+    assert ok.all() and np.allclose(left, 5.5) and np.allclose(right, 5.5)
+    rev = {**sec, "n": -sec["n"], "l": sec["r"], "r": sec["l"]}  # the same edges, measured driving the other way
+    left2, right2, _ = irt.widths_at(rev, p, nl)
+    assert np.allclose(left2, 5.5) and np.allclose(right2, 5.5)
+    w, off, matched = irt.width_and_offset(sec, p + [0.0, -1.0], nl, 10.0, closed=False)
+    assert matched == 1.0 and np.allclose(w, 11.0) and np.allclose(off, 1.0)
+    far = irt.widths_at(sec, p + [0.0, 30.0], nl)[2]
+    assert not far.any()  # nothing within WIDTH_MATCH_M
 
 
 def _lap_profile(model, secs: list[dict]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
