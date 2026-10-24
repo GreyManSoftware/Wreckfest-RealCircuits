@@ -33,7 +33,7 @@ from wfbuild.layout import composite_route
 WF = os.environ.get("WRECKFEST_DIR", "/wreckfest")
 failures: list[str] = []
 ENGINE_TAGS = {"blend", "decal", "noshadow", "lofi", "horizon", "xtree"}  # shader / render tags used here
-GRID_EXEMPT = {"gantry", "flags", "staff", "grandstand",
+GRID_EXEMPT = {"gantry", "flags", "staff", "grandstand", "brakeBoards",
                "pitWall", "pitBuildings", "pitPaddock", "bridges", "realGrandstand"}  # real pits (wfbuild/pits.py) stand where they are
 
 
@@ -96,7 +96,8 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
              # real pits (wfbuild/pits.py; check_pits.py checks them): the pit wall beside the track, bridges over it
              "pitWall": (-0.5, np.inf), "bridges": (-np.inf, np.inf), "pitBuildings": (1.0, np.inf),
              "pitPaddock": (1.0, np.inf), "realGrandstand": (1.0, np.inf),
-             "brakeBoards": (D.BRAKE_GAP + D.BRAKE_HALF - 0.8, D.BRAKE_GAP + D.BRAKE_HALF + C.KERB_W + C.GREEN_W + 0.8)}
+             "brakeBoards": (D.BRAKE_GAP + D.BRAKE_HALF - 0.8,
+                             D.BRAKE_GAP + D.BRAKE_HALF + C.KERB_W + C.GREEN_W + max(D.BRAKE_OUT_M) + 0.8)}
     on_road = [f"{p['asset']} {d[k]:.1f} m" for k, p in enumerate(P)
                if not (lanes.get(p["category"], (pl.edge_min - 1.3, np.inf))[0] <= d[k]
                        <= lanes.get(p["category"], (0, np.inf))[1])]
@@ -138,12 +139,14 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
 
 
 def check_brake_boards(geo, pl, sc: dict) -> None:
-    """Braking boards (category brakeBoards, dressing.brake_boards): every braking corner of every layout
-    (recomputed with dressing.brake_zones) has its 150/100/50 m boards or a recorded reason for each missing
-    one; each board stands its distance before the turn-in along that layout's route in its driving direction,
-    furthest first, on the outside of the corner, its numbered face (local +X) towards the oncoming cars, its
-    near end clear of every road edge; the counts stay sensible."""
+    """Braking boards (category brakeBoards, dressing.brake_boards): the zones are exactly the heavy-braking
+    corners of every layout (recomputed with dressing.brake_zones: the rule, or the recipe's brakeBoards
+    add/remove); each zone has a complete 150/100/50 m set or none (with the reason); each board stands within
+    BRAKE_SPACING_TOL of its distance before the turn-in along that layout's route, furthest first, on the zone's
+    recorded side, its numbered face (local +X) towards the oncoming cars, its ends clear of every road edge, no
+    measured gravel trap and no pit lane under it; the counts stay sensible."""
     from wfbuild.fields import exact_edge_distance
+    from wfbuild.geometry import dist_to_polyline
 
     P = sc["placements"]
     info = sc["info"].get("brakeBoards") or {"zones": []}
@@ -153,27 +156,33 @@ def check_brake_boards(geo, pl, sc: dict) -> None:
         check(not boards, "brake boards: none where the environment has no boards")
         return
     routes = {key: (r, d) for key, r, d in D.layout_routes(geo)}
-    want = {(key, round(z["s_in"], 1)) for key, (r, d) in routes.items() for z in D.brake_zones(geo, r, d)
-            if z["approach"] >= D.BRAKE_MIN_APPROACH}
+    zones = {(key, round(z["s_in"], 1)): z for key, (r, d) in routes.items() for z in D.brake_zones(geo, r, d)}
     got = {(z["layout"], z["turnInS"]) for z in info["zones"]}
-    check(want == got, "brake boards: every braking corner of every layout has a braking zone",
-          f"{len(want)} corners; missing {sorted(want - got)[:3]}, extra {sorted(got - want)[:3]}")
-    reasons = {"approach", "otherRoad", "wall", "noGo", "terrain", "occupied", "gravelTrap"}
-    incomplete = [f"{z['layout']} s{z['turnInS']}" for z in info["zones"]
-                  if {b["m"] for b in z["boards"]} | {int(m) for m in z["skipped"]} != set(D.BRAKE_BOARDS)
-                  or not set(z["skipped"].values()) <= reasons]
-    check(not incomplete, "brake boards: each zone has its 150/100/50 m boards or a reason for each missing one",
-          ", ".join(incomplete[:3]))
+    check(set(zones) == got, "brake boards: a braking zone at every heavy-braking corner of every layout (rule or override)",
+          f"{len(zones)} corners; missing {sorted(set(zones) - got)[:3]}, extra {sorted(got - set(zones))[:3]}")
+    ov = D.brake_overrides(geo)
+    bad_rule = [f"{k[0]} s{k[1]} {z['corner']}" for k, z in zones.items() if z["corner"] in ov["remove"] or not (
+        (z["why"] == "add" and z["corner"] in ov["add"]) or (z["radius"] <= D.BRAKE_MAX_RADIUS
+        and z["turnDeg"] >= D.BRAKE_MIN_TURN_DEG and z["approach"] >= D.BRAKE_MIN_APPROACH
+        and z["dropKmh"] >= D.BRAKE_MIN_DROP_KMH))]
+    check(not bad_rule, "brake boards: each zone's corner meets the heavy-braking rule or is a recipe 'add'",
+          ", ".join(bad_rule[:3]))
+    reasons = {"approach", "otherRoad", "wall", "noGo", "terrain", "occupied", "gravelTrap", "pits"}
+    partial = [f"{z['layout']} s{z['turnInS']}" for z in info["zones"]
+               if sorted(b["m"] for b in z["boards"]) not in ([], sorted(D.BRAKE_BOARDS))
+               or (not z["boards"] and not {w.split(":")[1] for w in (z.get("dropped") or {"": ":?"}).values()} <= reasons)]
+    check(not partial, "brake boards: every zone has the complete 150/100/50 m set, or none and a reason",
+          ", ".join(partial[:3]))
     empty = sum(1 for z in info["zones"] if not z["boards"])
-    check(empty <= max(1, len(info["zones"]) // 4), "brake boards: most braking zones have boards",
-          f"{empty} of {len(info['zones'])} zones without any")
+    check(empty <= max(1, len(info["zones"]) // 4), "brake boards: most braking zones have their set",
+          f"{empty} of {len(info['zones'])} zones without")
     used = {b["placement"] for z in info["zones"] for b in z["boards"]}
-    check(used == set(boards), "brake boards: every board belongs to a braking zone",
+    check(used == set(boards), "brake boards: every board belongs to a braking zone's set",
           f"{len(boards)} boards, {len(used)} referenced")
     bad_order, bad_face, bad_side, bad_asset = [], [], [], []
     for z in info["zones"]:
         r, direction = routes[z["layout"]]
-        side = 1 if z["side"] == "left" else -1
+        side = 1 if z.get("boardSide", z["side"]) == "left" else -1
         before = {}
         for b in z["boards"]:
             p = P[b["placement"]]
@@ -188,12 +197,13 @@ def check_brake_boards(geo, pl, sc: dict) -> None:
             if float(np.dot(q - r.p[i, :2], r.nl[i])) * side <= 0:
                 bad_side.append(f"{p['asset']} at s{r.s[i]:.0f}")
         ms = sorted(before, reverse=True)
-        if any(abs(before[m] - m) > 4.0 for m in ms) or any(before[a] <= before[b] for a, b in zip(ms, ms[1:])):
+        if any(abs(before[m] - m) > D.BRAKE_SPACING_TOL + 4.0 for m in ms) or any(
+                before[a] <= before[b] for a, b in zip(ms, ms[1:])):
             bad_order.append(f"{z['layout']} s{z['turnInS']}: {[(m, round(before[m])) for m in ms]}")
-    check(not bad_order, "brake boards: 150, 100 and 50 m before the turn-in along the layout's driving direction, "
-          "furthest first", "; ".join(bad_order[:3]))
+    check(not bad_order, "brake boards: 150, 100 and 50 m (within the shift tolerance) before the turn-in along "
+          "the layout's driving direction, furthest first", "; ".join(bad_order[:3]))
     check(not bad_face, "brake boards: numbered face (local +X) towards the oncoming cars", ", ".join(bad_face[:3]))
-    check(not bad_side, "brake boards: on the outside of the corner (the braking side)", ", ".join(bad_side[:3]))
+    check(not bad_side, "brake boards: each set on its recorded side (the outside unless blocked)", ", ".join(bad_side[:3]))
     check(not bad_asset, "brake boards: the stock board matches its distance", ", ".join(bad_asset[:3]))
     if boards:
         xy = np.array([P[k]["position"][:2] for k in boards])
@@ -202,10 +212,15 @@ def check_brake_boards(geo, pl, sc: dict) -> None:
         near = float(exact_edge_distance(geo, ends).min())
         check(near >= D.BRAKE_GAP - 0.6, "brake boards: both ends clear of every road edge",
               f"nearest end {near:.2f} m (gap {D.BRAKE_GAP} m)")
+        trap = int((pl.runoff.at(ends) == 1).sum()) if pl.measured else 0
+        pit = sum(1 for lp, hw in pl._pit_lanes() if float(dist_to_polyline(ends, lp).min()) < hw - 1.0)
+        check(not trap and not pit, "brake boards: none in a gravel trap or the pit lane",
+              f"{trap} board ends in a trap, {pit} pit lanes reached")
     lap = sum(r.length for r, _ in routes.values())
     check(len(boards) <= 3 * len(info["zones"]) and len(boards) <= 12 * lap / 1000.0 + 3,
           "brake boards: sensible count", f"{len(boards)} boards, {len(info['zones'])} zones, {lap / 1000:.1f} km of laps")
-    print(f"INFO brake boards: {len(boards)} boards in {len(info['zones'])} zones, skipped {info.get('skipped')}")
+    print(f"INFO brake boards: {len(boards)} boards in {len(info['zones'])} zones ({len(info['zones']) - empty} sets), "
+          f"dropped {info.get('dropped')}")
 
 
 def check_sponsor(out: str, geo, pl, sc: dict) -> None:
