@@ -236,7 +236,7 @@ class Pits:
         for lane in self.lanes:
             if lane.b1 <= lane.b0:
                 continue
-            mesh = Mesh(f"pitlane_{lane.id}", "col = true", kind="road")
+            mesh = Mesh(f"pitlane_{lane.id}", "col = true", kind="pit")  # bounds.ALLOWED_KINDS: drivable off the AI routes
             m = max(1, int(round(lane.w / LANE_CELL)))
             offs = np.concatenate([[-lane.w / 2 - LANE_SKIRT], np.linspace(-lane.w / 2, lane.w / 2, m + 1),
                                    [lane.w / 2 + LANE_SKIRT]])

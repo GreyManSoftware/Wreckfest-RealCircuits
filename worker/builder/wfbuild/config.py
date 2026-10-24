@@ -116,7 +116,7 @@ SURFACE_ROADS = {
 WALL_MATERIAL = {"concrete": "wall_concrete", "tyres": "wall_tyres"}
 
 # Mesh kinds that use the #blend materials and so get UV2 (the generated maps' frame).
-BLEND_KINDS = ("road", "shoulder", "terrain")
+BLEND_KINDS = ("road", "shoulder", "terrain", "pit")  # pit: an imported track's pit lane (pits.py)
 # Mesh kinds without collision (CustomData empty): the road-edge decal and the backdrop.
 NO_COLLISION_KINDS = ("decal", "backdrop", "helper")
 
