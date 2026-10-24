@@ -26,3 +26,20 @@ Lap lengths (built): Full 3,496.9 → 3,496.0 m (published 3,502 m, −0.17 %); 
 where the hairpin branch is joined to the main line; the gap was the same before the audit).
 
 Still uncertain: real widths (no source), how the Mountain crest drives (only qualitative sources).
+
+## Width (measured 2026-10-24)
+
+Source: EA National LIDAR Programme point cloud, tile TF2580 (flown 2019-03-29, ~1.8 points/m²). Method and data: `docs/real-tracks.md`, "Widths (2026-10-24)". Profile `tools/real_tracks/widths/cadwellpark.json`; plots and overlays `.local\audit\cadwellpark\width-*.png`.
+
+| | Value |
+|---|---|
+| Full lap | median 7.8 m, 7.0-10.1 m (p10 7.2, p90 9.3); 86 % of sections measured with confidence ≥ 0.5 |
+| Narrow | Park Straight 7.1-7.3 m, Chris Curve 7.2-7.5 m, the Mountain 7.5-8.5 m (median 7.8), the exit of Hall Bends 7.0 m, Coppice and Charlies ~7.6 m |
+| Wide | the run from Mansfield through Woodland 9.5-10.1 m, the start/finish straight 8.6-9.5 m, Hall Bends 8.0-9.1 m, Barn 8.7 m |
+| Club / Woodlands hairpins | 7.8-8.1 m (junction zones throughout: the circuit's median) |
+| Line | moved onto the tarmac's middle by up to 1.5 m (mean 0.6 m); lap 3,486.8 m (was 3,496.0; published 3,502 m, −0.4 %) |
+| Spec | `options.widthM` 8.0 (the median 7.8, clamped to the schema's 8 m minimum) |
+
+Not published (sources only call it "narrow", "about half Silverstone's width"); the recipe's 9.5 m was an estimate,
+1.7 m wider than the tarmac. The pit lane beside the start straight is separated only by paint: the line rule keeps it
+out. The 7 m clamp holds at Park Straight and Hall Bends (raw 6.5-7.0 m in places).

@@ -28,3 +28,21 @@ with the turn labels; red is the build before the audit): `.local\audit\navarra\
 Remaining uncertainty: OSM's lap is an approximate drawing; the 2 m DTM can't show its few-metre errors on flat
 asphalt (the orthophoto spot checks agree with it), the hook's ramp (in the DTM, maybe still under construction in
 the 2024 flight) and the T5-T6 curvature ripples (OSM nodes; no orthophoto check there).
+
+## Width (measured 2026-10-24)
+
+Source: Gobierno de Navarra LiDAR 2024 point cloud with RGBI, tiles 568-4712 and 568-4713 (~7 points/m², CC BY 4.0). Method and data: `docs/real-tracks.md`, "Widths (2026-10-24)". Profile `tools/real_tracks/widths/navarra.json`; plots and overlays `.local\audit\navarra\width-*.png`.
+
+| | Value |
+|---|---|
+| Main Track | median 12.0 m, 9.2-15.4 m (p10 11.3, p90 14.5); 74 % confident |
+| Main straight (Turn 17 to Turn 3) | 14.1-15.4 m (Turn 17 14.7, Turn 1 14.9, Turn 2 14.6, Turn 3 14.0) |
+| Rest of the lap | 11.0-12.4 m (Turns 5-10, 15, 16) |
+| Narrow | Turn 4 10.4-11.4 m (a paler asphalt there; narrowest 9.2 m just after it) |
+| 2024 extension (Turns 11-14) | unpaved or half-paved in the 2024 flight: not measured, 12.0 m (`UNMEASURED`) |
+| Medium / Short links | 9.3-12.1 m / 11.7-12.0 m |
+| Line | moved by up to 1.8 m (mean 0.6 m); lap 4,287.4 m (published 4,313 m, −0.6 %) |
+| Spec | `options.widthM` 12.0 |
+
+**Published:** 12 m, 15 m on the main straight (2010 opening). Measured: 12.0 m median, 14-15 m on the main straight:
+both agree.

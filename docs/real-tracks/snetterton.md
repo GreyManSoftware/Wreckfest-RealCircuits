@@ -76,3 +76,16 @@ Pre-Workshop accuracy audit (method and the shared importer change: `docs/real-t
 
 Lap lengths unchanged to 0.1 m: 300 4,788.7 m (published 4,779 m, +0.20 %), 200 3,194.5 m (3,219 m, −0.76 %), 100
 1,556.2 m (1,577 m, −1.32 %); the OSM polylines are 4,801 / 3,202 / 1,566 m.
+
+## Width (measured 2026-10-24)
+
+Source: EA National LIDAR Programme point cloud, tiles TL9585 (2018-11) and TM0085 (2021-11). Method and data: `docs/real-tracks.md`, "Widths (2026-10-24)". Profile `tools/real_tracks/widths/snetterton.json`; plots and overlays `.local\audit\snetterton\width-*.png`.
+
+| | Value |
+|---|---|
+| 300 | median 10.7 m, 7.7-15.3 m (p10 10.0, p90 13.3); 83 % confident |
+| Wide | Bentley Straight 13.1-14.8 m, Brundle 10.7-14.9 (widest, s 3,309), Agostini 10.6-12.8, Murrays 9.9-12.6, Oggies 10.7-12.4 |
+| Narrow | 7.7 m near Williams (s 2,404), Nelson 9.0-10.8, Riches 9.2-10.9 |
+| 200 / 100 links | 9.7-10.9 m / 10.1-10.6 m |
+| Line | moved by up to 2.8 m (mean 0.9 m); lap 4,785.8 m (published 4,779 m, +0.1 %) |
+| Spec | `options.widthM` 10.7 |

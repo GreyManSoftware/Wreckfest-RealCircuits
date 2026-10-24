@@ -20,3 +20,19 @@ lines: `shade-all.png`. The recipe is unchanged; the sample was re-imported for 
 | SEN junction kinks | The SEN branch met the main line at 43° (leaving) and 27° (rejoining) within 2 m: `joinWithinM` trims the shallow merge, and the ends were moved onto the main line without turning. | `fillet_ends` (importer): curved onto the main line over 30 m; SEN 3,595.3 m (was 3,593.7). |
 
 Uncertain: the GT and West lap-length gaps, the width.
+
+## Width (measured 2026-10-24)
+
+Source: EA National LIDAR Programme point cloud, tiles TL0060 and TL0560 (flown 2023-04-03). Method and data: `docs/real-tracks.md`, "Widths (2026-10-24)". Profile `tools/real_tracks/widths/bedfordautodrome.json`; plots and overlays `.local\audit\bedfordautodrome\width-*.png`.
+
+| | Value |
+|---|---|
+| GT | median 12.5 m, 9.2-17.3 m (p10 10.6, p90 14.8); 77 % confident |
+| Wide | Turns 4-6 14.7-17.1 m, the Y junction at Turn 10 (17.3 m, widest), Turns 2-3 13.3-14.8 |
+| Narrow | 9.2 m by Turn 7 (s 1,332), where the GT meets the airfield service road (concrete, as bright as grass in the intensity: the service road itself is unmeasured and takes the median); Turns 9-10 9.9-10.7, Turn 13 9.7-12.6 |
+| SW / West / SEN links | 9.9-14.4 / 9.4-13.8 / 9.8-12.6 m |
+| Line | moved by up to 4.2 m (mean 1.0 m; the recipe keeps the OSM line unregistered, which is off the tarmac in places); lap 5,880.7 m |
+| Spec | `options.widthM` 12.5 |
+
+Airfield concrete reads as bright as grass in the LIDAR intensity: its stretches (the service road the GT and SEN
+use) take the median width.
