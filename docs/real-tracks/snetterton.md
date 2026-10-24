@@ -56,3 +56,23 @@ Renders: `.local\renders\snetterton-{start,riches,bombhole,firmans,oblique}.png`
 
 **Check in game:** the 100's start line and grid (estimated), the Firmans hairpin (11.9 m) and the AI round it, the
 200's Chapman link, the minimap per layout, how open the airfield looks.
+
+## Audit 2026-10-24
+
+Pre-Workshop accuracy audit (method and the shared importer change: `docs/real-tracks.md`, "Audit notes"). Plots:
+`.local\audit\snetterton\{before,after}-{main,c200,c100}.png`, plan views over the LIDAR relief
+`.local\audit\snetterton\plan-*.png`, before/after line `.local\renders\audit\snetterton-line-bentley.png`.
+
+| Issue | Evidence | Fix |
+|---|---|---|
+| Bentley Straight read as a gentle bend | A spurious R 229 m bend from a registration step (the flat airfield gives the registration little to hold) | Shared importer fix (registration smoothed over 25 m): R 2,500 m |
+| Senna Straight kink | OSM bends the straight 9° over two nodes 20 m apart (s 4,555-4,575 m), so the built line has a short R ~170 m bend (0.7 m off a 100 m quadratic); the LIDAR relief (the barrier line beside it) shows the real road curving gently over ~150 m. The same turn, just more spread out | None: below the new test's R 130 m limit and invisible at 12 m wide. Spreading the turn at sparse nodes was tried and didn't help here (the two nodes are 20 m apart) |
+| Corner radii | Built vs OSM circle fit: Wilson 18/22 m, Agostini 26/32, Oggies 21/22, Hamilton 46/46, Bomb Hole 54/68, Murrays 14/12; Brundle-Nelson 21 m vs a 3-node fit of 15.5 m (plan view: the line follows OSM, rounding its apex node by ~0.5 m) | None |
+| Corner handedness and order | Riches R, Wilson R hairpin, Palmer L, Agostini L, Hamilton L, Oggies R, Williams R, Brundle R, Nelson R, Bomb Hole R, Coram R, Murrays L: driver61's turn order | None |
+| Elevation (flat airfield) | Range 5.8 m, climb 14.4 m per lap, ±1.9 % over 10 m, largest grade change 1.3 % per 10 m (Bomb Hole's shallow dip); raw DTM vs built 1.2 cm RMS, no bump over 12 cm | None |
+| Camber | ≤ 2.5° (Bomb Hole 2.3° into the corner); the crossfall swaps sides between some corners (±1°, e.g. Riches to Wilson), smoothly; on straights within 0.4° of the 25 m mean | None |
+| Width | Not published, no OSM `width`; the airfield is flat round the road, so the LIDAR bounds it only loosely (13-18 m flush surface) | None: 12 m kept |
+| 100 start line (open, unchanged) | No official source places it | Estimated as documented above; Chris to confirm |
+
+Lap lengths unchanged to 0.1 m: 300 4,788.7 m (published 4,779 m, +0.20 %), 200 3,194.5 m (3,219 m, −0.76 %), 100
+1,556.2 m (1,577 m, −1.32 %); the OSM polylines are 4,801 / 3,202 / 1,566 m.

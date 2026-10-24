@@ -17,8 +17,8 @@ OSM also maps the old line past Hislops (way 27299256, the pre-chicane road); no
 |---|---|---|---|
 | Layout source | MSV map "Oulton Park International Circuit" (`OP Map_International Circuit.pdf`) | MSV map "Oulton Park Island Circuit" | MSV map "Oulton Park Fosters Circuit" |
 | Route | Old Hall, The Avenue, Dentons, Cascades, Lakeside, Island Bend, Shell Oils Corner, Brittens, Hilltop, Hislops, Knickerbrook, Clay Hill, (Water Tower), Druids, Warwick Bridge, Lodge, Deer Leap | Lakeside straight into the Island Hairpin (OSM 27299255 + 820427876) straight onto Hilltop: no Island Bend, Shell Oils or Brittens | Cascades into Fosters (OSM 29187915 "Foster's") across to Hislops and Knickerbrook |
-| Lap (built, 2026-10-24) | 4,320.3 m (was 4,316.9) | 3,566.1 m (was 3,564.0) | 2,679.0 m (was 2,676.4) |
-| Published | 4,307 m (Wikipedia; MSV 4.30 km, 2.69 mi; racingcircuits.info 4,333 m): +0.31 % (was +0.23) | 3,616 m (MSV 2.26 mi, Wikipedia; racingcircuits.info 3,637 m): −1.38 % (was −1.44) | 2,656 m (MSV 1.66 mi, Wikipedia; racingcircuits.info 2,662 m): +0.87 % (was +0.77) |
+| Lap (built, 2026-10-24 audit) | 4,320.2 m (4,316.9 before the chicanes) | 3,566.6 m (was 3,564.0) | 2,679.2 m (was 2,676.4) |
+| Published | 4,307 m (Wikipedia; MSV 4.30 km, 2.69 mi; racingcircuits.info 4,333 m): +0.31 % (was +0.23) | 3,616 m (MSV 2.26 mi, Wikipedia; racingcircuits.info 3,637 m): −1.37 % (was −1.44) | 2,656 m (MSV 1.66 mi, Wikipedia; racingcircuits.info 2,662 m): +0.87 % (was +0.77) |
 | OSM polyline | 4,325 m | 3,573 m | 2,670 m |
 | Direction | clockwise: the MSV map arrow by the flag points down the pit straight to Old Hall; coachdaveacademy.com / driver61.com guides (Old Hall turn 1, Deer Leap last) | clockwise (MSV Island map) | clockwise (MSV Fosters map; racingcircuits.info "off after Cascades to a tight right-hander leading to Knickerbrook") |
 | Start/finish | pit straight just after Deer Leap: OSM node 235311718 (`raceway=start-finish`), the MSV maps' chequered flag | shares the International line and grid | shares the International line and grid |
@@ -98,3 +98,27 @@ build. MSV's current Fosters map instead draws Hislop's in grey and the Fosters 
 the map is probably right. It crosses the International's line at the chicane entry, a flat crossing that imported
 tracks can't have yet (the importer gave `crossing-needs-annotation`, 2026-10-24); left as is until imported layouts
 support crossings.
+
+## Audit 2026-10-24
+
+Pre-Workshop accuracy audit (method and the shared importer change: `docs/real-tracks.md`, "Audit notes"). Plots:
+`.local\audit\oultonpark\{before,after}-{main,island,fosters}.png`, plan views over the LIDAR relief
+`.local\audit\oultonpark\plan-*.png`, before/after line `.local\renders\audit\oultonpark-line-{hill,avenue}.png`.
+
+| Issue | Evidence | Fix |
+|---|---|---|
+| Straights wandered sideways (registration steps): The Avenue, the Hill straight, Hilltop | Short-wave OSM-to-built offset up to 0.54 m; spurious bends on straights (Hilltop read R 227 m, The Avenue R 140 m) | Shared importer fix (registration smoothed over 25 m): short-wave offset ≤ 0.26 m, Hilltop R 1,960 m, The Avenue R 410 m; tightest bend on a straight R 176 m (the dip after Lodge, a real curve) |
+| Chicanes | Brittens 15 m and Hislop's (International) 17 m minimum radius, Fosters' Hislop's 13 m: kept by `sharpWays` (earlier fix); OSM circle fit at Brittens 14 m | None |
+| Corner radii | Built vs OSM circle fit: Lodge 30/32 m, Druids 54/58, Shell Oils 29/35, Cascades 56/71, Old Hall 38 m (OSM too sparse to fit) | None |
+| Corner handedness and order | Old Hall R, The Avenue kink, Dentons R, Cascades L, Island Bend L, Shell Oils R hairpin, Brittens R-L, Hislop's R-L, Knickerbrook R, Clay Hill L, Water Tower L, Druids R, Warwick Bridge L kink, Lodge R, Deer Leap L: as the MSV map and guides | None |
+| Elevation | Range 17.5 m, climb 42 m per lap; Knickerbrook to Clay Hill +11.0 % over 10 m (+10.2 % over 50 m), the guides' steep climb; the dip between Lodge and Deer Leap −9.3 % / +7.8 % (Deer Leap's crest); largest grade change 5.4 % per 10 m. No published gradients | None |
+| LIDAR artefacts | Raw DTM vs built 1.7 cm RMS, 9 cm max; no bump over 12 cm against a 15 m running median: no dip at Warwick Bridge, where the track crosses a stream, nor under the footbridges | None |
+| Shell Oils camber 10.9° (clamped to 10°) | Cross-sections at the apex: the inside of the hairpin 1.4 m lower than the outside across the inner 8 m, a drainage dip at the inside edge; the plane fit is on the paved strip | None (real; clamped by the imported-bank rule) |
+| Camber elsewhere | ≤ 4.5°; on straights within 0.6° of the 25 m mean, no flip-flop | None |
+| Width | Not published, no OSM `width`. LIDAR flush-surface bounds 9.0-10.5 m on the narrow parts (Lakeside, Shell Oils, Warwick Bridge) | None: 10 m kept |
+| Environment | 4 lakes (Oulton Lake etc.) and 49 woods, none on the road; crowds at the three MSV grandstands (Lodge, Old Hall, Knickerbrook) and Druids | None |
+| Fosters route (open, unchanged) | MSV's current Fosters map joins the old straight to Knickerbrook (2,649 m on OSM vs MSV 2,656 m); we drive Hislop's (Wikipedia) | Needs flat crossings for imported layouts; left as documented above |
+
+Lap lengths: International 4,320.3 → 4,320.2 m (published 4,307 m, +0.31 %); Island 3,566.1 → 3,566.6 m (3,616 m,
+−1.37 %; the OSM polyline is 3,573 m, so the gap is OSM's line through the Island Hairpin); Fosters 2,679.0 → 2,679.2 m
+(2,656 m, +0.87 %; see Fosters above).
