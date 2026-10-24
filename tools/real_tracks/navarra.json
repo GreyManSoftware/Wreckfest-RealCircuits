@@ -1,20 +1,21 @@
 {
-  "description": "Recipe for tools/import_real_track.py: Circuito de Navarra (Los Arcos, Navarre, Spain), MSV. The 2024 Main Track with the Medium and Short layouts sharing its base: the three on MSV's own circuit-layouts page (circuitodenavarra.com/about/circuit-layouts), matching Wikipedia's and racingcircuits.info's current (September 2024 to date) car layouts. racingcircuits.info's 'Bike' Long and Medium variants are bike-only, so they aren't built. Heights from Spain's IGN MDT05 (5 m, PNOA LIDAR) in ETRS89 / UTM 30N.",
+  "description": "Recipe for tools/import_real_track.py: Circuito de Navarra (Los Arcos, Navarre, Spain), MSV. The 2024 Main Track with the Medium and Short layouts sharing its base: the three on MSV's own circuit-layouts page (circuitodenavarra.com/about/circuit-layouts), matching Wikipedia's and racingcircuits.info's current (September 2024 to date) car layouts. racingcircuits.info's 'Bike' Long and Medium variants are bike-only, so they aren't built. Heights from the Gobierno de Navarra's 2024 LIDAR DTM (2 m, IDENA WCS) in ETRS89 / UTM 30N (until 2026-10-24 the IGN MDT05, whose whole-metre terraces made the straights wavy).",
   "name": "Circuito de Navarra",
   "slug": "navarra",
-  "trackDescription": "Circuito de Navarra, Main Track (4.30 km), Medium (2.65 km) and Short (1.32 km) layouts from OpenStreetMap, with heights, camber and terrain from the IGN MDT05 (PNOA LIDAR, 5 m). Dry northern-Spain hills of scrub and bare ground beside Los Arcos.",
+  "trackDescription": "Circuito de Navarra, Main Track (4.30 km), Medium (2.65 km) and Short (1.32 km) layouts from OpenStreetMap, with heights, camber and terrain from the Gobierno de Navarra's 2024 LIDAR DTM (2 m). Dry northern-Spain hills of scrub and bare ground beside Los Arcos.",
   "bbox": [
     42.545,
     -2.2,
     42.585,
     -2.1
   ],
-  "dtm": "es-mdt05",
+  "dtm": "es-navarra",
   "terrainMarginM": 400,
   "terrainCellM": 10,
   "registrationMaxShiftM": 0,
   "branchOffM": 1.5,
-  "registrationNote": "The 5 m MDT05 has two or three cells across the road: too coarse to register the OSM line to (with 3 m allowed the fits of the three layouts drifted apart along their shared road), so the line is used as mapped.",
+  "registrationNote": "The line is used as mapped: on the 2 m IDENA DTM the OSM line already sits on the road (a plane across the inner 80 % fits within 7 mm on average), and a 3 m registration moved it by up to 3 m (the Medium's link hit the bound) and added lateral wobble for 1 cm better fit (2026-10-24 audit).",
+  "dtmNote": "es-navarra: Gobierno de Navarra MDT 2 m from the 2024 LIDAR flight (5 points/m2, IDENA WCS, CC BY 4.0). The IGN MDT05 from the IDEE WCS (es-mdt05) is served as whole metres: 1 m terraces 40-50 m apart on gentle slopes, which made every straight wavy (grade swinging 0.3-3.4 % every ~55 m) and gave the main straight a false 4 degree camber; its older flight also predates the 2024 extension (Turns 11-14: up to 2.4 m off, and a false 7 degree camber between T12 and T13).",
   "lap": [
     103746067
   ],
