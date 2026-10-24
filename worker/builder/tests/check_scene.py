@@ -24,6 +24,7 @@ from mathutils.bvhtree import BVHTree
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
+sys.path.insert(0, HERE)  # roadside_cover
 from wfbuild import config as C
 from wfbuild import envs
 from wfbuild.layout import composite_route
