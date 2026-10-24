@@ -22,14 +22,16 @@ plain), tag 'tcat' reversed, version 20, then
     'fxdf' text     dof (data/property/effects/dof/default.fxdf)
     f  free cam max distance (X), (Z), max elevation; prerace cam fov
     'dofs' v0 [1]   prerace cam dof (5 dwords)
-    'tcam' v11 [n]  cameras (decoded from the 120 stock files, field names from BagEdit's strings): u32 type
-                    (0 rotating, 1 fixed, 2 moving), u32 flags (2: start camera, 4: replay), f field of view,
-                    f (7 in most), u32 0, i32 active / move between sectors (4: AI main-route sector indices
-                    of a replay camera), f tracking start / end distance, a dof reference ('fxdf' text, or an
-                    empty reference: two zero dwords), 'tcde' v1 [k] positions: f x, y (up), z (Bugbear
-                    axes: Blender x, z, y), f pitch, yaw, roll (degrees; yaw from +z towards +x, pitch < 0
-                    looks down, stored 0..360), f field of view, f screen position x, y, f smoothing (vel, pos,
-                    pred). We write one start camera per layout (``Camera``, see wfbuild/cameras.py).
+    'tcam' v11 [n]  cameras (BagEdit's bbTrackCamera v11 field table; all 120 stock files decode): u32 type
+                    (enum: 0 rotating, 1 fixed, 2 moving), u32 flags (bit enum: 2 "start camera", 4 "sector
+                    activation"), f default fov, f zoom start distance, i32 activation route, i32 x2 active
+                    between sectors, i32 x2 move between sectors (indices into the compiled AI route's
+                    sectors), f tracking start / end distance, a dof reference ('fxdf' text, or an empty
+                    reference: two zero dwords), 'tcde' v1 [k] data entries: f position x, y (up), z (world,
+                    Bugbear axes: Blender x, z, y; checked against the stock base terrain with each model's
+                    matrix), f rotation pitch, yaw, roll (degrees; yaw from +z towards +x, pitch < 0 looks down,
+                    stored 0..360), f field of view, f screen position x, y, f smoothing (vel, pos, pred). We
+                    write a start camera and trackside cameras per layout (``Camera``, wfbuild/cameras.py).
     'trou' v7 [n]   routes, one per AI route in index order (main, alt1, ...): u32 flags (0; a flag bit is
                     "Do not render in minimap"), f Minimap Race To Safe Bias, f Minimap Track Width Extend,
                     f ai drive probability, i32 Alt Start Route Start Sector, 'tszo' v1 [0] special zones,
@@ -39,9 +41,9 @@ plain), tag 'tcat' reversed, version 20, then
     9 x i32         lap reference times (Class A/B/C), checkpoint race start and first span times
     'ttgi' v1 [0]   time gate infos;  'tobs' v1 [0] obstacles
 
-Without a start camera the game shows the race loading in from a default spot, under the ground on our tracks
-(Chris, 2026-10-23: every generated track; the scene origin, 16 m under Oulton Park's terrain); 103 of the 112
-stock files with decodable cameras have exactly one. Values are the ones stock and Workshop files carry by default (highlight 2.0, zoom 1.0, bias 0.3, extend 0,
+Without trackside cameras the race intro shows the game's default camera at the world origin, under the ground
+on our tracks (Chris, 2026-10-23 and 2026-10-24: every circuit, also with a start camera alone); stock layouts
+carry both (wfbuild/cameras.py). Values are the ones stock and Workshop files carry by default (highlight 2.0, zoom 1.0, bias 0.3, extend 0,
 drive probability 0.9 on the main route and 0.1 on alternatives as in stock fields04_2).
 """
 from __future__ import annotations
@@ -58,8 +60,8 @@ DRIVE_PROB_MAIN, DRIVE_PROB_ALT = 0.9, 0.1
 GRID_GENERATION_OFF = 2
 GRID_DEFAULTS = (5.0, 3, 0, 0.2, 1.5, 2.0, 3.0)  # what the game's track editor writes (Workshop tracks)
 CAM_ROTATING, CAM_FIXED, CAM_MOVING = 0, 1, 2
-CAM_START, CAM_REPLAY = 2, 4  # flags
-CAM_TRACKING = 1000.0  # tracking start/end distance of most stock start cameras
+CAM_START, CAM_SECTOR = 2, 4  # flag bits: "start camera", "sector activation" (BagEdit's enum table)
+CAM_TRACKING = 1000.0  # tracking start/end distance of most stock cameras
 
 
 @dataclass
@@ -76,13 +78,16 @@ class Camera:
     fov_deg: float = 58.0
     kind: int = CAM_FIXED
     flags: int = CAM_START
+    sectors: tuple[int, int] = (0, 0)  # active between these compiled main-route sectors (sector activation)
 
     @staticmethod
-    def looking_at(eye, target, fov_deg: float = 58.0, kind: int = CAM_FIXED, flags: int = CAM_START) -> "Camera":
+    def looking_at(eye, target, fov_deg: float = 58.0, kind: int = CAM_FIXED, flags: int = CAM_START,
+                   sectors: tuple[int, int] = (0, 0)) -> "Camera":
         dx, dy, dz = (float(target[k]) - float(eye[k]) for k in range(3))
         yaw = math.degrees(math.atan2(dx, dy)) % 360.0
         pitch = math.degrees(math.atan2(dz, math.hypot(dx, dy)))
-        return Camera(float(eye[0]), float(eye[1]), float(eye[2]), pitch, yaw, fov_deg, kind, flags)
+        return Camera(float(eye[0]), float(eye[1]), float(eye[2]), pitch, yaw, fov_deg, kind, flags,
+                      (int(sectors[0]), int(sectors[1])))
 
     def direction(self) -> tuple[float, float, float]:
         """Unit view direction (Blender axes)."""
@@ -107,7 +112,8 @@ def _arr(tag: str, version: int, n: int) -> bytes:
 
 
 def _camera(c: Camera) -> bytes:
-    b = struct.pack("<IIff5I2f", c.kind, c.flags, c.fov_deg, 7.0, 0, 0, 0, 0, 0, CAM_TRACKING, CAM_TRACKING)
+    a, z = c.sectors
+    b = struct.pack("<IIff5i2f", c.kind, c.flags, c.fov_deg, 7.0, 0, a, z, 0, 0, CAM_TRACKING, CAM_TRACKING)
     b += _tag("fxdf") + _i(len(DOF)) + DOF.encode("ascii")
     b += _arr("tcde", 1, 1)
     b += _f(c.x, c.z, c.y, c.pitch_deg % 360.0, c.yaw_deg % 360.0, 0.0, c.fov_deg, 0.5, 0.5, 0.9, 0.9, 1.0)
@@ -212,7 +218,7 @@ def read(payload: bytes) -> dict:
             raise ValueError("camera without a position")
         e = ents[0]
         pitch = (e[3] + 180.0) % 360.0 - 180.0
-        cams.append({"camera": Camera(e[0], e[2], e[1], pitch, e[4] % 360.0, e[6], h[0], h[1]),
+        cams.append({"camera": Camera(e[0], e[2], e[1], pitch, e[4] % 360.0, e[6], h[0], h[1], (h[5], h[6])),
                      "header": h, "dof": dof, "positions": ents})
     out["cameras"] = cams
     v, n = r.arr("trou")

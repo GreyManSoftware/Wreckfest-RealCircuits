@@ -8,7 +8,8 @@ bgo_read: object names, kinds and CustomData survive the export, subscene refere
 scene and to stock props, curves are not exported, materials keep their name#surface and texture paths,
 and every .scne is non-empty; the built base .scne stays within the stock scene limits (scne_read.LIMITS);
 every layout has its track data (<scene>.tcat: minimap, a start camera above the exported terrain looking at
-the grid) and the compiled AI route the minimap draws matches it.
+the grid, trackside cameras covering the lap) and the compiled AI route the minimap draws matches it; the camera
+decoding is pinned on stock layouts (check_stock_cameras).
 Exits non-zero on any failure.
 """
 from __future__ import annotations
@@ -276,45 +277,100 @@ def check_driving_order(scene: str, scne: str) -> None:
           f"checkpoint sectors {secs[:12]}; stored otherway {lay.main_otherway()}")
 
 
-# Stock start cameras (103 of the 112 stock .tcat files with decodable cameras have exactly one), measured
-# against their compiled layouts: 0.7-10 m above the ground beside them in all but a few overviews (45-140 m).
+# Cameras, decoded here from the raw .tcat bytes without wfbuild.tcat, so the check can't agree with a wrong
+# writer. Convention (verified on stock, check_stock_cameras): BagEdit's bbTrackCamera v11 field order; a data
+# entry's position is world space in Bugbear axes (x, y up, z), i.e. Blender (x, z, y); flag bit 2 "start
+# camera", bit 4 "sector activation". Stock: start cameras 2-10 m above the ground near the grid, trackside
+# cameras covering the lap by sector ranges.
 CAM_MIN_ABOVE_M, CAM_MAX_ABOVE_M = 2.0, 150.0
 CAM_TARGET_NEAR_ROUTE_M = 25.0
+CAM_NEAR_SECTORS_M = 250.0
 _terrain_cache: dict[str, "Surface | None"] = {}
+
+
+def raw_cameras(payload: bytes) -> list[dict]:
+    """Every camera of a v20 .tcat payload: type, flags, active sectors and its first data entry as world
+    position (Blender x, y, z up) and pitch/yaw (degrees, yaw from +y towards +x)."""
+    import struct
+    p = payload.find(b"mact")  # 'tcam' stored reversed
+    if p < 0:
+        raise ValueError("no 'tcam' section")
+    _ver, n = struct.unpack_from("<ii", payload, p + 4)
+    p += 12
+    out = []
+    for _ in range(n):
+        typ, flags, _fov, _zoom, _route, a0, a1, _m0, _m1, _ts, _te = struct.unpack_from("<IIffiiiiiff", payload, p)
+        p += 44
+        if payload[p:p + 4] == bytes(4):  # empty dof reference
+            p += 4
+        elif payload[p:p + 4] == b"fdxf":
+            p += 4
+        else:
+            raise ValueError(f"camera {len(out)}: unexpected dof reference at {p}")
+        p += 4 + struct.unpack_from("<i", payload, p)[0]
+        if payload[p:p + 4] != b"edct":
+            raise ValueError(f"camera {len(out)}: no 'tcde' at {p}")
+        _ev, k = struct.unpack_from("<ii", payload, p + 4)
+        p += 12
+        if k < 1:
+            raise ValueError(f"camera {len(out)} has no data entry")
+        x, up, z, pitch, yaw = struct.unpack_from("<5f", payload, p)
+        p += 48 * k
+        out.append({"type": typ, "flags": flags, "sectors": (a0, a1), "pos": np.array([x, z, up]),
+                    "pitch": (pitch + 180.0) % 360.0 - 180.0, "yaw": yaw % 360.0})
+    if payload[p:p + 4] != b"uort":
+        raise ValueError("cameras don't end at the 'trou' section")
+    return out
+
+
+def _view(c: dict) -> np.ndarray:
+    p, y = math.radians(c["pitch"]), math.radians(c["yaw"])
+    return np.array([math.cos(p) * math.sin(y), math.cos(p) * math.cos(y), math.sin(p)])
+
+
+def scene_ground(path: str, prefix: str) -> "Surface | None":
+    """World-space ground of a .scne: its meshes named ``prefix``*, each model's matrix applied (scne_read)."""
+    if path not in _terrain_cache:
+        tris = []
+        if os.path.isfile(path):
+            for m in scne_read.read(path, geometry=prefix).meshes:
+                if not m.name.startswith(prefix):
+                    continue
+                for b in m.batches:
+                    if b.pos is not None and len(b.idx):
+                        tris.append(b.pos[b.idx])
+        _terrain_cache[path] = Surface(np.concatenate(tris)) if tris else None
+    return _terrain_cache[path]
 
 
 def _exported_terrain(track: str) -> "Surface | None":
     """The built base scene's terrain (world space: the layouts reference the base at the origin), decoded
     from the shipped .scne, so the check also works on a zip's files."""
     slug = os.path.basename(os.path.normpath(track))
-    base = os.path.join(track, f"{slug}_base.scne")
-    if base not in _terrain_cache:
-        tris = []
-        if os.path.isfile(base):
-            for m in scne_read.read(base, geometry="terrain_").meshes:
-                for b in m.batches:
-                    if b.pos is not None and len(b.idx):
-                        tris.append(b.pos[b.idx])
-        _terrain_cache[base] = Surface(np.concatenate(tris)) if tris else None
-    return _terrain_cache[base]
+    return scene_ground(os.path.join(track, f"{slug}_base.scne"), "terrain_")
 
 
 def check_track_data(scene: str, scne: str, track: str) -> dict | None:
     """The layout's shipped track data, which the game looks for as <scene dir>/<scene>.tcat (wfbuild/tcat.py):
     it resolves beside the .scne and parses (v20, stock layout), lists every compiled AI route with nothing
-    hidden from the minimap and a non-zero zoom, and has a start camera like stock layouts (the view the game
-    shows while the race loads in; without one it was under the ground, Chris 2026-10-23): every camera
-    CAM_MIN_ABOVE_M..CAM_MAX_ABOVE_M above the exported terrain, looking at the road (its view ray reaches the
-    ground within CAM_TARGET_NEAR_ROUTE_M of a compiled AI route) with the pole in view. Needs only the shipped
-    files (layout and base .scne, .tcat), so tools/build_track_bundle.py runs it on every track of a bundle: put
-    further checks of what a .tcat ships here. Returns the parsed track data, or None when it doesn't parse."""
+    hidden from the minimap and a non-zero zoom, and has cameras like stock layouts (decoded by raw_cameras):
+    one start camera with the pole in view, and trackside cameras with sector activation whose sector ranges
+    cover every sector of the compiled main route (the race intro cuts between them; without them it was under
+    the ground on every circuit, Chris 2026-10-23/24), each near its sectors; every camera
+    CAM_MIN_ABOVE_M..CAM_MAX_ABOVE_M above the exported terrain (the base .scne's raw vertices) and its view
+    ray reaching the ground within CAM_TARGET_NEAR_ROUTE_M of a compiled AI route. Needs only the shipped
+    files (layout and base .scne, .tcat), so tools/build_track_bundle.py runs it on every track of a bundle:
+    put further checks of what a .tcat ships here. Returns the parsed track data, or None when it doesn't
+    parse."""
     path = os.path.join(track, scene + ".tcat")
     if not os.path.isfile(path):
         check(False, f"{scene}: track data {scene}.tcat beside the .scne", "missing")
         return None
     raw = open(path, "rb").read()
     try:
-        td = tcat.read(scne_read.unbag(raw))
+        payload = scne_read.unbag(raw)
+        td = tcat.read(payload)
+        cams = raw_cameras(payload)
     except ValueError as e:
         check(False, f"{scene}: track data parses", str(e))
         return None
@@ -325,30 +381,51 @@ def check_track_data(scene: str, scne: str, track: str) -> dict | None:
     check(len(td["routes"]) == len(lay.routes) and all(r["flags"] == 0 for r in td["routes"]),
           f"{scene}: track data lists every AI route, none hidden from the minimap",
           f"{len(td['routes'])} entries, {len(lay.routes)} compiled routes")
-    cams = [c["camera"] for c in td["cameras"]]
-    starts = [c for c in cams if c.flags & tcat.CAM_START]
+    starts = [c for c in cams if c["flags"] & 2]
+    sector = [c for c in cams if c["flags"] & 4]
     check(len(starts) == 1, f"{scene}: track data has one start camera (as stock layouts)",
           f"{len(cams)} cameras, {len(starts)} start")
+    n = len(lay.routes[0])
+    covered = np.zeros(n, dtype=bool)
+    bad_ranges = []
+    for c in sector:
+        a, b = c["sectors"]
+        if not 0 <= a <= b < n:
+            bad_ranges.append(f"{a}-{b}")
+            continue
+        covered[a:b + 1] = True
+    check(sector and not bad_ranges and covered.all(),
+          f"{scene}: trackside cameras (sector activation) cover every sector of the compiled main route",
+          f"{len(sector)} cameras over {n} sectors; {int((~covered).sum())} uncovered; bad ranges {bad_ranges[:3]}")
     ter = _exported_terrain(track)
     if ter is None:
         check(not cams, f"{scene}: exported base terrain found for the camera checks")
         return td
     route_pts = np.array([p[:2] for r in lay.routes for a, b in r for p in (a, b, ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2))])
+    mids = np.array([((a[0] + b[0]) / 2, (a[1] + b[1]) / 2) for a, b in lay.routes[0]])
     pole = next((sp for sp in lay.startpoints if sp[0] == "#startpoint01"), None)
     bad = []
     for k, c in enumerate(cams):
-        g = ter.height(c.x, c.y)
+        pos = c["pos"]
+        g = ter.height(pos[0], pos[1])
         if g is None:
-            bad.append(f"camera {k} at ({c.x:.0f}, {c.y:.0f}) outside the terrain")
+            bad.append(f"camera {k} at ({pos[0]:.0f}, {pos[1]:.0f}) outside the terrain")
             continue
-        above = c.z - g
+        above = pos[2] - g
         if not CAM_MIN_ABOVE_M <= above <= CAM_MAX_ABOVE_M:
             bad.append(f"camera {k} {above:.1f} m above the terrain")
             continue
-        d = np.array(c.direction())
+        if c["flags"] & 4 and not (c["flags"] & 2):
+            a, b = c["sectors"]
+            if 0 <= a <= b < n:
+                d = float(np.min(np.hypot(*(mids[a:b + 1] - pos[:2]).T)))
+                if d > CAM_NEAR_SECTORS_M:
+                    bad.append(f"camera {k} {d:.0f} m from its sectors {a}-{b}")
+            continue  # a rotating camera turns to its target: its stored view doesn't matter
+        d = _view(c)
         hit = None
         for t in np.arange(1.0, 400.0, 1.0):  # march the view ray down to the ground
-            q = np.array([c.x, c.y, c.z]) + d * t
+            q = pos + d * t
             gz = ter.height(q[0], q[1])
             if gz is None:
                 break
@@ -362,16 +439,49 @@ def check_track_data(scene: str, scne: str, track: str) -> dict | None:
         if near > CAM_TARGET_NEAR_ROUTE_M:
             bad.append(f"camera {k} looks at ground {near:.0f} m from the AI routes")
             continue
-        if c.flags & tcat.CAM_START and pole is not None:
-            to_pole = np.array([pole[1] - c.x, pole[2] - c.y, pole[3] + 1.0 - c.z])
+        if c["flags"] & 2 and pole is not None:
+            to_pole = np.array([pole[1], pole[2], pole[3] + 1.0]) - pos
             ang = math.degrees(math.acos(float(np.clip(d @ to_pole / np.linalg.norm(to_pole), -1, 1))))
-            if ang > c.fov_deg / 2.0:
+            if ang > 29.0:
                 bad.append(f"start camera {k}: the pole is {ang:.0f} deg off the view centre")
-                continue
-    desc = "; ".join(f"({c.x:.0f}, {c.y:.0f}, {c.z:.1f}) pitch {c.pitch_deg:.0f} yaw {c.yaw_deg:.0f}" for c in cams[:2])
+    desc = "; ".join(f"({c['pos'][0]:.0f}, {c['pos'][1]:.0f}, {c['pos'][2]:.1f}) flags {c['flags']}" for c in cams[:2])
     check(cams and not bad, f"{scene}: cameras {CAM_MIN_ABOVE_M:.0f}-{CAM_MAX_ABOVE_M:.0f} m above the exported "
-          "terrain, looking at the road, the start camera at the grid", "; ".join(bad[:3]) or desc)
+          "terrain, the start camera looking at the grid, trackside cameras by their sectors",
+          "; ".join(bad[:3]) or desc)
     return td
+
+
+# Stock layouts whose cameras check_stock_cameras reads with raw_cameras and scene_ground: the regression that
+# pins the convention (an axis swap or sign flip puts these cameras hundreds of metres from their pole, or
+# under their ground). Measured 2026-10-24: start cameras 4.2, 10.4 m above the terrain, 14-15 m from the pole.
+STOCK_CAMERA_LAYOUTS = (("sandpit", "sandpit01_1", "sandpit01_base"), ("forest", "forest01_1", "forest01_base"))
+
+
+def check_stock_cameras(wf: str = WF) -> None:
+    """Our camera decoding against stock: each listed stock layout's start camera, read from the stock .tcat
+    with raw_cameras, lies within 60 m of its pole and 1-30 m above the stock base terrain at its x/y (stock
+    models placed by their matrices); its trackside cameras too (0-60 m). Skipped without the game data."""
+    for env, lay_name, base in STOCK_CAMERA_LAYOUTS:
+        tc = os.path.join(wf, "data", "property", "track", lay_name + ".tcat")
+        lv = os.path.join(wf, "data", "art", "levels", env, lay_name)
+        if not (os.path.isfile(tc) and os.path.isdir(lv)):
+            print(f"SKIP: stock cameras of {lay_name} (no game data under {wf})")
+            continue
+        cams = raw_cameras(scne_read.unbag(open(tc, "rb").read()))
+        ground = scene_ground(os.path.join(lv, base + ".scne"), "terrain")
+        lay = scne_read.read_layout(os.path.join(lv, lay_name + ".scne"))
+        pole = next(sp for sp in lay.startpoints if sp[0] == "#startpoint01")
+        start = next(c for c in cams if c["flags"] & 2)
+        g = ground.height(start["pos"][0], start["pos"][1]) if ground else None
+        dist = float(np.hypot(start["pos"][0] - pole[1], start["pos"][1] - pole[2]))
+        check(g is not None and 1.0 <= start["pos"][2] - g <= 30.0 and dist <= 60.0,
+              f"stock {lay_name}: our camera reading puts its start camera above its ground near the pole",
+              f"{(start['pos'][2] - g) if g is not None else float('nan'):.1f} m above the terrain, {dist:.0f} m from the pole")
+        heights = [c["pos"][2] - h for c in cams if not c["flags"] & 2
+                   for h in [ground.height(c["pos"][0], c["pos"][1]) if ground else None] if h is not None]
+        check(len(heights) >= 3 and min(heights) >= 0.0 and max(heights) <= 60.0,
+              f"stock {lay_name}: its trackside cameras are above its ground too",
+              f"{len(heights)} over the terrain, {min(heights, default=0):.1f}-{max(heights, default=0):.1f} m")
 
 
 def check_minimap(scene: str, scne: str, track: str, info: dict | None) -> None:
@@ -400,6 +510,7 @@ def check_minimap(scene: str, scne: str, track: str, info: dict | None) -> None:
 
 
 def main() -> None:
+    check_stock_cameras()  # the camera convention, pinned on stock files (skipped without the game data)
     if sys.argv[1] == "--track-data":  # shipped files only, e.g. an unpacked zip's data/track/<slug>
         track = sys.argv[2]
         for f in sorted(os.listdir(track)):

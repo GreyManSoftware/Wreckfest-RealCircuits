@@ -212,8 +212,10 @@ def main() -> None:
     specs = materials.build(geo.options.get("environment"), slug, map_info, bd.n_textures, generated)
     props = [Empty(f"#xref ob/{p.asset}.scne", (p.x, p.y, p.z), p.yaw, display="PLAIN_AXES", size=1.0,
                    scale=(p.scale, p.scale, p.scale)) for p in scenery.placements]
-    # the start camera per layout (the view while the race loads in; wfbuild/cameras.py), model coordinates
+    # cameras per layout (wfbuild/cameras.py): the start camera and the trackside cameras the race intro and
+    # replays cut between, model coordinates
     start_cams = {lay.name: cameras.start_camera(geo, lay, field, planner, scenery.placements) for lay in layouts}
+    side_cams = {lay.name: cameras.trackside_cameras(geo, lay, field, planner, scenery.placements) for lay in layouts}
     transform_info = {"rotateDeg": rot, "shift": [0.0, round(shift, 4), 0.0],
                       "note": "scene = rotate(model, rotateDeg about +z) + shift"}
     with open(os.path.join(args.out, "scenery.json"), "w", encoding="utf-8", newline="\n") as f:
@@ -233,14 +235,23 @@ def main() -> None:
     worst = check_bounds(base_meshes, "base")
     for lay in layouts:
         worst = max(worst, check_bounds(lay.meshes, lay.name))
-    for lay in layouts:  # track data (.tcat) per layout: minimap and start camera (wfbuild/tcat.py, cameras.py)
+    def to_scene(p):
+        return np.array([*_rot(p[0], p[1], rot), p[2]]) + np.array([0.0, shift, 0.0])
+
+    for lay in layouts:  # track data (.tcat) per layout: minimap and cameras (wfbuild/tcat.py, cameras.py)
         eye, target, note = start_cams[lay.name]
-        eye, target = (np.array([*_rot(p[0], p[1], rot), p[2]]) + np.array([0.0, shift, 0.0]) for p in (eye, target))
+        eye, target = to_scene(eye), to_scene(target)
         cam = tcat.Camera.looking_at(eye, target, cameras.FOV_DEG)
         lay.info["startCamera"] = {"position": [round(float(v), 2) for v in eye],
                                    "target": [round(float(v), 2) for v in target],
                                    "pitchDeg": round(cam.pitch_deg, 2), "yawDeg": round(cam.yaw_deg, 2), "note": note}
-        lay.info["minimap"] = write_tcat(lay, slug, mod_root, [cam])
+        cams = [cam]
+        for e, t, sectors, _note in side_cams[lay.name]:
+            cams.append(tcat.Camera.looking_at(to_scene(e), to_scene(t), cameras.FOV_DEG, tcat.CAM_ROTATING,
+                                               tcat.CAM_SECTOR, sectors))
+        fallback = sum(1 for c in side_cams[lay.name] if c[3].startswith("fallback"))
+        lay.info["tracksideCameras"] = {"count": len(cams) - 1, "fallback": fallback}
+        lay.info["minimap"] = write_tcat(lay, slug, mod_root, cams)
 
     import bpy
     from wfbuild import bscene

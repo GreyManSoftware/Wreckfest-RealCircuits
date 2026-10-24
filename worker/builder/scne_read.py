@@ -104,7 +104,7 @@ class Batch:
     plan_area: float = 0.0  # bounding box area in plan (m2)
     box: tuple = ()  # bounding box min x, y (up), z, max x, y, z (Bugbear Y-up)
     # with read(..., geometry=prefix), for meshes whose name starts with the prefix: vertex positions (n x 3,
-    # Blender axes x, y, z up, in the model's own space) and triangles (m x 3 vertex indices)
+    # Blender axes x, y, z up, in world space: the model's matrix applied) and triangles (m x 3 vertex indices)
     pos: object = field(default=None, repr=False, compare=False)
     idx: object = field(default=None, repr=False, compare=False)
 
@@ -114,6 +114,9 @@ class Mesh:
     name: str
     role: str  # main | shadow | damage | damage_shadow
     batches: list[Batch] = field(default_factory=list)
+    # the model's 4x4 matrix as stored (Bugbear Y-up, row vectors: rows x, y, z axes, then the translation);
+    # stock bases place most models with it, ours are all identity
+    matrix: object = field(default=None, repr=False, compare=False)
 
     @property
     def verts(self) -> int:
@@ -261,9 +264,16 @@ def _pmsh(r: _P, damage: bool, geometry: str | None = None) -> list[Mesh]:
     return out
 
 
+def to_world(pos, mx):
+    """Model-space positions (n x 3, Blender axes) to world space with a model matrix as stored (Bugbear Y-up,
+    row vectors, translation in the last row)."""
+    bug = pos[:, [0, 2, 1]] @ mx[:3, :3] + mx[3, :3]
+    return bug[:, [0, 2, 1]]
+
+
 def read(path: str, geometry: str | None = None) -> Scene:
-    """Statistics of a .scne; ``geometry`` (a mesh name prefix, e.g. "terrain_") also decodes the positions and
-    triangles of the main meshes with that prefix (``Batch.pos``, ``Batch.idx``)."""
+    """Statistics of a .scne; ``geometry`` (a mesh name prefix, e.g. "terrain_") also decodes the positions (world
+    space) and triangles of the main meshes with that prefix (``Batch.pos``, ``Batch.idx``)."""
     with open(path, "rb") as f:
         raw = f.read()
     d = unbag(raw)
@@ -276,6 +286,7 @@ def read(path: str, geometry: str | None = None) -> Scene:
     nmodels = r.i()
     meshes: list[Mesh] = []
     if mver < 6:
+        import numpy as np
         for k in range(nmodels):
             if k:  # the rest of the previous model (shapes, animation, dummies) is skipped by searching
                 q = r.find("pmsh")
@@ -289,8 +300,15 @@ def read(path: str, geometry: str | None = None) -> Scene:
                     r.p += 4
                     r.text()
                 r.p += 64 + 24
-            meshes += _pmsh(r, False, geometry)
-            meshes += _pmsh(r, True)
+            # the model's matrix and bounding box sit right before its 'pmsh' (Toolbox Mz's importer)
+            mx = np.array(struct.unpack_from("<16f", d, r.p - 88), dtype=np.float64).reshape(4, 4)
+            got = _pmsh(r, False, geometry) + _pmsh(r, True)
+            for m in got:
+                m.matrix = mx
+                for b in m.batches:
+                    if b.pos is not None:
+                        b.pos = to_world(b.pos, mx)
+            meshes += got
     refs: list[str] = []
     q = r.find("ssce")
     if q >= 0:
