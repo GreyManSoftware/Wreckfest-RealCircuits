@@ -60,6 +60,10 @@ The same slug always gives the same file (seeded by the slug).
   layout, `turnInS` (along that layout's route), `side` (left/right of the route's s direction), `radiusM`,
   `approachM`, `dropKmh`, `boards` (`m`, `placement` index, `s`, `shared` when another layout's board is reused)
   and `skipped` (`{m: reason}`, reasons `approach`, `otherRoad`, `wall`, `noGo`, `terrain`, `occupied`).
+  Also additive (2026-10-24): `sponsorBoards`, our own sponsor boards (`sponsor_fence<k>`, `sponsor_billboard<k>`
+  for colourway k; `face: "-y"`, `width` along local X). They are not stock objects: their `assets` entry has
+  `"path": null` and `"mesh": true`, and the builder builds them as the base mesh `sponsor_boards` rather than
+  `#xref` subscenes (see `worker/docs/visual-assets.md`). `info.sponsorBillboards` counts the billboards.
 
 ## Rules the planner follows (and `tests/check_scene.py` re-checks)
 
