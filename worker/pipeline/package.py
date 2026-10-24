@@ -36,7 +36,7 @@ UNVERIFIED = [
     "Weathers reference stock .weat files of other tracks through the .weli (no .weat is copied).",
     "Menu images: names and power-of-two canvases (content top-left at the named size) copied from the "
     "example mod; bimage -auto chose the format.",
-    "Generated .tcat per layout (track data, v20 like stock: no trackside cameras, one route entry per AI "
+    "Generated .tcat per layout (track data, v20 like stock: a start camera and trackside cameras, one route entry per AI "
     "route, grid generation off so the start points are the grid): the game sets up the in-race minimap "
     "from it; a recorded .tcat upload replaces it.",
 ]
