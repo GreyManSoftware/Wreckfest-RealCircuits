@@ -340,6 +340,85 @@ tracks, and reports `gridWidthM`, the narrowest road along any grid, which the `
 route/safe/race strips, dividers between close sections, the flush terrain, the minimap route); its road UVs, edge
 decals, apron links and checkpoint-on-road test now use the local width too.
 
+## Pits, paddocks, bridges and gantries (2026-10-24)
+
+Every circuit now has its real pit lane and pit wall, pit buildings, paddock, grandstands (where mapped), start
+lights, bridges and gantries, at their real positions, from open data only (OSM, LIDAR, the circuits' own maps; no
+Google, Bing or Esri).
+
+**Data** (`tools/real_tracks/pits/<slug>.json`, hand-written: which OSM ways, the lane's width and mode, gantries
+with sources; `tools/real_tracks/pits/derived/<slug>.json`, generated, recipe grid coordinates):
+
+```powershell
+py tools\real_tracks_data\fetch_pits_osm.py <slug> ...          # one polite Overpass query per circuit (cached osm-pits.json)
+E:\Source\wreckfest\.local\widths-venv\Scripts\python tools\real_tracks_data\pits.py <slug> --plots   # derived + .local\audit\<slug>\pits-*.png
+E:\Source\wreckfest\.local\widths-venv\Scripts\python tools\real_tracks_data\pits_overhead.py <slug>  # structures over the roads (LIDAR)
+py tools\real_tracks_data\apply_pits.py <slug> ...              # into the committed sample (a re-import does the same)
+```
+
+- **Heights over the ground** (`pits_lidar.py`): nDSM = the highest LIDAR return per 1 m cell minus the importer's
+  DTM, from the cached point clouds (EA NLP; Navarre 2024, whose ellipsoidal heights are levelled on the median
+  ground) or, for Anglesey, the Welsh DSM COG (DataMapWales, range requests). Building heights are the 85th percentile
+  inside the footprint (OSM `height` / levels where the LIDAR sees nothing). `pits_overhead.py` finds anything that
+  spans the road's width more than 3-4 m up: every bridge and footbridge below came from it or from OSM `bridge=*`
+  ways crossing the raceway, and both agree where both exist. Start-light gantries are too thin for 1.8 points/m²
+  (none shows in the LIDAR); they stand on the start line from the recipes' sources.
+- **Pit lane:** OSM's `Pit Lane` raceway way, oriented in the driving direction, smoothed; OSM usually maps it near the
+  track-side edge, so its middle part moves sideways to `centreFromTrackM` (between the track's edge and the garage
+  fronts), fading in over `taperM` from the merges. Widths are estimates from the gap between the track's edge and
+  the garages (no published or measured figures). **Pit wall:** 1.5 m off the lane's edge towards the track (midway
+  where the gap is under 3 m), wherever the edges are at least 1.2 m apart: continuous from the entry merge to the
+  exit merge. OSM barriers lie within 3 m of it over 57-87 % of its length where OSM maps them.
+- `shortCutM` (how much shorter the lane is than the track between its ends) decides whether a lane could be
+  drivable.
+
+**Build** (`worker/builder/wfbuild/pits.py`; the importer writes `sketch.imported.pits`, schema `ImportedPits`):
+
+- the pit lane: a tarmac strip draped on the terrain (6 cm up, edges sloping down) where the pit wall runs; its
+  collision wall (`walls_pit_<id>`, invisible, as the track's walls) plus a row of stock `prop_concrete_element3` on
+  the real wall line; **every lane is closed**: the same concrete row and collision across the lane at both ends of
+  the wall. On that stretch the track's own barrier on the pit side is off (the pit wall is the containment) and the
+  AI route's run-off margin stops 0.8 m in front of the pit wall. The lane is no route of the TrackModel, so it's in
+  no AI strip, checkpoint or minimap; no clutter grass grows through it (`paved` zones).
+- buildings: stock pit garages (`prop_tarmac2_pitstop_part2`, roller doors towards the lane), race control / media
+  (`prop_startbuilding_fields14`), hospitality and others (`prop_start_building_forest11/09`), paddock halls
+  (`prop_tarmac2_tenthall`), tiled along each footprint's long side and scaled uniformly to the real height
+  (0.55-1.4), front on the footprint's front edge (moved back where OSM's footprint reaches the lane);
+  grandstands (`prop_start_grandstand3g` / `1`) the same; paddock: trucks, tents and crew buses spread over the real
+  paddock (at most 45 per area). These replace the generic grandstand and paddock beside the line.
+- start lights: a stock cantilever (`prop_forest5_startlight01`: a pole and an arm 7.2 m up) on the pit wall at the
+  real line, the arm over the track (the generated tracks' banner gantry hangs only 4 m over the road at scale 1);
+  bridges, footbridges and the Navarra gantry: `prop_bridge03_green` across the road at the real sM, scaled so its
+  inner pillars stand outside the road, its walls and any pit lane, and its deck at least 5 m over the road.
+- the dressing planner reserves all of it first (occupancy, and no-go discs over the buildings so the start camera
+  keeps out); `info.pits` in `scenery.json` reports it.
+- checks (`worker/builder/tests/check_pits.py`, from `check_scene`; `check_export`): lane and wall exist, the wall's
+  collision and concrete row continuous along the wall, closed at both ends; no AI strip of any layout on the lane;
+  the AI run-off stops in front of it; buildings, grandstands and paddock props off every road and off the lane; each
+  gantry within 3 m of its real sM (start lights 15 m) and at least 5 m over the road with its legs off the pits;
+  each layout's start camera neither inside nor looking through a pit building; every pit prop exported as a
+  resolving stock subscene; scene limits as before.
+
+| Circuit | Pit lane (OSM) | Mode, why | Pit wall | Buildings | Paddock | Start lights, bridges, gantries |
+|---|---|---|---|---|---|---|
+| Cadwell Park | 117976650, right of the start straight, 7 m, s 3355 → 88 | closed: narrow, squeezed between the start straight and the run to the Mountain | s 3363-76, 201 m | 2 small pit buildings (OSM, 4-8.5 m) | hand-drawn: beyond the run to the Mountain, reached by OSM's Paddock Entry/Exit roads (10,300 m²) | lights at the line; footbridges at s 260 (before Coppice) and 2466 (Woodland), LIDAR only (8.1-8.2 m tops); Club Hairpin Grandstand |
+| Brands Hatch | 4906930 "Pit Lane", inside Brabham Straight, 9.5 m, s 3559 → 140 | closed: entry on the exit of Clark Curve; 6 m shorter than the track | s 3571-82, 406 m (OSM barrier within 3 m: 87 %) | Pit Garages (223 m), Media Center, Race Control, Brabham Stewart Hospitality Suites, Directors' Terrace | GP Paddock, Lower Paddock (OSM) | lights at the **start** line 19 m past the finish line (driver61.com; BARC: lines ~20 m apart); Hailwood Hill covered footbridge (OSM 842276417, s 532, top 7.7 m); service bridges at s 1725 and 3316 (OSM, LIDAR tops 5.4 / 4.4-5.8 m); 5 grandstands (OSM: Pit Straight, Desiré Wilson, Paddock Hill, Hailwoods Hill, one unnamed) |
+| Oulton Park | 721714385 "Pit Lane", 10 m, s 4200 → 366 | closed: 15 m shorter than the track (inside the kink after Deer Leap); the entry under a footbridge on a fast curve | s 4208-358, 456 m | pit garages (147 m), 3 small buildings, paddock building | OSM "Paddock" area (38,900 m²) | lights at the line; footbridges at Clay Hill (OSM 108784542, s 3071) and before Deer Leap (LIDAR, s 4184, over the track and the pit entry); Warwick Bridge (OSM 108809456 + man_made=bridge, s 3686, deck top 4.4-6.5 m) |
+| Snetterton | 145755934 "Pit Lane", beside Senna Straight, 10 m, s 4492 → 274 | closed for now; **could be drivable** (straight, parallel, no short cut) but a car in it would miss the finish checkpoint and the barrier plan has no merge gaps yet | s 4612-264, 438 m | pit garages (150 m), 2 small buildings, Tyrells | 3 OSM parking areas behind the pits | lights at the line; service bridge at Brundle (OSM 98718314, s 3324, deck 5.2-7.0 m) |
+| Donington Park | 90102737 "Pit Lane", inside the Wheatcroft Straight, 10 m, s 3850 → 246 | closed for now; **could be drivable** (as Snetterton; 4 m longer than the track) | s 3858-234, 370 m (OSM barrier 79 %) | Pit Garages 1-38 (181 m), Race Control / Media Centre, its entrance, 750 Motor Club, Goddards Hospitality, Redgate Suites, Scrutineering Bay, a garage block | hand-drawn: behind the pit garages, inside the Melbourne loop | lights at the line; footbridge 80 m before the line (LIDAR, s 3914, top 8.8 m); Hollywood Grandstand (OSM bleachers) |
+| Bedford Autodrome | 27782783 "pit lane", 10 m, s 5577 → 116 | closed: it runs inside the corner before the line, 19 m shorter than the track | s 5583-98, 383 m | pit building (76 m) and 2 outbuildings | hand-drawn: the apron behind the pit building | lights at the line; nothing over the roads (LIDAR) |
+| Circuito de Navarra | 195101700 "Pit Lane", 12 m, from Turn 15 to past the line | closed: it bypasses the Turn 17 hairpin (225 m shorter) | s 3442-471, 1,123 m | pit building (281 m), race control and 2 buildings across the straight | OSM parking behind the pits (32,600 m²) | lights at the line; a gantry over the main straight at s 156 (LIDAR, top 6.8 m) |
+| Anglesey | 264840723 "Pit Lane", 10 m, s 3101 → 272 | closed: it runs inside the last corners, 43 m shorter than the track | s 3129-262, 390 m | 2 garage blocks, Race Control & Administration, Scrutineering | OSM Paddock, Parc Ferme, 2 Grass Paddocks | lights at the line (OSM "Start/Finish"); no bridge (Welsh DSM) |
+
+Overlays: `.local\audit\<slug>\pits-overview.png`, `pits-pit-entry.png`, `pits-pit-exit.png`, `pits-gantry-<k>.png`,
+`pits-grandstands.png` (nDSM under the roads, OSM, the derived lane, wall, buildings, paddocks, gantries).
+
+**Uncertain:** pit lane widths (estimates); Brands Hatch's start line (driver61.com's coordinates; whether the lights
+are on that line or the finish line); the footbridges seen only in the LIDAR (Cadwell Park, Oulton before Deer Leap,
+Donington) are real structures over the road but unnamed; Navarra's gantry may be an advertising gantry or a
+footbridge; heights of buildings LIDAR can't see under trees; the stock props are generic (no circuit's own
+architecture).
+
 ## Data sources and attribution
 
 | Data | Source | Licence | Attribution (in the spec's `sketch.imported.source`) |
@@ -351,6 +430,8 @@ decals, apron links and checkpoint-on-road test now use the local width too.
 | Heights, camber, terrain (Navarre) | Gobierno de Navarra MDT 2 m, 2024 LIDAR (IDENA WCS, coverage `IDENA.WCS__ELEVAC_Ras_MDT_2M`, ETRS89 / UTM 30N) | CC BY 4.0 | Servicio proporcionado por el Gobierno de Navarra (IDENA) |
 | Widths (England) | Environment Agency National LIDAR Programme point cloud (LAZ, 5 km tiles; DEFRA survey catalogue) | Open Government Licence v3.0 | Contains Environment Agency information (c) Environment Agency and/or database right |
 | Widths (Navarre) | Gobierno de Navarra LiDAR 2024 point cloud with RGBI (LAZ, 1 km tiles, filescartografia.navarra.es) | CC BY 4.0 | Servicio proporcionado por el Gobierno de Navarra (IDENA), LiDAR 2024 |
+| Pits: lanes, buildings, paddocks, grandstands, bridges | OpenStreetMap via the Overpass API (`fetch_pits_osm.py`) | ODbL 1.0 | © OpenStreetMap contributors |
+| Pits: heights of buildings and structures over the road | the point clouds above (England, Navarre); Welsh Government / NRW LIDAR composite DSM 1 m (DataMapWales COG) for Anglesey | OGL v3 / CC BY 4.0 | as above; Contains Natural Resources Wales information © Natural Resources Wales and database right |
 
 The committed sample (`geom/tests/samples/cadwellpark.json`) is derived data (a 2 m centreline, a 6 m grid and
 simplified woods), not the raw downloads. A published mod that uses it should carry the same attribution.

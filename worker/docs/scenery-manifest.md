@@ -64,6 +64,14 @@ The same slug always gives the same file (seeded by the slug).
   for colourway k; `face: "-y"`, `width` along local X). They are not stock objects: their `assets` entry has
   `"path": null` and `"mesh": true`, and the builder builds them as the base mesh `sponsor_boards` rather than
   `#xref` subscenes (see `worker/docs/visual-assets.md`). `info.sponsorBillboards` counts the billboards.
+  Also additive (2026-10-24, imported tracks with `sketch.imported.pits`, `wfbuild/pits.py`): `pitWall` (stock
+  `prop_concrete_element3` on the real pit wall and across both ends of a closed pit lane), `pitBuildings` (stock pit
+  garages and buildings tiled along the real footprints, front towards the road), `pitPaddock` (trucks, tents and crew
+  buses on the real paddock), `bridges` (`prop_bridge03_green` over the road at a real bridge, footbridge or gantry,
+  `face: "x"`); the start lights are the `gantry` (`prop_forest5_startlight01`, a cantilever on the pit wall, its arm
+  along local +X over the track). Real grandstands use `grandstand`. `info.pits` reports the lanes (`wallSM`,
+  `wallFromEdgeM`, `builtLengthM`), counts, and per gantry the `scale`, `clearanceM` over the road and any `problems`;
+  `info.nearRoadM` lists the pit categories. Zones of kind `paved` (the pit lane) carry no clutter grass.
 
 ## Rules the planner follows (and `tests/check_scene.py` re-checks)
 
