@@ -188,6 +188,16 @@ def dist_to_polyline(pts: np.ndarray, poly: np.ndarray) -> np.ndarray:
     return np.sqrt(((p - q) ** 2).sum(2)).min(1)
 
 
+def _project_polyline(p: np.ndarray, poly: np.ndarray, max_dist: float = 3.0) -> float | None:
+    """The nearest point of an open polyline to p, as a fractional vertex index (None beyond ``max_dist``)."""
+    a, b = poly[:-1], poly[1:]
+    e = b - a
+    t = np.clip(np.sum((p - a) * e, axis=1) / np.maximum(np.sum(e * e, axis=1), 1e-12), 0.0, 1.0)
+    d = np.hypot(*(a + e * t[:, None] - p).T)
+    k = int(np.argmin(d))
+    return None if d[k] > max_dist else float(k + t[k])
+
+
 def _ray_polyline(p0: np.ndarray, d: np.ndarray, poly: np.ndarray, max_len: float) -> float | None:
     """First hit of the ray p0 + t*d (t in [0, max_len]) on an open polyline, as a fractional vertex index."""
     best = None
@@ -798,6 +808,8 @@ class TrackGeometry:
                     if float(np.hypot(*dv)) > 1e-6:
                         start, d = last, dv / float(np.hypot(*dv))
             hit = _ray_polyline(start, d, edge, 40.0)
+            if hit is None and chains[n_c]:  # a shallow merge: the edges run side by side; the nearest edge point
+                hit = _project_polyline(start, edge)
             if hit is None and chains[n_c]:  # back to the plain chord from the cut
                 chains[n_c] = []
                 hit = _ray_polyline(p0, -away, edge, 40.0)
@@ -839,6 +851,7 @@ class TrackGeometry:
         for a, b, cc in ear_clip(xy):
             ids = (poly_ids[a], poly_ids[b], poly_ids[cc])
             mesh.face(ids, mat, [(mesh.verts[i][0] / tile, mesh.verts[i][1] / tile) for i in ids])
+        self.__dict__.setdefault("stitch_polys", []).append(xy)
         self.stitched = getattr(self, "stitched", [])
         self.stitched.append({"route": r.id, "sample": cut.sample, "target": t.id,
                               "edgeVertices": [list(mesh.verts[i]) for i in edge_ids]})
@@ -1501,6 +1514,22 @@ class TrackGeometry:
         self._wall_plan = plan
         return plan
 
+    def _on_stitch(self, pts: np.ndarray) -> np.ndarray:
+        """Points (2D) inside a junction mouth's paving (``_stitch`` polygons), by ray casting."""
+        out = np.zeros(len(pts), dtype=bool)
+        for poly in self.__dict__.get("stitch_polys", []):
+            lo, hi = poly.min(0), poly.max(0)
+            sel = np.flatnonzero((pts[:, 0] >= lo[0]) & (pts[:, 0] <= hi[0]) & (pts[:, 1] >= lo[1]) & (pts[:, 1] <= hi[1]))
+            if not len(sel):
+                continue
+            x, y = pts[sel, 0], pts[sel, 1]
+            ins = np.zeros(len(sel), dtype=bool)
+            for (x1, y1), (x2, y2) in zip(poly, np.roll(poly, -1, axis=0)):
+                dy = (y2 - y1) if y2 != y1 else 1e-12
+                ins ^= ((y1 > y) != (y2 > y)) & (x < (x2 - x1) * (y - y1) / dy + x1)
+            out[sel] |= ins
+        return out
+
     def ground_dips(self, offsets=(1.0, 2.0, 3.0), floor: float = C.GROUND_DIP_MAX) -> list[dict]:
         """Artificial dips in the ground beside the road edges: points ``offsets`` metres out from every built edge
         sample (not on another road, a bridge or a jump) where the terrain lies more than ``floor`` below the edge
@@ -1510,6 +1539,13 @@ class TrackGeometry:
         one's edge (Cadwell Park, Anglesey, Donington, Brands Hatch; Chris 2026-10-24). Returns one entry per
         dipping sample: route, side, s, depth (m below the allowed floor)."""
         out = []
+        # only built road counts as road: a branch's samples beyond its junction cut aren't paved unless the mouth
+        # stitch covers them (Brands Hatch's Indy split: its edge ran 2 m outside the main road for 40 m, unpaved,
+        # with the ground sunk under it)
+        built = np.concatenate([self.svalid[q.index] | (q.index in self.apron_routes) for q in self.routes])
+        if getattr(self, "road_vids", None) is None:
+            self.build_road()  # the junction mouths' paving
+        paved = True
         for r in self.routes:
             if r.index in self.apron_routes:
                 continue
@@ -1520,11 +1556,13 @@ class TrackGeometry:
                 for t in offsets:
                     pts = edge.copy()
                     pts[:, :2] += r.nl * side * t
-                    on_road = self.index.near_other(pts, np.full(r.n, r.index), r.s, 0.0)
+                    on_road = self.index.near_other(pts, np.full(r.n, r.index), r.s, 0.0, mask=built)
+                    if paved is not None:  # or on a junction mouth's paving
+                        on_road |= self._on_stitch(pts[:, :2])
                     drop = edge[:, 2] - self.terrain(pts)
                     natural = np.maximum(edge[:, 2] - self.ground(pts[:, :2]), 0.0)
                     runout = np.where(r.slope * side < 0, np.abs(r.slope) * min(t, C.CAMBER_RUNOUT), 0.0)
-                    excess = drop - floor - natural - runout - C.TERRAIN_SINK
+                    excess = drop - floor - natural - runout
                     worst = np.maximum(worst, np.where(ok & ~on_road, excess, 0.0))
                 for i in np.flatnonzero(worst > 0.0):
                     out.append({"route": r.id, "side": "l" if side > 0 else "r", "s": round(float(r.s[i]), 1),

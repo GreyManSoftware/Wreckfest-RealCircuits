@@ -216,8 +216,8 @@ def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict) -> None:
                       f"p2 {np.percentile(dz, 2):.3f}, p98 {np.percentile(dz, 98):.3f} m")
             del lv
     # --- ground: no trench or hole beside a road edge (junction gores, close parallel sections)
-    dips = geo.ground_dips()
-    check(len(dips) <= 2, f"base: ground beside the road edges no more than {C.GROUND_DIP_MAX:.2f} m below them "
+    dips = [d for d in geo.ground_dips() if d["depthM"] > 0.1]
+    check(len(dips) <= 2, f"base: ground beside the road edges no more than {C.GROUND_DIP_MAX + 0.1:.2f} m below them "
           "(beyond the natural ground): no trenches in junction gores or between close sections",
           f"{len(dips)} edge samples dip, deepest {max([d['depthM'] for d in dips], default=0):.2f} m: {dips[:4]}")
     # --- barriers: not round the whole lap (walls: none has none)
