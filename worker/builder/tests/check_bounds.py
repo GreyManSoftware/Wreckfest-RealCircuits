@@ -11,6 +11,7 @@ check_export.py (the .scne files bgeometry built, plain Python):
 """
 from __future__ import annotations
 
+import math
 import os
 import struct
 import sys
@@ -148,6 +149,16 @@ def scene(check, out: str, slug: str, spec: dict, manifest: dict) -> None:
     water = _blend_tris(obs["bounds_water"]) if "bounds_water" in obs else np.zeros((0, 3, 3))
     env = envs.env(envs.env_name(spec.get("options", {}).get("environment")))
     water_cells_ok(check, terrain, water, spec, env)
+    # imported extra roads (shared tarmac that is no layout's own branch, e.g. Oulton Park's Hislop's straight): inside
+    # every layout's reset, none of it under a lid, also on the layouts that don't drive it
+    roads = ((spec.get("sketch") or {}).get("imported") or {}).get("roads") or []
+    shared = np.array([[q["x"], q["y"]] for rd in roads for q in rd["centreline"]], dtype=np.float64).reshape(-1, 2)
+    if len(shared):
+        t = manifest.get("transform", {})
+        a = math.radians(t.get("rotateDeg", 0))
+        c, s = round(math.cos(a)), round(math.sin(a))
+        shared = np.stack([shared[:, 0] * c - shared[:, 1] * s, shared[:, 0] * s + shared[:, 1] * c], axis=1)
+        shared += np.array(t.get("shift", [0.0, 0.0, 0.0]))[:2]
     lays = []
     for lay in manifest["layouts"]:
         bpy.ops.wm.open_mainfile(filepath=os.path.join(out, lay["file"]))
@@ -161,6 +172,12 @@ def scene(check, out: str, slug: str, spec: dict, manifest: dict) -> None:
         quads = [t for n, o in lobs.items() if n.startswith("#ai_route_")
                  for t in (_blend_tris(o)[:, :, :2])]
         seeds = np.concatenate([_blend_tris(o).reshape(-1, 3) for n, o in lobs.items() if n.startswith("#ai_race_")])
+        if len(shared):
+            r = B.enclosure(reset, ground, shared)
+            check(r["seedsBlocked"] == 0 and not r["escaped"],
+                  f"{lay['name']}: imported extra roads inside the reset (drivable, no reset across them)",
+                  f"{r['seedsBlocked']} of {r['seeds']} road cells under a reset")
+            seeds = np.concatenate([seeds[:, :2], shared])
         lays.append((lay["name"], reset, quads, seeds))
     evaluate(check, "base", ground, kill, min(others), lays)
 

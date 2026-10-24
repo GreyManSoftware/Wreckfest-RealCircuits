@@ -204,7 +204,8 @@ bgeometry logs `Surface Settings does not exists: decal ()` and `... noshadow ()
     (`RESET_GAP`) of the layout's `#ai_route_*` strips (and of any base mesh of kind `pit`, `ALLOWED_KINDS`) are
     allowed; round the outside of them (the cells reachable from the terrain edge; the infield isn't reset, as
     stock fields05) a wall from 4 m under to 2 m over the terrain, facing the track, and a 16 m lid 2 m above the
-    terrain. Roads of other layouts beyond it are reset (stock forest11_2). ~3-7k faces per layout. A pit lane
+    terrain. Roads of other layouts beyond it are reset (stock forest11_2); imported extra roads
+    (`imported.roads`, e.g. Oulton Park's Hislop's straight) are allowed on every layout. ~3-7k faces per layout. A pit lane
     or any other drivable area off the AI routes must be a base mesh of kind `pit` (or an AI route) or it is
     walled off.
   - `bounds_far_ground` (`#offroadfoliage`): collision on the backdrop's far ground, from under the terrain

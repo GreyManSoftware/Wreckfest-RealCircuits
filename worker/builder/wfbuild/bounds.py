@@ -21,7 +21,8 @@ Ours, generated per layout from that layout's blue AI route strips:
 - ``bounds_reset`` (layout scene): a reset wall RESET_GAP beyond the blue route (on the 4 m terrain grid), top
   RESET_HEIGHT above the terrain and foot RESET_SINK below it, plus a lid RESET_BAND wide at the wall's top
   height; only round the outside of the layout (the infield isn't reset, as stock fields05). Other layouts'
-  roads beyond it are reset, as stock forest11_2 does.
+  roads beyond it are reset, as stock forest11_2 does; imported extra roads (``imported.roads``, shared tarmac
+  that is no layout's own branch) are inside it on every layout.
 - ``bounds_kill_floor`` (base): a ``#resetplayer`` plane KILL_DEPTH below the lowest collision, under the terrain,
   the far ground and beyond, so anything that still falls is reset.
 - ``bounds_water`` (base): ``#resetplayer`` sheets WATER_SINK under imported lakes and the sea, where the terrain
@@ -110,7 +111,27 @@ class Bounds:
         self.cell = float(max(np.diff(self.xs).max(), np.diff(self.ys).max()))
         self.extra = [np.array([m.verts[i][:2] for i in f]) for m in (base_meshes or []) if m.kind in ALLOWED_KINDS
                       for f in m.faces]
+        self.extra += self._shared_road_quads()
         self.info: dict = {}
+
+    def _shared_road_quads(self) -> list[np.ndarray]:
+        """Plan quads of the imported extra roads (``imported.roads``: real tarmac in the base that is no layout's
+        own branch, e.g. Oulton Park's Hislop's straight beside the chicane). They stay drivable and inside the
+        reset on every layout, also those whose AI route doesn't use them, so no reset wall cuts across them."""
+        layouts = self.geo.model.get("layouts") or []
+        if not layouts:
+            return []
+        own = {"main"} | {lay["id"] for lay in layouts}
+        out = []
+        for r in self.geo.routes:
+            if r.id in own:
+                continue
+            ok = self.geo.svalid[r.index]
+            for i in range(r.segs):
+                k = (i + 1) % r.n
+                if ok[i] and ok[k]:
+                    out.append(np.array([r.left[i, :2], r.left[k, :2], r.right[k, :2], r.right[i, :2]]))
+        return out
 
     # ------------------------------------------------------------------------------------ per layout
     def _stamp(self, mask: np.ndarray, poly: np.ndarray, reach: float) -> None:
@@ -124,8 +145,8 @@ class Bounds:
 
     def allowed(self, layout) -> np.ndarray:
         """Cells (nx x ny) a car of this layout may be on: within RESET_GAP (plus the cell's half diagonal, so no
-        point of a disallowed cell is nearer than RESET_GAP) of the layout's blue AI route strips, or of an
-        ALLOWED_KINDS base mesh."""
+        point of a disallowed cell is nearer than RESET_GAP) of the layout's blue AI route strips, of an
+        ALLOWED_KINDS base mesh or of an imported extra road (_shared_road_quads)."""
         reach = RESET_GAP + self.cell * math.sqrt(0.5)
         mask = np.zeros((self.nx, self.ny), dtype=bool)
         for m in layout.meshes:
