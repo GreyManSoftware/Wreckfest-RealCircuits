@@ -28,7 +28,19 @@
    }
   ],
   "grandstands": [],
-  "paddocks": [],
+  "paddocks": [
+   {
+    "kind": "paddock",
+    "name": "Paddock (behind the pit building)",
+    "polygon": [
+     [-195, 15],
+     [-118, 80],
+     [-78, 44],
+     [-150, -20]
+    ],
+    "source": "hand-drawn over the LIDAR relief: the open apron behind the pit building (OSM 115513704) and its two outbuildings, clear of the kart circuit; OSM has no paddock polygon"
+   }
+  ],
   "gantries": [
    {
     "kind": "startLights",

@@ -24,6 +24,7 @@ from mathutils.bvhtree import BVHTree
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
+sys.path.insert(0, HERE)
 from wfbuild import config as C
 from wfbuild import dressing as D
 from wfbuild import envs, sponsor
@@ -32,7 +33,8 @@ from wfbuild.layout import composite_route
 WF = os.environ.get("WRECKFEST_DIR", "/wreckfest")
 failures: list[str] = []
 ENGINE_TAGS = {"blend", "decal", "noshadow", "lofi", "horizon", "xtree"}  # shader / render tags used here
-GRID_EXEMPT = {"gantry", "flags", "staff", "grandstand"}
+GRID_EXEMPT = {"gantry", "flags", "staff", "grandstand",
+               "pitWall", "pitBuildings", "pitPaddock", "bridges"}  # real pits (wfbuild/pits.py) stand where they are
 
 
 def no_collision(name: str) -> bool:
@@ -90,6 +92,9 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
     lanes = {"gantry": (-np.inf, np.inf),
              "barriers": (C.DIVIDER_MIN - 1.0, max(C.CROWD_WALL, C.FAST_CORNER_WALL) + 2.0),
              "cornerMarkers": (C.SHOULDER_W, np.inf),
+             # real pits (wfbuild/pits.py; check_pits.py checks them): the pit wall beside the track, bridges over it
+             "pitWall": (-0.5, np.inf), "bridges": (-np.inf, np.inf), "pitBuildings": (1.0, np.inf),
+             "pitPaddock": (1.0, np.inf),
              "brakeBoards": (D.BRAKE_GAP + D.BRAKE_HALF - 0.8, D.BRAKE_GAP + D.BRAKE_HALF + C.KERB_W + C.GREEN_W + 0.8)}
     on_road = [f"{p['asset']} {d[k]:.1f} m" for k, p in enumerate(P)
                if not (lanes.get(p["category"], (pl.edge_min - 1.3, np.inf))[0] <= d[k]
@@ -569,6 +574,10 @@ def check_base(out: str, slug: str, model: dict, spec: dict, manifest: dict) -> 
         "base: sponsor boards are one mesh with our own board materials", f"{n_sp} boards")
     check_roadside(obs, model, spec, manifest)
     check_maps(out, model, spec, manifest)
+    from check_pits import check_pits_base  # an imported track's real pits (wfbuild/pits.py)
+    from wfbuild.geometry import TrackGeometry as _TGp
+    check_pits_base(check, _TGp(model, spec), load_json(os.path.join(out, "scenery.json")), obs, manifest, to_scene,
+                    world_verts)
     # bounds
     worst = max(float(np.abs(world_verts(o)[:, :2]).max()) for o in meshes if len(o.data.vertices))
     check(worst <= C.LIMIT_M, "base: all vertices within +-2000 m", f"max |x|,|y| = {worst:.1f} m")
@@ -819,6 +828,9 @@ def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manife
         check((f"jump_{j['id']}" in obs) == want, f"{name}: layout-only jump {j['id']} {'present' if want else 'absent'}")
     worst = max([float(np.abs(world_verts(o)[:, :2]).max()) for o in obs.values() if o.type == "MESH"] + [0.0])
     check(worst <= C.LIMIT_M, f"{name}: all vertices within +-2000 m", f"{worst:.1f} m")
+    from check_pits import check_pits_layout
+    from wfbuild.geometry import TrackGeometry as _TGp
+    check_pits_layout(check, _TGp(model, spec), name, obs, manifest, to_scene, world_verts)
 
 
 def main() -> None:

@@ -4,11 +4,11 @@
    {
     "id": "pit",
     "ways": [4906930],
-    "widthM": 10.0,
+    "widthM": 9.5,
     "mode": "closed",
-    "centreFromTrackM": 13.5,
+    "centreFromTrackM": 13.0,
     "taperM": 80,
-    "widthSource": "estimated: the paved strip between the pit wall and the garage fronts (OSM Pit Garages 28767014, LIDAR) is about 12 m; 10 m of it is the lane; OSM maps the lane about 10 m from the track's centre, so its middle part is moved out to 13.5 m (track edge 6.5 m + pit wall + half the lane), the garages' fronts at 19 m",
+    "widthSource": "estimated: the paved strip between the pit wall and the garage fronts (OSM Pit Garages 28767014, LIDAR) is about 12 m wide, the garages' fronts 18.7 m from the track's centre; OSM maps the lane about 10 m from the track's centre, so its middle part is moved out to 13 m (track edge 6.5 m + pit wall + half the lane)",
     "modeReason": "the entry is on the exit of Clark Curve, fast and blind, and the lane is 7 m shorter than the track (a short cut if open)"
    }
   ],
