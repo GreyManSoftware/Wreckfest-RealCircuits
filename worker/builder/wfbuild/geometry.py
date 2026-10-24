@@ -379,9 +379,16 @@ class TerrainField:
             dxy = np.hypot(self.xy[None, :, 0] - self.xy[k][:, None, 0], self.xy[None, :, 1] - self.xy[k][:, None, 1])
             other = band & ((self.ri[None, :] != self.ri[k][:, None]) | (sd > 1.5 * dxy + 4.0))
             if other.any():
+                # a lower road nearby pulls the ground down to its surface only close to its own edge (fully
+                # within TERRAIN_PULL_FULL, fading out over TERRAIN_PULL_FADE), so between two roads at different
+                # heights the ground slopes across the gap instead of dropping to the lower one right at the
+                # higher one's edge: that drop showed as dark trenches and holes beside junction gores and close
+                # parallel sections (Cadwell Park's start straight, Anglesey's Corkscrew split, Brands Hatch,
+                # Donington; Chris 2026-10-24)
                 rows, cols = np.nonzero(other)
+                pull = 1.0 - smoothstep((e[rows, cols] - C.TERRAIN_PULL_FULL) / C.TERRAIN_PULL_FADE)
                 zo = np.full(len(p), np.inf)
-                np.minimum.at(zo, rows, self.road_height(p[rows], cols))
+                np.minimum.at(zo, rows, zr[rows] + pull * (self.road_height(p[rows], cols) - zr[rows]))
                 zr = np.minimum(zr, zo)
             # full sink under the road (more on steep grades: a 4 m terrain cell spanning a curving road can't
             # follow it exactly), easing to flush by 1.5 m out
@@ -1231,10 +1238,33 @@ class TrackGeometry:
         for r in self.routes:
             skip = ~self.svalid[r.index] | self.structure[r.index]
             meet = [c.sample for c in self.cuts if c.route is r]
-            meet += [c.target_sample for c in self.cuts if c.target is r]
+            # Imported tracks: where a branch's mouth meets this road, only the mouth itself (plus a few metres) is
+            # left open; probes that see the branch beyond it are its merge (_merging), and a wall line never
+            # crosses another road (_edge_ok). Leaving DIVIDER_JUNCTION_CLEAR open on both sides lost the divider
+            # between two other sections of road beside a short link (Cadwell Park's start straight and the run
+            # to the Mountain beside the Woodlands and Club links; Chris 2026-10-24: cars could cut across).
+            # Drawn tracks keep the wide clearance.
+            near_mouth = []
+            for c in self.cuts:
+                if c.target is r:
+                    if self.imported and c.kind == "mouth":
+                        near_mouth.append((float(r.s[c.target_sample]), 0.75 * c.route.width + C.DIVIDER_APRON_CLEAR))
+                    else:
+                        meet.append(c.target_sample)
+            joined = {(c.route.index, c.target.index) for c in self.cuts if c.kind == "mouth"}
             meet += [int(j["sampleIndex"]) for a in self.routes for j in (a.start_join, a.end_join)
-                     if j and j["route"] == r.id]
-            meet += [k for _, chains in self.aprons for t, _, run in chains if t is r for k in run]
+                     if j and j["route"] == r.id and a.index not in self.apron_routes
+                     and not (self.imported and (a.index, r.index) in joined)]
+            for s_m, clear in near_mouth:
+                skip |= r.s_dist(r.s, s_m) < clear
+            # an apron link (a U-turn paved across the gap between two sections) opens the divider only where it
+            # crosses: its paved run plus a few metres
+            for _, chains in self.aprons:
+                for t, _, run in chains:
+                    if t is r and run:
+                        lo, hi = float(r.s[run[0]]), float(r.s[run[-1]])
+                        mid, half = 0.5 * (lo + hi), 0.5 * abs(hi - lo)
+                        skip |= r.s_dist(r.s, mid) < half + C.DIVIDER_APRON_CLEAR
             for b in self.bridges:
                 if b.under is r:
                     meet.append(r.index_at(b.s_under))
@@ -1433,6 +1463,36 @@ class TrackGeometry:
                                          "ai_margin": np.maximum(self._cone(r, np.ones(r.n, bool), margin, 0.5), 0.5)}
         self._wall_plan = plan
         return plan
+
+    def ground_dips(self, offsets=(1.0, 2.0, 3.0), floor: float = C.GROUND_DIP_MAX) -> list[dict]:
+        """Artificial dips in the ground beside the road edges: points ``offsets`` metres out from every built edge
+        sample (not on another road, a bridge or a jump) where the terrain lies more than ``floor`` below the edge
+        and below the natural ground there (a real bank or ditch beside the road doesn't count, nor does ground
+        falling away at the cambered edge's runout). Junction gores and close parallel sections showed these as
+        dark trenches and holes when the terrain between two roads took the lower one's height up to the higher
+        one's edge (Cadwell Park, Anglesey, Donington, Brands Hatch; Chris 2026-10-24). Returns one entry per
+        dipping sample: route, side, s, depth (m below the allowed floor)."""
+        out = []
+        for r in self.routes:
+            if r.index in self.apron_routes:
+                continue
+            ok = self.svalid[r.index] & ~self.structure[r.index] & ~self.jump_zone[r.index]
+            for side in (1, -1):
+                edge = r.left if side > 0 else r.right
+                worst = np.zeros(r.n)
+                for t in offsets:
+                    pts = edge.copy()
+                    pts[:, :2] += r.nl * side * t
+                    on_road = self.index.near_other(pts, np.full(r.n, r.index), r.s, 0.0)
+                    drop = edge[:, 2] - self.terrain(pts)
+                    natural = np.maximum(edge[:, 2] - self.ground(pts[:, :2]), 0.0)
+                    runout = np.where(r.slope * side < 0, np.abs(r.slope) * min(t, C.CAMBER_RUNOUT), 0.0)
+                    excess = drop - floor - natural - runout - C.TERRAIN_SINK
+                    worst = np.maximum(worst, np.where(ok & ~on_road, excess, 0.0))
+                for i in np.flatnonzero(worst > 0.0):
+                    out.append({"route": r.id, "side": "l" if side > 0 else "r", "s": round(float(r.s[i]), 1),
+                                "depthM": round(float(worst[i]), 2)})
+        return out
 
     def _cone(self, r: Route, mask: np.ndarray, value: np.ndarray, slope: float) -> np.ndarray:
         """min over masked samples j of value[j] + slope * |s_i - s_j| (inf without any): a value that changes by
