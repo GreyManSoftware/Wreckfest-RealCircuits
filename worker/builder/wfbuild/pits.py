@@ -210,6 +210,18 @@ class Pits:
             p["divider"] = p["divider"] & ~on
             margin = np.where(on, np.maximum(off - 0.8, 0.5), np.inf)
             p["ai_margin"] = np.minimum(p["ai_margin"], g._cone(m, on, margin, 0.5))
+            # every route (alternative layouts' branches too): the AI run-off stops 0.8 m short of the built lane
+            if lane.b1 > lane.b0:
+                lp = lane.p[lane.b0:lane.b1 + 1]
+                for (ri, side), q in plan.items():
+                    rr = q["route"]
+                    d = np.hypot(rr.p[:, None, 0] - lp[None, :, 0], rr.p[:, None, 1] - lp[None, :, 1])
+                    k = d.argmin(1)
+                    towards = ((lp[k] - rr.p[:, :2]) * rr.nl).sum(1) * side > 0
+                    room = d[np.arange(rr.n), k] - lane.w / 2.0 - rr.w / 2.0 - 0.8
+                    cap = np.where(towards & (room < q["ai_margin"]), np.maximum(room, 0.5), np.inf)
+                    if np.isfinite(cap).any():
+                        q["ai_margin"] = np.minimum(q["ai_margin"], cap)
             self.report["lanes"].append({"id": lane.id, "mode": lane.mode, "side": "left" if lane.side > 0 else "right",
                                          "wallSM": [round(s0, 1), round(s1, 1)],
                                          "wallFromEdgeM": [round(float(off[on].min()), 2), round(float(off[on].max()), 2)]
@@ -330,7 +342,7 @@ class Pits:
                 asset = PADDOCK_ASSETS[int(rng.integers(len(PADDOCK_ASSETS)))]
                 rr = float(envs.asset_info(asset)["r"])
                 q = q + rng.uniform(-2, 2, 2)
-                if float(planner.field.dist(q)[0]) < planner.edge_min + rr or self._on_pits(q, rr + 1.0):
+                if float(planner.field.dist(q)[0]) < planner.edge_min + rr or self._on_pits(q, rr * 1.45 + 1.0):
                     continue
                 if any(np.hypot(*(q - q2)) < (rr + r2) * 0.85 for q2, r2 in placed):
                     continue
