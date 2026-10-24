@@ -450,6 +450,8 @@ def build(args: argparse.Namespace) -> dict:
             title = titles.get(scene) or scene
             lname = title[len(m["name"]):].strip() if title.startswith(m["name"]) else title
             m["layouts"].append({"event": scene, "title": title, "name": lname or "Main", "lapM": round(lap, 1)})
+        with contextlib.redirect_stdout(check.out):  # out of bounds: reset walls, kill floor, ground coverage
+            check_export.check_bounds.export(check_export.check, track)
     for f in check_export.failures:
         check.failures.append(f)
     check_export.failures.clear()

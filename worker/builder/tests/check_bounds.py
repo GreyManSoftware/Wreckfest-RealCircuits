@@ -12,6 +12,7 @@ check_export.py (the .scne files bgeometry built, plain Python):
 from __future__ import annotations
 
 import os
+import struct
 import sys
 
 import numpy as np
@@ -187,7 +188,11 @@ def export(check, track: str) -> None:
         cat = lambda x: np.concatenate(x) if x else np.zeros((0, 3, 3))  # noqa: E731
         return cat(g), cat(r), cat(o)
 
-    ground, base_reset, others = split(scne_read.read_collision(base))
+    try:
+        ground, base_reset, others = split(scne_read.read_collision(base))
+    except (ValueError, IndexError, struct.error) as e:
+        check(False, f"{slug}: collision decoded from the built base", str(e))
+        return
     lows = [float(others[:, :, 2].min())] if len(others) else []
     kz = float(base_reset[:, :, 2].min()) if len(base_reset) else np.inf
     kill = base_reset[base_reset[:, :, 2].max(1) <= kz + 0.5] if len(base_reset) else base_reset
