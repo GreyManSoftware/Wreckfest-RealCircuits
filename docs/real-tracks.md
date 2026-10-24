@@ -18,11 +18,11 @@ layouts; lengths from Wikipedia unless noted, to verify per circuit under the st
 
 | # | Circuit (mod, slug) | Layouts (main first) | Status |
 |---|---|---|---|
-| 1 | Cadwell Park (`cadwellpark`) | Full 3.502 km, Club 2.375 km, Woodlands 1.365 km (the bike chicane variant isn't used by cars) | built 2026-10-20 |
+| 1 | Cadwell Park (`cadwellpark`) | Full 3.502 km, Club 2.375 km, Woodlands 1.365 km (the bike chicane variant isn't used by cars) | built 2026-10-20, audited 2026-10-24: 3,496 m (−0.2 %), 2,372 m (−0.1 %), 1,349 m (−1.1 %); [audit](real-tracks/cadwellpark.md) |
 | – | Anglesey (`anglesey`, not MSV) | International 3.380 km, Coastal 2.494 km, National 1.931 km, Club 1.287 km | built 2026-10-20 |
-| 2 | Brands Hatch (`brandshatch`) | Grand Prix 3.916 km, Indy 1.944 km (MSV) | built 2026-10-20: GP 3,903 m (−0.3 %), Indy 1,930 m (−0.7 %); [details](real-tracks/brandshatch.md) |
-| 3 | Oulton Park (`oultonpark`) | International 4.307 km, Island 3.616 km, Fosters 2.656 km (MSV) | built 2026-10-20, chicanes sharpened 2026-10-24: 4,320 m (+0.3 %), 3,566 m (−1.4 %), 2,679 m (+0.9 %); [details](real-tracks/oultonpark.md) |
-| 4 | Snetterton (`snetterton`) | 300 4.779 km, 200 3.219 km, 100 1.577 km (MSV) | built 2026-10-20: 4,789 m (+0.2 %), 3,195 m (−0.8 %), 1,556 m (−1.3 %); the 100's own line is estimated; [details](real-tracks/snetterton.md) |
+| 2 | Brands Hatch (`brandshatch`) | Grand Prix 3.916 km, Indy 1.944 km (MSV) | built 2026-10-20, audited 2026-10-24: GP 3,904 m (−0.3 %), Indy 1,931 m (−0.7 %); [details](real-tracks/brandshatch.md) |
+| 3 | Oulton Park (`oultonpark`) | International 4.307 km, Island 3.616 km, Fosters 2.656 km (MSV) | built 2026-10-20, chicanes sharpened and audited 2026-10-24: 4,320 m (+0.3 %), 3,567 m (−1.4 %), 2,679 m (+0.9 %); [details](real-tracks/oultonpark.md) |
+| 4 | Snetterton (`snetterton`) | 300 4.779 km, 200 3.219 km, 100 1.577 km (MSV) | built 2026-10-20, audited 2026-10-24: 4,789 m (+0.2 %), 3,195 m (−0.8 %), 1,556 m (−1.3 %); the 100's own line is estimated; [details](real-tracks/snetterton.md) |
 | 5 | Donington Park (`doningtonpark`) | Grand Prix 4.020 km, National 3.186 km (MSV; Wikipedia 3.149 km) | built 2026-10-20 |
 | 6 | Bedford Autodrome (`bedfordautodrome`) | GT 6.11 km, SW 4.50 km, West 3.0 km, SEN 3.70 km (MSV's circuit-layouts page; North, South and East no longer listed) | built 2026-10-20 |
 | 7 | Circuito de Navarra (`navarra`) | Main Track 4.313 km, Medium 2.693 km, Short 1.391 km (MSV, since September 2024) | built 2026-10-20 (IGN MDT05 heights, UTM 30N) |
@@ -184,6 +184,38 @@ the 300/200/100), Cadwell Park (none for cars), Bedford (none on GT/SW/West/SEN)
 named chicane; their tightest S-bends follow OSM) need no change. Donington's old Esses were replaced by the Fogarty
 Esses; the Melbourne Hairpin and Goddards are hairpins (15.9 m, 22.2 m), not chicanes.
 
+## Audit notes (2026-10-24)
+
+Accuracy audit before the Workshop release, in two halves: Cadwell Park, Brands Hatch, Oulton Park and Snetterton
+here (findings in `docs/real-tracks/<slug>.md`, "Audit 2026-10-24"); Donington Park, Bedford, Navarra and Anglesey by
+a second agent. Plots per layout (curvature with the OSM polyline's, built and raw-DTM heights, grade over 10 and
+50 m, grade change over 10 m, camber; straights shaded) and plan views over a LIDAR relief map are in
+`.local\audit\<slug>\` (`after-<layout>.png`, `plan-*.png`).
+
+**Shared importer change (commit "importer: smooth the registration shift"):** the registration's lateral shift was
+found in 0.5 m steps and smoothed over only 5 m, so a straight's line stepped 0.5-1 m sideways over about 20 m
+wherever the best shift changed (R 115 m jinks on Cadwell's straights; Brands Hatch's Cooper Straight, Oulton's Hill
+straight). It is now found in 0.25 m steps and smoothed over 25 m (`REGISTRATION_SMOOTH_M`); the fit to the DTM is
+unchanged (centre and inner-edge RMS, cross residual). **Every registered recipe's sample changes slightly when
+re-imported** (lap lengths by under 1 m; corner radii by a few per cent): Donington Park and Anglesey need a re-import
+to pick it up (Bedford and Navarra use `registrationMaxShiftM` 0 and are unaffected). Tried and dropped: wider
+smoothing at sparse OSM nodes (a gentle curve drawn as a few nodes reads as kinks): it barely moved any metric.
+
+**New regression test** (`test_imported_sample_has_no_wobble_height_steps_or_camber_flips`, every recipe's sample,
+every layout): on straights no 6 m-scale bend tighter than R 130 m; grade change at most 12 % over 10 m; camber on
+straights within 1.5° of its 25 m mean and nowhere changing faster than 0.5°/m. All eight current samples pass
+(Donington National's committed sample reads R 133 m on a straight, close to the limit; 188 m after a re-import).
+The importer test also checks that the registration shift follows a skewed road without steps.
+
+**What the audit found to be sound (no change):** heights. The raw 1 m DTM sampled along every built line (median
+over the inner 60 % of the road) matches the built heights to 1.2-2.0 cm RMS, 10 cm at most (the σ 4 m smoothing at
+Cadwell's Mountain crest), and has no local bump over 12 cm against a 15 m running median anywhere on the four
+circuits: no bridge decks, tunnels, vehicles or DTM gaps under the road. Corner radii follow the OSM geometry (plan
+views); circle fits to OSM nodes that read tighter were node noise. Camber is the LIDAR's (cross-sections checked
+at Brabham Straight, Paddock Hill Bend and Shell Oils). Widths: no published figures and no OSM `width` tags on any
+of the four; the LIDAR gives only upper bounds (flush verges and run-off count as road), consistent with the recipe
+values, so they stay.
+
 ## Data sources and attribution
 
 | Data | Source | Licence | Attribution (in the spec's `sketch.imported.source`) |
@@ -207,7 +239,7 @@ sample `geom/tests/samples/cadwellpark.json`, report `.local\cadwellpark\report.
 |---|---|---|---|
 | Source of the layout | MSV car circuit map (cadwellpark.co.uk) | racingcircuits.info Club map + history; MSV map "Club Hairpin Grandstand" | racingcircuits.info Woodlands map; MSV: "the rarely used Woodlands circuit" |
 | Route | the whole lap | Full minus the Mountain loop: the Club Hairpin (OSM 117987847) from the end of the run to the Mountain back onto the start straight | the Mountain loop: start straight, a hairpin at its Coppice end (OSM 396424044) onto the run to the Mountain, Mountain, Hall Bends, Hairpin, Barn |
-| Lap (built) | 3,496.9 m | 2,371.4 m | 1,349.6 m |
+| Lap (built) | 3,496.0 m (2026-10-24 audit; was 3,496.9) | 2,371.8 m (was 2,371.4) | 1,349.4 m (was 1,349.6) |
 | Published | 3,502 m (Wikipedia; MSV 3.54 km): −0.15 % | 2,375 m (1.476 mi; motorsport-timing 2.37 km): −0.15 % | 1,365 m (0.848 mi; motorsport-timing 1.36 km): −1.1 % |
 | OSM polyline | 3,494 m | 2,383 m | 1,372 m |
 | Direction | clockwise (MSV map arrow from Barn towards Coppice) | clockwise | clockwise |
