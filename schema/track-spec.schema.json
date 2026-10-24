@@ -278,8 +278,73 @@
       "additionalProperties": false,
       "required": ["points"],
       "properties": {
-        "points": { "type": "array", "minItems": 3, "maxItems": 2000, "items": { "$ref": "#/$defs/MetrePoint" } }
+        "points": { "type": "array", "minItems": 3, "maxItems": 2000, "items": { "$ref": "#/$defs/MetrePoint" } },
+        "cover": {
+          "description": "Measured canopy cover inside the polygon (0-1; tools/real_tracks_data/measure_runoff.py): the builder plants this share of its tree spots. Without it (OSM woods) the wood is planted densely.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
       }
+    },
+    "ImportedTree": {
+      "title": "Measured tree",
+      "description": "A single tree or small clump outside the woods, from the canopy height model (metres, imported frame; h the canopy height).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "h"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "h": { "type": "number", "minimum": 0, "maximum": 60 }
+      }
+    },
+    "RunoffZone": {
+      "title": "Run-off zone",
+      "description": "What lies beyond one road edge of an imported track over a stretch of one route (measured from open LIDAR and OSM plus published sources; tools/real_tracks_data/measure_runoff.py): the surface (a paved apron from the edge, a gravel trap from startM to startM + depthM, grass elsewhere) and the barrier at offsetM from the edge.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route", "side", "fromS", "toS", "surface", "barrier"],
+      "properties": {
+        "route": { "description": "\"main\" or an alternative layout's id.", "type": "string", "minLength": 1, "maxLength": 24 },
+        "side": { "$ref": "#/$defs/RoadSide" },
+        "fromS": { "description": "Start, metres along the route's centreline (a zone may wrap past the main line's end).", "type": "number", "minimum": 0 },
+        "toS": { "description": "End, metres along the route's centreline.", "type": "number", "minimum": 0 },
+        "surface": { "$ref": "#/$defs/RunoffSurface" },
+        "tarmacM": { "description": "Paved apron depth from the road edge (m).", "type": "number", "minimum": 0, "maximum": 60, "default": 0 },
+        "startM": { "description": "Gravel trap start, metres from the road edge.", "type": "number", "minimum": 0, "maximum": 60, "default": 0 },
+        "depthM": { "description": "Gravel trap depth (m).", "type": "number", "minimum": 0, "maximum": 60, "default": 0 },
+        "barrier": { "$ref": "#/$defs/BarrierType" },
+        "offsetM": { "description": "Barrier distance from the road edge (m).", "type": "number", "minimum": 0, "maximum": 60 },
+        "fence": { "description": "A debris/catch fence stands on the barrier.", "type": "boolean", "default": false },
+        "colour": { "$ref": "#/$defs/BarrierColour" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "source": { "description": "Where it comes from (lidar, osm, evidence and its URL).", "type": "string", "maxLength": 400 }
+      }
+    },
+    "RoadSide": {
+      "title": "Road side",
+      "description": "Side of the road in the driving direction.",
+      "type": "string",
+      "enum": ["left", "right"]
+    },
+    "RunoffSurface": {
+      "title": "Run-off surface",
+      "description": "Main run-off surface: gravel trap, tarmac (paved) or grass.",
+      "type": "string",
+      "enum": ["gravel", "tarmac", "grass"]
+    },
+    "BarrierType": {
+      "title": "Barrier type",
+      "description": "armco (steel guardrail), tyres (tyre wall faced with conveyor belting), concrete (wall), bank (earth bank, no barrier), none.",
+      "type": "string",
+      "enum": ["armco", "tyres", "concrete", "bank", "none"]
+    },
+    "BarrierColour": {
+      "title": "Barrier colour",
+      "description": "Barrier facing: black (plain) unless a source confirms red/white.",
+      "type": "string",
+      "enum": ["black", "redwhite"]
     },
     "Lake": {
       "title": "Lake",
@@ -387,6 +452,20 @@
           "description": "The surrounding ground. Without it the ground away from the road is level at the mean road height."
         },
         "woodland": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/WoodlandArea" }, "default": [] },
+        "trees": {
+          "description": "Measured single trees and clumps outside the woods (tools/real_tracks_data/measure_runoff.py). With trees or measured woods (cover) the builder plants only real vegetation, no seeded scatter.",
+          "type": "array",
+          "maxItems": 6000,
+          "items": { "$ref": "#/$defs/ImportedTree" },
+          "default": []
+        },
+        "runoff": {
+          "description": "Measured run-off surfaces and barriers per route, side and stretch; the builder lays gravel traps, paved aprons and grass and puts each barrier type where the zone says.",
+          "type": "array",
+          "maxItems": 3000,
+          "items": { "$ref": "#/$defs/RunoffZone" },
+          "default": []
+        },
         "lakes": {
           "description": "Lakes and ponds (e.g. Oulton Park's lake): flat water over the terrain.",
           "type": "array",

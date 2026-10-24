@@ -24,6 +24,38 @@ class JumpSize(StrEnum):
     LARGE = "large"
 
 
+class RoadSide(StrEnum):
+    """Side of the road in the driving direction."""
+
+    LEFT = "left"
+    RIGHT = "right"
+
+
+class RunoffSurface(StrEnum):
+    """Main run-off surface: gravel trap, tarmac (paved) or grass."""
+
+    GRAVEL = "gravel"
+    TARMAC = "tarmac"
+    GRASS = "grass"
+
+
+class BarrierType(StrEnum):
+    """armco (steel guardrail), tyres (tyre wall faced with conveyor belting), concrete (wall), bank (earth bank, no barrier), none."""
+
+    ARMCO = "armco"
+    TYRES = "tyres"
+    CONCRETE = "concrete"
+    BANK = "bank"
+    NONE = "none"
+
+
+class BarrierColour(StrEnum):
+    """Barrier facing: black (plain) unless a source confirms red/white."""
+
+    BLACK = "black"
+    REDWHITE = "redwhite"
+
+
 class Surface(StrEnum):
     """Surface"""
 
@@ -466,16 +498,109 @@ class WoodlandArea:
     """A woodland polygon (metres, imported frame): the builder plants its trees inside it."""
 
     points: list[MetrePoint]
+    cover: float | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> WoodlandArea:
         return cls(
             points=[MetrePoint.from_dict(v0) for v0 in data["points"]],
+            cover=None if data.get("cover") is None else float(data["cover"]),
         )
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
         out["points"] = [v0.to_dict() for v0 in self.points]
+        if self.cover is not None:
+            out["cover"] = self.cover
+        return out
+
+
+@dataclass(kw_only=True)
+class ImportedTree:
+    """A single tree or small clump outside the woods, from the canopy height model (metres, imported frame; h the canopy height)."""
+
+    x: float
+    y: float
+    h: float
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> ImportedTree:
+        return cls(
+            x=float(data["x"]),
+            y=float(data["y"]),
+            h=float(data["h"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["x"] = self.x
+        out["y"] = self.y
+        out["h"] = self.h
+        return out
+
+
+@dataclass(kw_only=True)
+class RunoffZone:
+    """What lies beyond one road edge of an imported track over a stretch of one route (measured from open LIDAR and OSM plus published sources; tools/real_tracks_data/measure_runoff.py): the surface (a paved apron from the edge, a gravel trap from startM to startM + depthM, grass elsewhere) and the barrier at offsetM from the edge."""
+
+    route: str
+    side: RoadSide
+    from_s: float
+    to_s: float
+    surface: RunoffSurface
+    tarmac_m: float | None = None
+    start_m: float | None = None
+    depth_m: float | None = None
+    barrier: BarrierType
+    offset_m: float | None = None
+    fence: bool | None = None
+    colour: BarrierColour | None = None
+    confidence: float | None = None
+    source: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> RunoffZone:
+        return cls(
+            route=str(data["route"]),
+            side=RoadSide(data["side"]),
+            from_s=float(data["fromS"]),
+            to_s=float(data["toS"]),
+            surface=RunoffSurface(data["surface"]),
+            tarmac_m=None if data.get("tarmacM") is None else float(data["tarmacM"]),
+            start_m=None if data.get("startM") is None else float(data["startM"]),
+            depth_m=None if data.get("depthM") is None else float(data["depthM"]),
+            barrier=BarrierType(data["barrier"]),
+            offset_m=None if data.get("offsetM") is None else float(data["offsetM"]),
+            fence=None if data.get("fence") is None else bool(data["fence"]),
+            colour=None if data.get("colour") is None else BarrierColour(data["colour"]),
+            confidence=None if data.get("confidence") is None else float(data["confidence"]),
+            source=None if data.get("source") is None else str(data["source"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        out["route"] = self.route
+        out["side"] = self.side.value
+        out["fromS"] = self.from_s
+        out["toS"] = self.to_s
+        out["surface"] = self.surface.value
+        if self.tarmac_m is not None:
+            out["tarmacM"] = self.tarmac_m
+        if self.start_m is not None:
+            out["startM"] = self.start_m
+        if self.depth_m is not None:
+            out["depthM"] = self.depth_m
+        out["barrier"] = self.barrier.value
+        if self.offset_m is not None:
+            out["offsetM"] = self.offset_m
+        if self.fence is not None:
+            out["fence"] = self.fence
+        if self.colour is not None:
+            out["colour"] = self.colour.value
+        if self.confidence is not None:
+            out["confidence"] = self.confidence
+        if self.source is not None:
+            out["source"] = self.source
         return out
 
 
@@ -626,6 +751,8 @@ class ImportedTrack:
     centreline: list[ImportedPoint]
     terrain: Heightfield | None = None
     woodland: list[WoodlandArea] | None = None
+    trees: list[ImportedTree] | None = None
+    runoff: list[RunoffZone] | None = None
     lakes: list[Lake] | None = None
     corners: list[NamedSpot] | None = None
     viewing_spots: list[NamedSpot] | None = None
@@ -643,6 +770,8 @@ class ImportedTrack:
             centreline=[ImportedPoint.from_dict(v0) for v0 in data["centreline"]],
             terrain=None if data.get("terrain") is None else Heightfield.from_dict(data["terrain"]),
             woodland=None if data.get("woodland") is None else [WoodlandArea.from_dict(v0) for v0 in data["woodland"]],
+            trees=None if data.get("trees") is None else [ImportedTree.from_dict(v0) for v0 in data["trees"]],
+            runoff=None if data.get("runoff") is None else [RunoffZone.from_dict(v0) for v0 in data["runoff"]],
             lakes=None if data.get("lakes") is None else [Lake.from_dict(v0) for v0 in data["lakes"]],
             corners=None if data.get("corners") is None else [NamedSpot.from_dict(v0) for v0 in data["corners"]],
             viewing_spots=None if data.get("viewingSpots") is None else [NamedSpot.from_dict(v0) for v0 in data["viewingSpots"]],
@@ -663,6 +792,10 @@ class ImportedTrack:
             out["terrain"] = self.terrain.to_dict()
         if self.woodland is not None:
             out["woodland"] = [v0.to_dict() for v0 in self.woodland]
+        if self.trees is not None:
+            out["trees"] = [v0.to_dict() for v0 in self.trees]
+        if self.runoff is not None:
+            out["runoff"] = [v0.to_dict() for v0 in self.runoff]
         if self.lakes is not None:
             out["lakes"] = [v0.to_dict() for v0 in self.lakes]
         if self.corners is not None:
@@ -969,6 +1102,8 @@ __all__ = [
     "AltRoute",
     "AltRouteFacts",
     "Attachment",
+    "BarrierColour",
+    "BarrierType",
     "BranchRef",
     "Canvas",
     "Crossing",
@@ -984,6 +1119,7 @@ __all__ = [
     "ImportedAltLayout",
     "ImportedPoint",
     "ImportedTrack",
+    "ImportedTree",
     "Jump",
     "JumpSize",
     "KerbOverride",
@@ -995,6 +1131,9 @@ __all__ = [
     "NamedSpot",
     "Options",
     "Point",
+    "RoadSide",
+    "RunoffSurface",
+    "RunoffZone",
     "Sketch",
     "StartFinish",
     "Surface",

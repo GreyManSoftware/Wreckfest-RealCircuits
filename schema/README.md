@@ -29,7 +29,11 @@ TrackSpec
 │     ├─ centreline[16–10000] { x, y, z, bankDeg, widthM? }  metres, x east, y north; closed; point 0 on the start line;
 │     │     widthM: the road's measured width there (5–25 m; without it options.widthM)
 │     ├─ terrain?   { originX, originY, cellM, nx, ny, z[(nx+1)(ny+1) ≤ 250000] }  ground heights (nodes)
-│     ├─ woodland[≤500] { points[3–2000] {x, y} } · corners[≤60], viewingSpots[≤20] { name, sM }
+│     ├─ woodland[≤500] { points[3–2000] {x, y}, cover? (measured canopy 0–1) } · corners[≤60], viewingSpots[≤20] { name, sM }
+│     ├─ trees[≤6000] { x, y, h }  measured single trees and clumps outside the woods (canopy height h)
+│     ├─ runoff[≤3000] { route, side left|right, fromS, toS, surface gravel|tarmac|grass, tarmacM?, startM?, depthM?,
+│     │     barrier armco|tyres|concrete|bank|none, offsetM?, fence?, colour? black|redwhite, confidence?, source? }
+│     │     measured run-off and barriers per route side and stretch (tools/real_tracks_data/measure_runoff.py)
 │     ├─ kerbs[≤60] { corner, sM, entry?, apex?, exit?, green?, source }  real-data kerb overrides per corner
 └─ options   all required (the schema has the UI defaults)
    lapLengthKm 0.8–7 (1.5; drawn tracks ≤ 5) · widthM 8–20 (12) · surface tarmac|gravel|mixed|sand (mixed) · kerbs (true)
