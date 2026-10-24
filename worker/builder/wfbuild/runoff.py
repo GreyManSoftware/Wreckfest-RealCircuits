@@ -97,6 +97,8 @@ class RunoffPlan:
             a["surface"][short] = 0
             a["g1"][short] = a["g0"][short]
             hard = np.isin(a["barrier"], [BARRIERS.index(b) for b in HARD])
+            # never hugging the edge: clear of the kerb and green strip (Chris 2026-10-24, Anglesey's Corkscrew)
+            a["offset"] = np.where(hard, np.maximum(a["offset"], kw + gw + C.BARRIER_EDGE_CLEAR), a["offset"])
             trap = a["surface"] == 1
             a["offset"] = np.where(hard & trap, np.maximum(a["offset"], a["g1"] + C.TRAP_BARRIER_GAP), a["offset"])
             ap = a["surface"] == 2

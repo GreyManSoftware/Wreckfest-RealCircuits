@@ -41,9 +41,9 @@ plain), tag 'tcat' reversed, version 20, then
     9 x i32         lap reference times (Class A/B/C), checkpoint race start and first span times
     'ttgi' v1 [0]   time gate infos;  'tobs' v1 [0] obstacles
 
-Without trackside cameras the race intro shows the game's default camera at the world origin, under the ground
-on our tracks (Chris, 2026-10-23 and 2026-10-24: every circuit, also with a start camera alone); stock layouts
-carry both (wfbuild/cameras.py). Values are the ones stock and Workshop files carry by default (highlight 2.0, zoom 1.0, bias 0.3, extend 0,
+Stock layouts carry a start camera and trackside cameras (wfbuild/cameras.py); the game's trackside camera mode
+(cinematic camera button, replays) uses them. The race intro view comes from the scene objects resultcamera /
+resultcamera_target instead (build_scene.result_camera). Values are the ones stock and Workshop files carry by default (highlight 2.0, zoom 1.0, bias 0.3, extend 0,
 drive probability 0.9 on the main route and 0.1 on alternatives as in stock fields04_2).
 """
 from __future__ import annotations

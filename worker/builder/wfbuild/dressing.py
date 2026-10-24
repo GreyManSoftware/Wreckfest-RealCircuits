@@ -661,13 +661,17 @@ class Planner:
         fence = self.e["crowdFence"]
         fw = float(envs.asset_info(fence).get("width", 4.0))
         off_f = self.edge_min + 5.0
-        if self.measured:  # behind the real barrier (or the end of the run-off) where it is further out
+        if self.measured:
+            # a real circuit: behind the real barrier (or the end of the run-off), else well back on the open grass
+            # beyond the reset wall; no fence line of our own (Chris 2026-10-24: Anglesey's long spectator fence)
             a = self.runoff.side[(r.index, side)]
+            win = self.walk(r, i, length + 6.0, 2.0)
             reach = np.where(np.isfinite(a["offset"]), a["offset"], self.runoff.run_off_end(r.index, side))
-            off_f = max(off_f, float(np.max(reach[self.walk(r, i, length + 6.0, 2.0)])) + 3.0)
+            barrier = bool(np.isfinite(a["offset"][win]).all())
+            off_f = max(off_f, float(np.max(reach[win])) + 3.0, 0.0 if barrier else C.MEASURED_CROWD_MIN_M)
             if off_f > C.MEASURED_CROWD_MAX_M:
                 return 0
-        for k in self.walk(r, i, length + 6.0, fw):
+        for k in ([] if self.measured else self.walk(r, i, length + 6.0, fw)):
             q, tw, tg = self.side_point(r, k, side, off_f)
             self.try_place(fence, "crowdFence", q[0], q[1], self.face_yaw(fence, tw, tg), off_f - 1.0, r=fw / 2.0)
         fills = (0.8, 0.6, 0.4)

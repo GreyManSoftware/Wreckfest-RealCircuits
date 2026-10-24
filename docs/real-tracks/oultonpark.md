@@ -6,6 +6,28 @@ sample `geom/tests/samples/oultonpark.json`, raw data, MSV map PDFs and report i
 `E:\Source\wreckfest\.local\realtracks\oultonpark\`, zip `E:\WreckfestMods\oultonpark.zip` (8.4 MB), installed and
 enabled as "Oulton Park".
 
+**Since 2026-10-25 (Chris, in-game feedback): the International and Island drive the straight past Hislop's**, and
+a fourth layout, **International Trackday** (`oultonpark_trackday`, listed right after the International), takes
+Hislop's chicane with a row of traffic cones across the straight's entry. Chris's decision overrides the MSV maps'
+reading below (they draw the chicane in red for the International and Island). Event ids of the existing layouts
+are unchanged.
+
+| | International | International Trackday | Island | Fosters |
+|---|---|---|---|---|
+| Past Hislop's | the straight (OSM 27299256) | the chicane (OSM 820427209), straight coned off | the straight | the straight |
+| Lap (built 2026-10-25) | 4,297.3 m | 4,319.4 m | 3,545.7 m | 2,656.3 m |
+| Published (through the chicane) | 4,307 m: −0.22 % | 4,307 m: +0.29 % | 3,616 m: −1.94 % | 2,656 m: +0.01 % |
+
+The straight is about 21 m shorter than the chicane (OSM: the Fosters measures 2,649 m on the straight, 2,670 m
+through it), so the International and Island now sit under MSV's figures, which are through the chicane (4,307 m
+less 21 m is 4,286 m; the built line is 0.3 % longer than OSM's, as before). The trackday branch (192 m) leaves the
+main line at s 2,599 and rejoins at s 2,769; the cones (stock `prop_trafficcone01`, every 1.5 m from edge to edge)
+stand across the main road where its edge is clear of the branch, in the trackday layout's scene only
+(`altLayouts[].coneOffMain`, builder `LayoutBuilder.cone_off_main`). `expectedCornerOrder` no longer has Hislops
+(the main lap has no chicane), and Hislop's kerbs get the geometric placement on the branch. Widths were
+re-measured for the new routes (`tools/real_tracks/widths/oultonpark.json`). The Hislop's sections below describe
+the state before this change.
+
 ## Layouts and sources
 
 The current official layouts are exactly three: MSV's circuit-layouts page (oultonpark.co.uk/about/circuit-layouts)

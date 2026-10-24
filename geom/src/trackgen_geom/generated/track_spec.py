@@ -789,6 +789,7 @@ class ImportedAltLayout:
     centreline: list[ImportedPoint]
     roads: list[str] | None = None
     start_finish: MetrePoint | None = None
+    cone_off_main: bool | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> ImportedAltLayout:
@@ -798,6 +799,7 @@ class ImportedAltLayout:
             centreline=[ImportedPoint.from_dict(v0) for v0 in data["centreline"]],
             roads=None if data.get("roads") is None else [str(v0) for v0 in data["roads"]],
             start_finish=None if data.get("startFinish") is None else MetrePoint.from_dict(data["startFinish"]),
+            cone_off_main=None if data.get("coneOffMain") is None else bool(data["coneOffMain"]),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -809,6 +811,8 @@ class ImportedAltLayout:
             out["roads"] = [v0 for v0 in self.roads]
         if self.start_finish is not None:
             out["startFinish"] = self.start_finish.to_dict()
+        if self.cone_off_main is not None:
+            out["coneOffMain"] = self.cone_off_main
         return out
 
 
