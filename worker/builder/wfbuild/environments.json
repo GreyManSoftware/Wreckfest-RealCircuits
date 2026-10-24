@@ -8,7 +8,7 @@
   "Nothing here is copied: every path is referenced in the mounted game install."
  ],
  "assets": {
-  "_comment": "Footprint radius r (metres, for spacing and no-go checks), height h, and the local axis that faces the road ('+y', '-y' or 'x' = spans the road along local X). Sizes measured from Toolbox imports (worker/docs/visual-assets.md).",
+  "_comment": "Footprint radius r (metres, for spacing and no-go checks), height h, and the local axis that faces the road ('+y', '-y' or 'x' = spans the road along local X; '+x' = faces oncoming cars with local +X, as the braking boards). Sizes measured from Toolbox imports (worker/docs/visual-assets.md).",
   "spectator_man_standing01": {"r": 0.6, "h": 1.9, "face": "+y"},
   "spectator_man_standing02": {"r": 0.6, "h": 1.9, "face": "+y"},
   "spectator_man_standing03": {"r": 0.6, "h": 1.9, "face": "+y"},
@@ -58,6 +58,9 @@
   "prop_cameratower": {"r": 3.6, "h": 5.8, "face": "-y"},
   "prop_camerastand01": {"r": 0.6, "h": 1.7, "face": "-y"},
   "prop_bigspeaker01": {"r": 0.5, "h": 2.0, "face": "-y"},
+  "gameplay_distanceboard150": {"r": 1.0, "h": 1.0, "face": "+x", "width": 0.06, "depth": 2.0},
+  "gameplay_distanceboard100": {"r": 1.0, "h": 1.0, "face": "+x", "width": 0.06, "depth": 2.0},
+  "gameplay_distanceboard50": {"r": 1.0, "h": 1.0, "face": "+x", "width": 0.06, "depth": 2.0},
   "prop_scoreboard": {"r": 2.0, "h": 17.2, "face": "-y"},
   "prop_fence_wood5": {"r": 2.1, "h": 1.0, "face": "-y", "width": 4.16},
   "prop_balefence": {"r": 2.3, "h": 1.0, "face": "-y", "width": 4.48},
@@ -149,6 +152,19 @@
  "transitionDecal": {"_comment": "stock fields13 asphalt/sand transition, 2:1; v = 1 fades out over the asphalt, the broken edge lies near v = 0.2",
                      "c": "fields:decal_asphalt_sand_transition_fields13_c5", "ao": "fields:decal_asphalt_sand_transition_fields13_ao",
                      "n": "fields:decal_asphalt_sand_transition_fields13_n", "s": "fields:decal_asphalt_sand_transition_fields13_s"},
+ "sponsor": {
+  "_comment": "Our own sponsor boards (wfbuild/sponsor.py, category sponsorBoards): ad-fence panels replacing fenceShare of the stock ad-fence blocks, and up to billboards billboards on posts at the start/finish straight, the outside of the biggest braking zones and facing the grandstand. Textures are rendered by the builder (handle text in bold, our own camera glyph). Override with the JSON file named in TRACKGEN_SPONSOR; enabled false turns them off.",
+  "enabled": true,
+  "text": "@flatshiftcars",
+  "tagline": "FOLLOW ON INSTAGRAM",
+  "fenceShare": 0.4,
+  "billboards": 6,
+  "colourways": [
+   {"name": "black", "background": [18, 18, 22], "text": [255, 255, 255], "accent": [228, 34, 58], "back": [44, 44, 48]},
+   {"name": "red", "background": [200, 24, 42], "text": [255, 255, 255], "accent": [255, 204, 0], "back": [62, 62, 66]},
+   {"name": "white", "background": [244, 244, 242], "text": [22, 22, 26], "accent": [196, 42, 140], "back": [70, 72, 76]}
+  ]
+ },
  "common": {
   "spectators": ["spectator_man_standing01", "spectator_man_standing02", "spectator_man_standing03", "spectator_man_standing04",
                  "spectator_man_standing05", "spectator_man_standing06", "spectator_man_standing07", "spectator_man_standing08",
@@ -164,7 +180,8 @@
   "adFence": ["prop_adfence3", "prop_adfence9"],
   "bigBoard": ["prop_ad_eu_huge01a", "prop_ad_eu_huge01c", "prop_ad_eu_huge01m"],
   "lights": ["prop_stadium_light_02"],
-  "cameras": ["prop_cameratower", "prop_camerastand01"]
+  "cameras": ["prop_cameratower", "prop_camerastand01"],
+  "brakeBoards": ["gameplay_distanceboard150", "gameplay_distanceboard100", "gameplay_distanceboard50"]
  },
  "environments": {
   "farmland": {

@@ -483,6 +483,16 @@ def main() -> None:
             props = [o for o in xrefs]
             bad = [o.xref for o in props if not re.fullmatch(r"data/art/objects/[a-z0-9_]+\.scn", o.xref or "")]
             check(props and not bad, f"{scene}: props reference data/art/objects/*.scn", f"{len(props)}; bad {bad[:3]}")
+            # braking boards: one stock gameplay_distanceboard<m> subscene per planned board, each resolving
+            sc_path = os.path.join(out, "scenery.json")
+            if os.path.isfile(sc_path):
+                with open(sc_path, encoding="utf-8") as f:
+                    planned = sorted(p["asset"] for p in json.load(f)["placements"] if p["category"] == "brakeBoards")
+                built = sorted(o.xref.split("/")[-1][:-4] for o in props
+                               if re.fullmatch(r"data/art/objects/gameplay_distanceboard\d+\.scn", o.xref or ""))
+                gone = [a for a in set(built) if not os.path.isfile(os.path.join(WF, "data/art/objects", a + ".scne"))]
+                check(built == planned and not gone, f"{scene}: braking boards exported as stock distance-board subscenes",
+                      f"{len(built)} built, {len(planned)} planned; unresolved {gone}")
             badm = [m.name for m in b.materials if m.name != "ghost" and ("#" not in m.name or not m.textures
                     or not all(t.path.startswith("data/") and t.path.endswith(".tga") for t in m.textures))]
             check(not badm, f"{scene}: materials keep name#surface and data/... texture paths", ", ".join(badm))
