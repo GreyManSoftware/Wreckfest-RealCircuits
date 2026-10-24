@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import config as C
-from . import envs
+from . import envs, sponsor
 from .fields import DistanceField
 from .geometry import dist_to_polyline
 from .noise import Noise2D, seed_for
@@ -194,8 +194,9 @@ class Scenery:
             "coordinates": "TrackModel metres (x east, y north, z up); yaw radians CCW about +z, 0 = local +Y north",
             "transform": transform or {"rotateDeg": 0, "shift": [0.0, 0.0, 0.0],
                                        "note": "scene = rotate(model, rotateDeg about +z) + shift"},
-            "assets": {a: {"path": f"data/art/objects/{a}.scne", **{k: v for k, v in envs.asset_info(a).items()}}
-                       for a in assets},
+            # our own meshes (sponsor boards, "mesh": true) have no stock path
+            "assets": {a: {"path": None if envs.asset_info(a).get("mesh") else f"data/art/objects/{a}.scne",
+                           **{k: v for k, v in envs.asset_info(a).items()}} for a in assets},
             "counts": self.counts(),
             "total": len(self.placements),
             "placements": [p.to_json() for p in self.placements],
@@ -589,18 +590,79 @@ class Planner:
     def ad_fences(self, straights) -> None:
         r = self.main
         n = 0
+        sp = sponsor.config() if sponsor.enabled() else None
+        share = float(sp.get("fenceShare", 0.0)) if sp else 0.0
         for k, (i, length) in enumerate(straights[:6]):
             side = 1 if k % 2 == 0 else -1
             run = min(length - 10.0, 80.0)
             for j in self.walk(r, i, run, 3.84):
                 q, tw, tg = self.side_point(r, j, side, self.edge_min + 1.0)
-                a = self.common["adFence"][(n // 6) % len(self.common["adFence"])]
-                if self.try_place(a, "adFence", q[0], q[1], self.face_yaw(a, tw, tg), self.edge_min - 0.5, r=1.92):
+                block = n // 6
+                # a share of the 6-panel blocks are our own sponsor panels (evenly spread: Bresenham on the share)
+                if share > 0 and math.floor((block + 1) * share) > math.floor(block * share):
+                    a, cat = f"sponsor_fence{(block // 2) % sponsor.n_colourways()}", sponsor.CATEGORY
+                else:
+                    a, cat = self.common["adFence"][block % len(self.common["adFence"])], "adFence"
+                if self.try_place(a, cat, q[0], q[1], self.face_yaw(a, tw, tg), self.edge_min - 0.5, r=1.92):
                     n += 1
             if k < 2:
                 q, tw, tg = self.side_point(r, i, -side, self.edge_min + 14.0)
                 a = self.pick(self.common["bigBoard"])
                 self.try_place(a, "bigBoard", q[0], q[1], self.face_yaw(a, tw, tg), self.edge_min + 8.0)
+
+    def sponsor_billboards(self, straights) -> None:
+        """Our sponsor billboards (sponsor.py) at the classic spots, up to the configured number: beside the
+        start/finish straight facing the grid's view and across from the grandstand, then on the outside of the
+        biggest braking zones (``info.brakeBoards``) at the turn-in. Each stands behind the run-off clearance,
+        BILLBOARD_OFF metres out (the nearest that fits), its printed face (local -Y) turned to the oncoming
+        view: between straight back up the road and square to it."""
+        if not sponsor.enabled():
+            return
+        cap = int(sponsor.config().get("billboards", 6))
+        ncw = sponsor.n_colourways()
+        r0 = self.main
+        spots: list[tuple[object, int, int, int, str]] = []  # (route, sample, side, direction, why)
+        L = r0.length
+        for s_off in (90.0, -140.0):  # the start/finish straight, ahead of the grid and before the line
+            i = r0.index_at(s_off % L)
+            spots.append((r0, i, 1 if s_off > 0 else -1, 1, "startFinish"))
+        gs = next((p for p in self.sc.placements if p.category == "grandstand"), None)
+        if gs is not None:  # facing the grandstand, across the road from it
+            j = int(np.argmin(np.hypot(r0.p[:, 0] - gs.x, r0.p[:, 1] - gs.y)))
+            side = 1 if float(np.dot([gs.x - r0.p[j, 0], gs.y - r0.p[j, 1]], r0.nl[j])) > 0 else -1
+            spots.append((r0, r0.index_at((r0.s[j] + 30.0) % L), -side, 0, "grandstand"))
+        zones = sorted((self.sc.info.get("brakeBoards") or {}).get("zones", []), key=lambda z: -z["dropKmh"])
+        routes = {key: (r, d) for key, r, d in layout_routes(self.geo)}
+        for z in zones:
+            r, d = routes[z["layout"]]
+            spots.append((r, r.index_at(z["turnInS"]), 1 if z["side"] == "left" else -1, d, "braking"))
+        for i, length in straights[:2]:
+            spots.append((r0, i, -1, 1, "straight"))
+        n, used = 0, []
+        for r, i, side, direction, why in spots:
+            if n >= cap:
+                break
+            for off in self.BILLBOARD_OFF:
+                q, tw, tg = self.side_point(r, i, side, max(off, self.edge_min + 4.0))
+                if any(math.hypot(q[0] - x, q[1] - y) < 120.0 for x, y in used):
+                    break  # one billboard per spot (two layouts' zones on the same corner)
+                # printed face towards the road and back up it (towards the oncoming view)
+                view = tw if direction == 0 else tw + (-tg * direction) * 1.0
+                view = view / max(float(np.linalg.norm(view)), 1e-9)
+                yaw = yaw_to((-view[0], -view[1]))
+                a = f"sponsor_billboard{n % ncw}"
+                info = envs.asset_info(a)
+                ax = np.array([math.cos(yaw), math.sin(yaw)])
+                ends = np.array([q + ax * info["width"] / 2.0, q - ax * info["width"] / 2.0])
+                if (self.field.dist(ends) < self.edge_min + 2.0).any() or self.in_nogo(ends, 1.0, False).any():
+                    continue
+                if self.try_place(a, sponsor.CATEGORY, q[0], q[1], yaw, self.edge_min + 2.0, r=info["r"]):
+                    used.append((float(q[0]), float(q[1])))
+                    n += 1
+                    break
+        self.sc.info["sponsorBillboards"] = n
+
+    BILLBOARD_OFF = (16.0, 22.0, 30.0, 40.0)  # metres beyond the road edge, nearest first
 
     def corner_markers(self, corners) -> None:
         r = self.main
@@ -1071,6 +1133,7 @@ class Planner:
         self.corner_markers(corners)
         self.barriers()
         self.viewing_spots(corners)
+        self.sponsor_billboards(straights)
         self.ad_fences(straights)
         self.paddock(paddock_side)
         self.lights()

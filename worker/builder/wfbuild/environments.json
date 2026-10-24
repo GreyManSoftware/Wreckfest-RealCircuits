@@ -152,6 +152,19 @@
  "transitionDecal": {"_comment": "stock fields13 asphalt/sand transition, 2:1; v = 1 fades out over the asphalt, the broken edge lies near v = 0.2",
                      "c": "fields:decal_asphalt_sand_transition_fields13_c5", "ao": "fields:decal_asphalt_sand_transition_fields13_ao",
                      "n": "fields:decal_asphalt_sand_transition_fields13_n", "s": "fields:decal_asphalt_sand_transition_fields13_s"},
+ "sponsor": {
+  "_comment": "Our own sponsor boards (wfbuild/sponsor.py, category sponsorBoards): ad-fence panels replacing fenceShare of the stock ad-fence blocks, and up to billboards billboards on posts at the start/finish straight, the outside of the biggest braking zones and facing the grandstand. Textures are rendered by the builder (handle text in bold, our own camera glyph). Override with the JSON file named in TRACKGEN_SPONSOR; enabled false turns them off.",
+  "enabled": true,
+  "text": "@flatshiftcars",
+  "tagline": "FOLLOW ON INSTAGRAM",
+  "fenceShare": 0.4,
+  "billboards": 6,
+  "colourways": [
+   {"name": "black", "background": [18, 18, 22], "text": [255, 255, 255], "accent": [228, 34, 58], "back": [44, 44, 48]},
+   {"name": "red", "background": [200, 24, 42], "text": [255, 255, 255], "accent": [255, 204, 0], "back": [62, 62, 66]},
+   {"name": "white", "background": [244, 244, 242], "text": [22, 22, 26], "accent": [196, 42, 140], "back": [70, 72, 76]}
+  ]
+ },
  "common": {
   "spectators": ["spectator_man_standing01", "spectator_man_standing02", "spectator_man_standing03", "spectator_man_standing04",
                  "spectator_man_standing05", "spectator_man_standing06", "spectator_man_standing07", "spectator_man_standing08",
