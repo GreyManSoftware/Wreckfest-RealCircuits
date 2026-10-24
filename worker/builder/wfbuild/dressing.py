@@ -67,6 +67,47 @@ def layout_routes(geo) -> list[tuple[str, object, int]]:
     return out
 
 
+START_BEFORE_M = 150.0           # a layout's start view: from this far before its line (the finish approach)...
+START_BEYOND_M = 220.0           # ...to this far past its front row, every START_STEP_M
+START_STEP_M = 10.0
+
+
+def layout_starts(geo) -> list[dict]:
+    """Each layout's start view (for the sponsor guarantee): its route, driving direction, line s and the driver's
+    eye points (grid slots first, then the road from START_BEFORE_M before the line to START_BEYOND_M past the
+    front row) with the driving direction at each. A drawn track's reverse layout uses the forward grid driven
+    the other way, its line 4 m past the forward pole (``layout.LayoutBuilder.startpoints``); an imported
+    layout with its own line (``startFinish``) its own grid along its composite route."""
+    model = geo.model
+    defs = {d["id"]: d for d in model.get("layouts") or []}
+    out = []
+    for key, r, direction in layout_routes(geo):
+        d = defs.get("main" if key == "forward" else key, {})
+        slots = (d.get("grid") or model.get("grid") or {}).get("slots", [])
+        if direction > 0:
+            line_s = 0.0
+            ahead = max([float(sl["s"]) for sl in slots] + [0.0])
+        else:
+            front = max([float(sl["s"]) for sl in slots] + [0.0])
+            back = min([float(sl["s"]) for sl in slots] + [0.0])
+            line_s = (front + 4.0) % r.length
+            ahead = front + 4.0 - back
+        eyes, dirs = [], []
+        for sl in slots:
+            p = np.asarray(sl["position"], dtype=np.float64)
+            i = int(np.argmin(np.hypot(r.p[:, 0] - p[0], r.p[:, 1] - p[1])))
+            eyes.append((p[0], p[1], p[2] + sponsor.EYE_M))
+            dirs.append(r.tangent[i] * direction)
+        for u in np.arange(-START_BEFORE_M, ahead + START_BEYOND_M + 1e-6, START_STEP_M):
+            i = r.index_at((line_s + direction * u) % r.length)
+            eyes.append((r.p[i, 0], r.p[i, 1], r.p[i, 2] + sponsor.EYE_M))
+            dirs.append(r.tangent[i] * direction)
+        out.append({"layout": key, "route": r, "direction": direction, "lineS": line_s, "aheadM": ahead,
+                    "eyes": np.array(eyes, dtype=np.float64).reshape(-1, 3),
+                    "dirs": np.array(dirs, dtype=np.float64).reshape(-1, 2)})
+    return out
+
+
 def _smoothed_curvature(geo, r) -> np.ndarray:
     seg = float(np.median(r.seg_len())) if r.n > 1 else 2.0
     w = max(1, int(round(C.CORNER_SMOOTH_M / max(seg, 1e-6) / 2)))
@@ -663,6 +704,188 @@ class Planner:
         self.sc.info["sponsorBillboards"] = n
 
     BILLBOARD_OFF = (16.0, 22.0, 30.0, 40.0)  # metres beyond the road edge, nearest first
+    GUARANTEE_OFF = (12.0, 16.0, 22.0, 30.0, 40.0, 50.0)  # the relaxed band (first fallback), nearest first
+    SIGHT_KEEP = {"gantry", "grandstand", sponsor.CATEGORY}  # never removed to clear a guaranteed board's view
+
+    def _terrain_xy(self, xy) -> np.ndarray:
+        xy = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
+        return self.geo.terrain(np.column_stack([xy, np.zeros(len(xy))]))
+
+    def _blockers(self) -> sponsor.Blockers:
+        P = self.sc.placements
+        z = self._terrain_xy([(p.x, p.y) for p in P]) if P else np.zeros(0)
+        return sponsor.Blockers([(p.asset, p.category, p.x, p.y, float(z[n]), p.yaw, p.scale)
+                                 for n, p in enumerate(P)])
+
+    def _sees(self, st: dict, asset: str, x: float, y: float, yaw: float, blockers, skip: int = -1):
+        z = float(self._terrain_xy([(x, y)])[0])
+        return sponsor.visible(asset, x, y, z, yaw, st["eyes"], st["dirs"], self._terrain_xy, blockers, skip)
+
+    def _board(self, st: dict, asset: str, q, yaw: float, min_edge: float, blockers) -> int:
+        """Place one handle board at q if it fits (behind ``min_edge``, both ends clear of the roads and no-go
+        zones, free ground) and is in view of the layout's start (``sponsor.visible``); returns the seeing eye's
+        index, or -1 (nothing placed)."""
+        info = envs.asset_info(asset)
+        ax = np.array([math.cos(yaw), math.sin(yaw)])
+        ends = np.array([q + ax * info["width"] / 2.0, q - ax * info["width"] / 2.0])
+        if (self.field.dist(ends) < min_edge).any() or self.in_nogo(ends, 1.0, False).any():
+            return -1
+        if not self.try_place(asset, sponsor.CATEGORY, q[0], q[1], yaw, min_edge, r=info["r"], occupy=False):
+            return -1
+        ok, eye = self._sees(st, asset, float(q[0]), float(q[1]), yaw, blockers)
+        if not ok:
+            self.sc.placements.pop()
+            return -1
+        self.occ.add(float(q[0]), float(q[1]), float(info["r"]))
+        return eye
+
+    def sponsor_guarantee(self) -> None:
+        """At least one handle board in clear view of every layout's start (``layout_starts``: its grid and its
+        start/finish straight; ``sponsor.visible``: range, view cone, facing and sight lines over the terrain and
+        the larger props). A board already placed counts; otherwise, falling back in turn: (1) a billboard at the
+        start-straight spots in the relaxed band GUARANTEE_OFF; (2) a billboard anywhere along the start view,
+        nearest the spot ahead of the grid first; (3) a row of three fence panels just behind the clearance
+        beside the start straight, turned 20 deg back up the road; (4) a mini billboard on the infield facing
+        the grid. Each goes through ``try_place`` (no roads, run-off, no-go zones, water or other props); the
+        view each relies on is kept clear of later props (``sponsor_clear_sightlines``)."""
+        self._guaranteed: list[tuple[str, Placement, str, np.ndarray]] = []
+        if not sponsor.enabled():
+            return
+        ncw = sponsor.n_colourways()
+        for st in layout_starts(self.geo):
+            blockers = self._blockers()
+            found = None
+            for n, p in enumerate(self.sc.placements):
+                if p.category == sponsor.CATEGORY and sponsor.is_handle(p.asset):
+                    ok, eye = self._sees(st, p.asset, p.x, p.y, p.yaw, blockers, skip=n)
+                    if ok:
+                        found = (p, "placed", eye)
+                        break
+            if found is None:
+                found = self._guarantee_fallback(st, blockers, ncw)
+            if found is None:
+                continue
+            p, how, eye = found
+            self._guaranteed.append((st["layout"], p, how, st["eyes"][eye]))
+
+    def _guarantee_fallback(self, st: dict, blockers, ncw: int):
+        r, d, L = st["route"], st["direction"], st["route"].length
+        ahead = st["aheadM"]
+        k = sum(1 for p in self.sc.placements if p.category == sponsor.CATEGORY)
+        bb = f"sponsor_billboard{k % ncw}"
+
+        def at(u: float) -> int:
+            return r.index_at((st["lineS"] + d * u) % L)
+
+        def billboard(u: float, side: int, off: float, turn: float):
+            i = at(u)
+            q, tw, tg = self.side_point(r, i, side, max(off, self.edge_min + 2.5))
+            view = tw + (-tg * d) * turn
+            view = view / max(float(np.linalg.norm(view)), 1e-9)
+            yaw = yaw_to((-view[0], -view[1]))
+            return q, yaw
+
+        # (1) the classic start-straight spots, relaxed band; (2) along the whole start view
+        spots = [(ahead + 60.0, s) for s in (1, -1)] + [(-140.0, s) for s in (-1, 1)]
+        us = sorted(np.arange(-START_BEFORE_M + 20.0, ahead + START_BEYOND_M - 20.0, 15.0),
+                    key=lambda u: abs(u - (ahead + 60.0)))
+        steps = [("relaxed", spots, (1.0,)), ("along", [(u, s) for u in us for s in (1, -1)], (1.0, 0.5, 1.8))]
+        for how, cand, turns in steps:
+            for u, side in cand:
+                for off in self.GUARANTEE_OFF:
+                    for turn in turns:
+                        q, yaw = billboard(u, side, off, turn)
+                        eye = self._board(st, bb, q, yaw, self.edge_min + 2.0, blockers)
+                        if eye >= 0:
+                            return self.sc.placements[-1], how, eye
+        # (3) a row of three fence panels beside the start straight
+        fw = sponsor.FENCE["w"] + 0.06
+        fence = f"sponsor_fence{k % ncw}"
+        for u in (ahead + 15.0, ahead + 45.0, -40.0, ahead + 80.0, -80.0, ahead + 120.0):
+            for side in (1, -1):
+                for extra in (1.5, 2.5, 4.0):
+                    row = []
+                    for j in (-1, 0, 1):
+                        q, tw, tg = self.side_point(r, at(u + j * fw), side, self.edge_min + extra)
+                        a20 = math.radians(20.0)
+                        view = tw * math.cos(a20) + (-tg * d) * math.sin(a20)
+                        row.append((q, yaw_to((-view[0], -view[1]))))
+                    q, yaw = row[1]
+                    eye = self._board(st, fence, q, yaw, self.edge_min - 0.5, blockers)
+                    if eye < 0:
+                        continue
+                    mid = self.sc.placements[-1]
+                    for qq, yy in (row[0], row[2]):
+                        self.try_place(fence, sponsor.CATEGORY, qq[0], qq[1], yy, self.edge_min - 0.5, r=1.92)
+                    return mid, "fence", eye
+        # (4) a mini billboard on the infield, facing the grid
+        inside = 1 if float(np.sum(r.curvature * r.seg_len())) > 0 else -1
+        g = st["eyes"][0, :2] if len(st["eyes"]) else r.p[at(0.0), :2]
+        mini = f"sponsor_minibillboard{k % ncw}"
+        for u in (ahead + 30.0, 10.0, ahead + 80.0, -30.0, ahead + 130.0, -70.0):
+            for off in (self.edge_min + 3.0, 20.0, 28.0, 36.0, 45.0):
+                q, _tw, _tg = self.side_point(r, at(u), inside, max(off, self.edge_min + 3.0))
+                view = g - q
+                view = view / max(float(np.linalg.norm(view)), 1e-9)
+                eye = self._board(st, mini, q, yaw_to((-view[0], -view[1])), self.edge_min + 2.0, blockers)
+                if eye >= 0:
+                    return self.sc.placements[-1], "infield", eye
+        return None
+
+    def sponsor_credit(self, paddock_side: int) -> None:
+        """The "track by GreyManSoftware" credit (``sponsor.credit``): style "plaque" puts one small plaque
+        (1.8 x 0.45 m on two short posts, muted slate) behind the clearance near the start/finish line on the
+        paddock side, square to the road, before the line and clear of the grid sector; if no spot fits, or with
+        style "line", the credit is a small line along the bottom of the billboards' face instead."""
+        c = sponsor.credit()
+        if c is None:
+            return
+        info = {"style": c["style"], "text": sponsor.credit_line()}
+        if c["style"] == "plaque":
+            r, a = self.main, "sponsor_credit"
+            done = False
+            for u in (-50.0, -65.0, -40.0, -80.0, -95.0, -110.0):
+                for side in (paddock_side or 1, -(paddock_side or 1)):
+                    for off in (2.0, 4.0, 7.0, 10.0, 13.0):
+                        q, tw, tg = self.side_point(r, r.index_at(u % r.length), side, self.edge_min + off)
+                        if self.try_place(a, sponsor.CATEGORY, q[0], q[1], self.face_yaw(a, tw, tg),
+                                          self.edge_min + 1.0):
+                            done = True
+                            break
+                    if done:
+                        break
+                if done:
+                    break
+            if not done:
+                info["style"] = "line"
+                info["fallback"] = "no room for the plaque"
+        self.sc.info["sponsorCredit"] = info
+
+    def sponsor_clear_sightlines(self) -> None:
+        """Keep the view each layout's guaranteed board relies on: props placed across one of its three sight
+        lines from the eye that saw it (trees, bushes, paddock, buildings: anything but SIGHT_KEEP and the low
+        NO_BLOCK categories) are dropped. Writes ``info.sponsorGuarantee`` (per layout: the board's placement
+        index, how it was found, the eye) and ``info.sponsorCleared``."""
+        g = getattr(self, "_guaranteed", [])
+        removed: set[int] = set()
+        if g:
+            P = self.sc.placements
+            z = self._terrain_xy([(p.x, p.y) for p in P])
+            items = [(p.asset, p.category, p.x, p.y, float(z[n]), p.yaw, p.scale) for n, p in enumerate(P)]
+            B = sponsor.Blockers(items)
+            index = {id(p): n for n, p in enumerate(P)}
+            for _key, p, _how, eye in g:
+                n = index[id(p)]
+                pts, _f = sponsor.targets(p.asset, p.x, p.y, float(z[n]), p.yaw)
+                for T in pts:
+                    hit = B.hits(eye[None, :], T, skip=n)[0]
+                    removed.update(int(o) for o in B.owner[hit] if P[int(o)].category not in self.SIGHT_KEEP)
+            self.sc.placements = [p for n, p in enumerate(P) if n not in removed]
+        index = {id(p): n for n, p in enumerate(self.sc.placements)}
+        self.sc.info["sponsorGuarantee"] = {
+            key: {"placement": index[id(p)], "asset": p.asset, "how": how, "eye": [round(float(v), 2) for v in eye]}
+            for key, p, how, eye in g}
+        self.sc.info["sponsorCleared"] = len(removed)
 
     def corner_markers(self, corners) -> None:
         r = self.main
@@ -1134,6 +1357,8 @@ class Planner:
         self.barriers()
         self.viewing_spots(corners)
         self.sponsor_billboards(straights)
+        self.sponsor_guarantee()
+        self.sponsor_credit(paddock_side)
         self.ad_fences(straights)
         self.paddock(paddock_side)
         self.lights()
@@ -1142,6 +1367,7 @@ class Planner:
         self.shore()
         self.gorse()
         self.foliage()
+        self.sponsor_clear_sightlines()  # after everything else is placed
         self._heights()
         self.sc.info.update({"corners": len(corners), "straights": len(straights), "edgeMinM": self.edge_min,
                              # categories allowed closer to a road edge than edgeMinM: [min, max] metres (the
