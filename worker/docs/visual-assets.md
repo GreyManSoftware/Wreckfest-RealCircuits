@@ -207,6 +207,19 @@ copied. Placement rules: `worker/docs/scenery-manifest.md`.
 
 ### Sponsor boards: our own meshes and textures (2026-10-24)
 
+**Update 2026-10-25: several sponsors.** `"sponsor"` now has a `sponsors` list (id, text, subtext, url, tagline,
+logo, kinds, share, billboards cap, guarantee / lapGuarantee, colourways, designs; see its `_comment`):
+@flatshiftcars on the mini billboards (3.5 × 1.75 m) and fence panels in eight designs (styles slant, stripes,
+badge, split; DejaVu Sans/Serif/Mono, slanted by a shear, heavier by a stroke) with the start guarantee; the 7 × 3.5 m
+billboards for TurdChecker (up to 3), Straight6 Trackdays and OpenTrack (up to 2 each, also on fence panels) and
+GreyManSoftware (1, when a spot is left), each lap sponsor in clear view somewhere on every lap. The billboards
+follow Chris's v3 mockups as `livery` layouts in the configuration (gradient or carbon weave, speed stripes,
+fading chequer, slanted heavy type with outline and shadow, the TurdChecker logo as a sticker with an address-bar
+pill for the domain, the Straight6 logo keyed off its white background); OpenTrack's small banner logo is redrawn
+(`banner` style) from its colours and text. Logos supplied by Chris (his own or companies he works with) are under
+`wfbuild/assets/sponsors/<name>/`. Only the textures of placed designs are written (`board` sheets shared by
+billboard and mini, `fence` sheets), as `<slug>_sponsor_<id>_<board|fence><k>_c.tga`.
+
 Stock ad props (`prop_adfence*`, `prop_ad_eu_huge*`) carry stock artwork, so the "@flatshiftcars" boards are
 our own (`wfbuild/sponsor.py`, category `sponsorBoards`):
 

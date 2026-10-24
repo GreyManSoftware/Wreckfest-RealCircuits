@@ -69,6 +69,10 @@ The same slug always gives the same file (seeded by the slug).
   start, `asset`, `how` = `placed` | `relaxed` | `along` | `fence` | `infield`, and the driver's `eye` that sees it),
   `info.sponsorCleared` (props dropped from those sight lines) and `info.sponsorCredit` (`style` `plaque` | `line`,
   `text`, `fallback` when the plaque found no room).
+  Changed (2026-10-25, several sponsors): asset names are `sponsor_<id>_fence<k>`, `sponsor_<id>_billboard<k>` and
+  `sponsor_<id>_minibillboard<k>` for design k of sponsor `<id>` (`sponsor_credit` unchanged); `info.sponsorGuarantee`
+  is `{sponsor: {layout: {...}}}` for the sponsors with the start guarantee, `info.sponsorLap` the same for the lap
+  guarantee (`how` = `placed` | `braking` | `lap`), and `info.sponsorMinis` counts the mini billboards.
   Also additive (2026-10-24, imported tracks with `sketch.imported.pits`, `wfbuild/pits.py`): `pitWall` (stock
   `prop_concrete_element3` on the real pit wall and across both ends of a closed pit lane), `pitBuildings` (stock pit
   garages and buildings tiled along the real footprints, front towards the road), `pitPaddock` (trucks, tents and crew
@@ -120,7 +124,12 @@ The same slug always gives the same file (seeded by the slug).
   in order: a billboard at the start-straight spots in a relaxed band (12-50 m), anywhere along the start view, a
   row of three fence panels just behind the clearance, a mini billboard on the infield facing the grid. Props
   placed later across the chosen sight lines are dropped (`info.sponsorCleared`), except the gantry, grandstand
-  and sponsor boards.
+  and sponsor boards. Since 2026-10-25 this applies per sponsor with `guarantee` (@flatshiftcars, on its minis and
+  fence panels), the posted fallbacks using its mini billboard.
+- Sponsor lap guarantee (`dressing.sponsor_lap_guarantee`, `layout_laps`): for each sponsor with `lapGuarantee`
+  (TurdChecker, Straight6, OpenTrack), one of its billboards is in clear view (`sponsor.visible`) from the driver's
+  eye somewhere on every layout's lap (every 10 m); otherwise one is added at that layout's braking zones, then
+  every 50 m along the lap, 12-50 m out. Its sight line is kept clear like the start guarantee's.
 - Credit (`sponsor.credit`, `"sponsor": {"credit": ...}`): one plaque (`sponsor_credit`) behind the clearance 40-110
   m before the start/finish line, paddock side first, square to the road; or, with style `line` or when no plaque
   fits, a line of small type on the billboards.

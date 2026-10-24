@@ -224,18 +224,29 @@ def check_sponsor(out: str, geo, pl, sc: dict) -> None:
     if not sponsor.enabled():
         check(not handles, "sponsor: no handle boards when the sponsor setting is off")
     bb = [p for p in handles if sponsor.kind_of(p["asset"])[0] in ("billboard", "minibillboard")]
+    big = [p for p in bb if sponsor.kind_of(p["asset"])[0] == "billboard"]
     fences = [p for p in handles if sponsor.kind_of(p["asset"])[0] == "fence"]
     starts = D.layout_starts(geo)
-    seen: dict[str, int] = {}
+    seen: dict[str, dict[str, int]] = {}
+    lap: dict[str, dict[str, int]] = {}
     if sponsor.enabled():
-        cap = int(sponsor.config().get("billboards", 6))
-        check(len(bb) <= cap + len(starts), "sponsor: a handful of billboards",
-              f"{len(bb)} (cap {cap} + up to {len(starts)} guaranteed)")
+        cfg = sponsor.config()
+        cap, minis = int(cfg.get("billboards", 6)), int(cfg.get("minis", 0))
+        n_lap = len(sponsor.lap_sponsors()) * len(starts)
+        n_g = sum(1 for s in sponsor.sponsors() if s.get("guarantee")) * len(starts)
+        check(len(big) <= cap + n_lap + n_g and len(bb) - len(big) <= minis + n_g, "sponsor: a handful of billboards",
+              f"{len(big)} billboards (cap {cap} + up to {n_lap} lap guarantees), {len(bb) - len(big)} minis "
+              f"(cap {minis}); start guarantees up to {n_g}")
+        over = []
+        for s in sponsor.with_kind("billboard"):
+            n = sum(1 for p in big if sponsor.sponsor_of(p["asset"]) == s["id"])
+            if n > int(s.get("billboards") or 0) + (len(starts) if s.get("lapGuarantee") else 0):
+                over.append(f"{s['id']} {n}")
+        check(not over, "sponsor: each sponsor within its billboard cap", ", ".join(over))
         stock = sum(1 for p in P if p["category"] == "adFence")
-        share = float(sponsor.config().get("fenceShare", 0.0))
+        share = float(cfg.get("fenceShare", 0.0))
         check(not fences or len(fences) <= (share + 0.25) * (len(fences) + stock) + 6 + 3 * len(starts),
               "sponsor: fence panels replace a share of the ad fences", f"{len(fences)} ours, {stock} stock")
-        # the guarantee: every layout sees a handle board from its grid or start/finish straight
         blockers = sponsor.Blockers([(p["asset"], p["category"], p["position"][0], p["position"][1],
                                       p["position"][2], p["yaw"], p.get("scale", 1.0)) for p in P])
 
@@ -243,18 +254,31 @@ def check_sponsor(out: str, geo, pl, sc: dict) -> None:
             xy = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
             return geo.terrain(np.column_stack([xy, np.zeros(len(xy))]))
 
-        for st in starts:
-            seen[st["layout"]] = sum(
-                int(sponsor.visible(p["asset"], *p["position"], p["yaw"], st["eyes"], st["dirs"], terrain, blockers,
-                                    skip=n)[0])
-                for n, p in enumerate(P) if p["category"] == sponsor.CATEGORY and sponsor.is_handle(p["asset"]))
-        check(all(seen.values()), "sponsor: every layout has a handle board in clear view of its grid or start "
-              "straight", ", ".join(f"{k}: {v}" for k, v in seen.items()))
-        g = sc["info"].get("sponsorGuarantee") or {}
-        check(set(g) == set(seen) and all(P[v["placement"]]["asset"] == v["asset"] and sponsor.is_handle(v["asset"])
-                                          for v in g.values()),
-              "sponsor: info.sponsorGuarantee names each layout's board",
-              ", ".join(f"{k}: {v['how']} {v['asset']}" for k, v in g.items()))
+        def n_seen(st, sid):
+            return sum(int(sponsor.visible(p["asset"], *p["position"], p["yaw"], st["eyes"], st["dirs"], terrain,
+                                           blockers, skip=n)[0])
+                       for n, p in enumerate(P)
+                       if p["category"] == sponsor.CATEGORY and sponsor.sponsor_of(p["asset"]) == sid)
+
+        # the start guarantee: each guarantee sponsor seen from every layout's grid or start/finish straight
+        for s in sponsor.sponsors():
+            if s.get("guarantee"):
+                seen[s["id"]] = {st["layout"]: n_seen(st, s["id"]) for st in starts}
+        check(all(v for d in seen.values() for v in d.values()), "sponsor: every layout has each guarantee sponsor's "
+              "board in clear view of its grid or start straight", "; ".join(f"{k}: {v}" for k, v in seen.items()))
+        # the lap guarantee: each lap sponsor's billboard in clear view somewhere on every layout's lap
+        for s in sponsor.lap_sponsors():
+            lap[s["id"]] = {st["layout"]: n_seen(st, s["id"]) for st in D.layout_laps(geo)}
+        check(all(v for d in lap.values() for v in d.values()), "sponsor: each lap sponsor's billboard in clear view "
+              "somewhere on every layout's lap", "; ".join(f"{k}: {v}" for k, v in lap.items()))
+        for key, want in (("sponsorGuarantee", seen), ("sponsorLap", lap)):
+            g = sc["info"].get(key) or {}
+            ok = set(g) == set(want) and all(
+                set(g[sid]) == set(want[sid]) and all(P[v["placement"]]["asset"] == v["asset"]
+                                                      and sponsor.sponsor_of(v["asset"]) == sid
+                                                      for v in g[sid].values()) for sid in g)
+            check(ok, f"sponsor: info.{key} names each sponsor's board per layout",
+                  "; ".join(f"{sid}: " + ", ".join(f"{k}: {v['how']}" for k, v in d.items()) for sid, d in g.items()))
     cr = sponsor.credit()
     info = sc["info"].get("sponsorCredit")
     if cr is None:
@@ -286,11 +310,16 @@ def check_sponsor(out: str, geo, pl, sc: dict) -> None:
     check(not far, "sponsor: billboards behind the run-off and within 60 m of the road", ", ".join(far[:3]))
     keys = sorted({p["asset"] for p in mine})
     missing = [k for k in keys if not os.path.isfile(
-        os.path.join(out, "mod", *sponsor.texture_rel(sc["slug"], *sponsor.kind_of(k)).split("/")) + ".tga")]
+        os.path.join(out, "mod", *sponsor.texture_rel(sc["slug"], k).split("/")) + ".tga")]
     check(not missing, "sponsor: every board's texture rendered into the mod textures", ", ".join(missing))
-    how = {k: v["how"] for k, v in (sc["info"].get("sponsorGuarantee") or {}).items()}
-    print(f"INFO sponsor: {len(bb)} billboards, {len(fences)} fence panels, {len(plaques)} credit plaques "
-          f"({(info or {}).get('style')}); handle boards in view per layout {seen}; guarantee {how}")
+    per: dict[str, dict[str, int]] = {}
+    for p in handles:
+        sid, kind, _k = sponsor.parse(p["asset"])
+        per.setdefault(sid, {}).setdefault(kind, 0)
+        per[sid][kind] += 1
+    print(f"INFO sponsor: {len(big)} billboards, {len(bb) - len(big)} minis, {len(fences)} fence panels, "
+          f"{len(plaques)} credit plaques ({(info or {}).get('style')}); per sponsor {per}; start views {seen}; "
+          f"lap views {lap}")
 
 
 def _segments_cross(p0, p1, a, b) -> np.ndarray:
