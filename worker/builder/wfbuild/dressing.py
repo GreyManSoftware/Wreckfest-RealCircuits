@@ -29,7 +29,8 @@ from .woods import WoodMask
 
 # categories that may stand inside measured run-off (the gantry spans the road; flags, staff and the start grandstand
 # belong to the grid sector)
-RUNOFF_EXEMPT = ("gantry", "flags", "staff", "grandstand", "barriers", "shore", "brakeBoards")
+RUNOFF_EXEMPT = ("gantry", "flags", "staff", "grandstand", "barriers", "shore", "brakeBoards",
+                 "pitWall", "bridges")  # the pit wall is the containment on its stretch; bridges span the road
 
 FORMAT = "trackgen-scenery/1"
 
@@ -739,7 +740,8 @@ class Planner:
 
     BILLBOARD_OFF = (16.0, 22.0, 30.0, 40.0)  # metres beyond the road edge, nearest first
     GUARANTEE_OFF = (12.0, 16.0, 22.0, 30.0, 40.0, 50.0)  # the relaxed band (first fallback), nearest first
-    SIGHT_KEEP = {"gantry", "grandstand", sponsor.CATEGORY}  # never removed to clear a guaranteed board's view
+    SIGHT_KEEP = {"gantry", "grandstand", sponsor.CATEGORY,
+                  "pitWall", "pitBuildings", "realGrandstand", "bridges"}  # + the real pits (pits.py)  # never removed to clear a guaranteed board's view
 
     def _terrain_xy(self, xy) -> np.ndarray:
         xy = np.asarray(xy, dtype=np.float64).reshape(-1, 2)

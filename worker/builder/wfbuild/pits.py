@@ -416,7 +416,10 @@ class Pits:
             # every tile's corners, edge midpoints and centre, grown 0.5 m, off the pit lane (OSM footprints often
             # reach it)
             pts = np.array([q + X * u + Y * v for q in tiles(back, along) for u in (-hw, 0.0, hw) for v in (-hd, 0.0, hd)])
-            return any(point_in_poly(pts, lp).any() for lp in lanes) or bool((planner.field.dist(pts) < 1.5).any())
+            if any(point_in_poly(pts, lp).any() for lp in lanes) or bool((planner.field.dist(pts) < 1.5).any()):
+                return True
+            # measured run-off (runoff.py): not in a gravel trap, on an apron or between a road and its barrier
+            return bool(getattr(planner, "measured", False) and planner.in_runoff(pts, 0.0).any())
 
         # the smallest move that clears the lane: back from the road first, then also sideways along the row
         moves = sorted(((bk, al) for bk in np.arange(0.0, D + 40.0, 0.5) for al in np.arange(-20.0, 20.01, 1.0)),
@@ -491,7 +494,7 @@ class Pits:
                                         "legsFromCentreM": [round(float(np.hypot(*(q - p[:2]))), 1) for q in legs],
                                         "problems": problems})
         self._fixed_z = getattr(self, "_fixed_z", [])
-        self._fixed_z.append((len(P) - 1, z))
+        self._fixed_z.append((P[-1], z))
 
     def _start_lights(self, planner, gnt: dict, r, i: int, add) -> None:
         """The start lights: a stock cantilever (pole and an arm 7.2 m up reaching 10.5 m) on the pit wall, the arm
@@ -526,9 +529,9 @@ class Pits:
                                         "poleFromCentreM": round(reach, 1), "armReachM": round(LIGHTS_ARM * s, 1),
                                         "problems": ["the pole on a road"] if float(planner.field.dist(pole)[0]) < 0.3 else []})
         self._fixed_z = getattr(self, "_fixed_z", [])
-        self._fixed_z.append((len(planner.sc.placements) - 1, z))
+        self._fixed_z.append((planner.sc.placements[-1], z))
 
     def after_heights(self, planner) -> None:
         """dressing._heights puts every prop on the terrain; gantries and bridges keep their own base height."""
-        for k, z in getattr(self, "_fixed_z", []):
-            planner.sc.placements[k].z = z
+        for p, z in getattr(self, "_fixed_z", []):  # Placement objects: the sponsor sight lines may drop others
+            p.z = z
