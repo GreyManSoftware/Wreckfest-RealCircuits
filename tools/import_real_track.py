@@ -883,6 +883,31 @@ def _hold_through(v: np.ndarray, zone: np.ndarray) -> np.ndarray:
     return out
 
 
+MIN_VERTICAL_RADIUS_M = 100.0  # crests and dips tighter than this (over 10 m) are eased (see ease_vertical)
+
+
+def ease_vertical(z: np.ndarray, step: float, closed: bool = True, r_min: float = MIN_VERTICAL_RADIUS_M) -> np.ndarray:
+    """Heights with crests and dips tighter than ``r_min`` (the 10 m grade changing by more than 10 m / r_min over
+    10 m) eased by a local 6 m smoothing, feathered over 10 m. Real roads have vertical curves of a few hundred
+    metres; tighter ones come from DTM steps (Navarra Short's hook ramp: a 93 m dip, which the game's road strips,
+    a few metres per sector, can't follow within 5 cm)."""
+    z = np.asarray(z, dtype=np.float64).copy()
+    h = int(round(5.0 / step))
+    sm = (lambda v, sig: gauss_closed(v, sig / step)) if closed else (lambda v, sig: gauss_open(v, sig / step))
+    for _ in range(20):
+        zp = np.concatenate([z[-2 * h:], z, z[:2 * h]]) if closed else np.pad(z, 2 * h, mode="edge")
+        kv = (zp[4 * h:] - 2 * zp[2 * h:-2 * h] + zp[:-4 * h]) / (2 * h * step) ** 2
+        bad = np.abs(kv) > 1.0 / r_min
+        if not closed:
+            bad[:2 * h] = False
+            bad[-2 * h:] = False
+        if not bad.any():
+            break
+        w = np.clip(sm(bad.astype(np.float64), 5.0) * 3.0, 0.0, 1.0)
+        z = w * sm(z, 6.0) + (1.0 - w) * z
+    return z
+
+
 JOIN_BLEND_MIN_M = 30.0       # a branch end's height/camber mismatch with the main road fades out over at least this
 JOIN_BLEND_MAX_GRADE = 0.015  # ... and long enough that it adds at most this to the grade
 
@@ -1270,7 +1295,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
     # height and camber smoothing (sigma, m): 4 and 10 m on a 1 m DTM, wider on a coarser one (the 5 m IGN MDT05
     # steps by a decimetre or so between cells, a 4 % "grade" over a 2 m sample)
     z_sig, b_sig = max(4.0, 2.0 * dtm.cell), max(10.0, 3.0 * dtm.cell)
-    z = gauss_closed(a, z_sig / step)
+    z = ease_vertical(gauss_closed(a, z_sig / step), step)
     slope = gauss_closed(b, b_sig / step)
     bank_fit = np.degrees(np.arctan(slope))
     bank = np.clip(bank_fit, -IMPORTED_MAX_BANK_DEG, IMPORTED_MAX_BANK_DEG)
@@ -1315,6 +1340,7 @@ def build(recipe: dict, cache: Path, step: float = 2.0, cell: float | None = Non
         j0 = int(np.argmin(np.hypot(*(loc - loc_b[0]).T)))
         j1 = int(np.argmin(np.hypot(*(loc - loc_b[-1]).T)))
         zb, bank_b = join_blend(arc(loc_b), zb, bank_b, (z[j0], z[j1]), (bank[j0], bank[j1]))
+        zb = ease_vertical(zb, step, closed=False)
         alt_specs.append({"id": alt["id"], "name": alt["name"],
                           "centreline": [{"x": round(float(x), 2), "y": round(float(y), 2), "z": round(float(zv - datum), Z_DECIMALS),
                                           "bankDeg": round(float(bk), 2)} for (x, y), zv, bk in zip(loc_b, zb, bank_b)]})
