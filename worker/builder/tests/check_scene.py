@@ -24,6 +24,7 @@ from mathutils.bvhtree import BVHTree
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
+sys.path.insert(0, HERE)  # roadside_cover
 from wfbuild import config as C
 from wfbuild import dressing as D
 from wfbuild import envs, sponsor
@@ -302,6 +303,15 @@ def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict) -> None:
                       "base: green strips meet the grass flush (0-12 cm above it)",
                       f"p2 {np.percentile(dz, 2):.3f}, p98 {np.percentile(dz, 98):.3f} m")
             del lv
+    # --- no bare terrain between a road edge and its verge (roadside_cover; Oulton Park's dark wedges by the
+    # Island and Fosters junctions, Chris 2026-10-24), on the built Blender meshes
+    import roadside_cover
+    geo.build_road()  # junction stitches and mouths, as build_base
+    meshes = [(o.name, world_verts(o), faces_of(o)) for o in obs.values()
+              if o.type == "MESH" and o.name.startswith(roadside_cover.COVER_PREFIXES)]
+    holes = roadside_cover.uncovered_runs(geo, meshes, lambda p: to_scene(p, manifest))
+    check(not holes, "base: road edge, kerb, green strip and verge continuous along every edge (no bare terrain "
+          f"beside the road over {roadside_cover.MAX_RUN_M} m)", f"{len(holes)} holes: {holes[:4]}")
     # --- barriers: not round the whole lap (walls: none has none)
     plan = geo.wall_plan()
     if geo.walls != "none":

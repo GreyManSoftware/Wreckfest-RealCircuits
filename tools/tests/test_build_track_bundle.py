@@ -53,6 +53,15 @@ def test_translations_and_refs():
     assert b.data_refs(payload) == {"data/track/brandshatch/brandshatch_indy.scne"}
 
 
+@pytest.mark.parametrize("states, want", [
+    ({"anglesey_club": 2, "anglesey_race": 2, "anglesey_coastal": 2}, ["anglesey_club", "anglesey_coastal", "anglesey_race"]),
+    ({"anglesey_club": 4, "anglesey_race": 2, "anglesey_coastal": 4}, ["anglesey_race", "anglesey_club", "anglesey_coastal"]),
+    ({"x_b": 1, "x_a": 4, "x_c": 2, "x_d": 3}, ["x_c", "x_b", "x_a", "x_d"]),  # Final, Developer, Mod, others
+])
+def test_event_order_follows_the_games_sort(states, want):
+    assert b.event_order({e: struct.pack("<ii", s, 0) for e, s in states.items()}) == want
+
+
 def _member(tmp_path, slug, files):
     path = tmp_path / f"{slug}.zip"
     with zipfile.ZipFile(path, "w") as z:

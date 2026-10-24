@@ -461,11 +461,13 @@ def cameras(stock: bool, man, target: str, objs) -> dict:
     p = tp(pole["position"])
     out = {**views,
            "driver": (tuple(p - fwd * 7 + np.array([0, 0, 2.2])), tuple(p + fwd * 60 + np.array([0, 0, 0.5])), 24.0)}
-    # extra driver views along the main route: RENDER_DRIVER_AT="mountain=2580,hallbends=2900" (name=metres from
-    # the start line), 2.2 m above the road centre looking at the road 60 m ahead
+    # extra views along a route: RENDER_DRIVER_AT="mountain=2580,hallbends=2900" (name=metres from the start line),
+    # 2.2 m above the road centre looking at the road 60 m ahead; RENDER_ABOVE_AT (same form) looks down at that
+    # point from 22 m up, 30 m back and 18 m to the left (junction gores, verges and kerbs)
     main = next(r for r in model["routes"] if r["aiIndex"] == 0)
-    # ("name=route:metres" on another route, e.g. "clubhairpin=club:10" on Cadwell Park's Club Hairpin link)
-    for item in filter(None, os.environ.get("RENDER_DRIVER_AT", "").split(",")):
+
+    def at(item):
+        # ("name=route:metres" on another route, e.g. "clubhairpin=club:10" on Cadwell Park's Club Hairpin link)
         name, _, s_txt = item.partition("=")
         rt = main
         if ":" in s_txt:
@@ -480,17 +482,36 @@ def cameras(stock: bool, man, target: str, objs) -> dict:
         if j == i:
             j = max(i - 1, 0)
         a, b = tp([rs[i]["x"], rs[i]["y"], rs[i]["z"]]), tp([rs[j]["x"], rs[j]["y"], rs[j]["z"]])
-        out[f"driver-{name.strip()}"] = (tuple(a + np.array([0, 0, 2.2])), tuple(b + np.array([0, 0, 0.8])), 24.0)
-    # RENDER_INTRO=1: each layout's start camera (the view while the race loads in; manifest layouts[].startCamera,
-    # scene coordinates), field of view 58 degrees across a 36 mm sensor; layouts sharing one camera render once
+        return name.strip(), a, b
+
+    for item in filter(None, os.environ.get("RENDER_DRIVER_AT", "").split(",")):
+        name, a, b = at(item)
+        out[f"driver-{name}"] = (tuple(a + np.array([0, 0, 2.2])), tuple(b + np.array([0, 0, 0.8])), 24.0)
+    for item in filter(None, os.environ.get("RENDER_ABOVE_AT", "").split(",")):
+        name, a, b = at(item)
+        f = (b - a)[:2] / max(float(np.hypot(*(b - a)[:2])), 1e-9)
+        left = np.array([-f[1], f[0]])
+        eye = a + np.array([*(-30.0 * f + 18.0 * left), 22.0])
+        out[f"above-{name}"] = (tuple(eye), tuple(a), 24.0)
+    # RENDER_INTRO=1: each layout's cameras as the game reads them from the shipped .tcat (check_export's
+    # raw_cameras: world position, pitch and yaw): the start camera (intro-<layout>) and the trackside cameras
+    # covering the grid and the first corners (intro-<layout>-tv<k>), 58 degrees across a 36 mm sensor
     if os.environ.get("RENDER_INTRO"):
-        seen = set()
+        sys.path.insert(0, os.path.join(os.environ.get("BUILDER_DIR", "/opt/worker/builder"), "tests"))
+        import check_export
+        import scne_read
+        slug = man["slug"]
+        lens = 18.0 / math.tan(math.radians(29.0))
         for lay in man.get("layouts", []):
-            cam = lay.get("startCamera")
-            if not cam or tuple(cam["position"]) in seen:
+            path = os.path.join(target, "mod", "data", "track", slug, lay["name"] + ".tcat")
+            if not os.path.isfile(path):
                 continue
-            seen.add(tuple(cam["position"]))
-            out[f"intro-{lay['name']}"] = (tuple(cam["position"]), tuple(cam["target"]), 18.0 / math.tan(math.radians(29.0)))
+            cams = check_export.raw_cameras(scne_read.unbag(open(path, "rb").read()))
+            side = [c for c in cams if c["flags"] & 4 and not c["flags"] & 2][:3]
+            for tag, c in [("", next(c for c in cams if c["flags"] & 2))] + [(f"-tv{k}", c) for k, c in enumerate(side)]:
+                pt, yw = math.radians(c["pitch"]), math.radians(c["yaw"])
+                d = np.array([math.cos(pt) * math.sin(yw), math.cos(pt) * math.cos(yw), math.sin(pt)])
+                out[f"intro-{lay['name']}{tag}"] = (tuple(c["pos"]), tuple(c["pos"] + 50.0 * d), lens)
     return out
 
 
