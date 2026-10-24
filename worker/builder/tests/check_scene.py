@@ -709,6 +709,9 @@ def main() -> None:
     check_base(out, slug, model, spec, manifest)
     for lay in manifest["layouts"]:
         check_layout(out, lay, slug, model, spec, manifest)
+    sys.path.insert(0, HERE)
+    import check_bounds  # out of bounds: reset walls, kill floor, water, ground coverage (wfbuild/bounds.py)
+    check_bounds.scene(check, out, slug, spec, manifest)
     ends = []
     for lay in manifest["layouts"]:
         bpy.ops.wm.open_mainfile(filepath=os.path.join(out, lay["file"]))
