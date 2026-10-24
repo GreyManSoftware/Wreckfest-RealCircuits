@@ -373,6 +373,28 @@
         }
       }
     },
+    "BrakeBoardOverrides": {
+      "title": "Braking board overrides",
+      "description": "Corrections to the builder's heavy-braking-corner rule for the 150/100/50 m braking boards, by corner name (corners[].name), for every layout that drives the corner.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "add": {
+          "description": "Corners that get braking boards whatever the rule says.",
+          "type": "array",
+          "maxItems": 20,
+          "items": { "type": "string", "minLength": 1, "maxLength": 40 },
+          "default": []
+        },
+        "remove": {
+          "description": "Corners that get no braking boards.",
+          "type": "array",
+          "maxItems": 20,
+          "items": { "type": "string", "minLength": 1, "maxLength": 40 },
+          "default": []
+        }
+      }
+    },
     "KerbOverride": {
       "title": "Kerb override",
       "description": "Real-world kerbs and track-limit strips at one corner of an imported track (from OSM, LIDAR or a track guide), overriding the builder's geometric placement (apex kerb inside, exit kerb outside, a green strip beyond the exit kerb on fast corners) at the corner nearest sM.",
@@ -529,6 +551,7 @@
           "items": { "$ref": "#/$defs/KerbOverride" },
           "default": []
         },
+        "brakeBoards": { "$ref": "#/$defs/BrakeBoardOverrides" },
         "mainLayoutName": {
           "description": "Display name of the main centreline's layout when there are alternative layouts (e.g. International).",
           "type": "string",

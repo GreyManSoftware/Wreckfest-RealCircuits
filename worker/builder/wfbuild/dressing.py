@@ -35,16 +35,20 @@ RUNOFF_EXEMPT = ("gantry", "flags", "staff", "grandstand", "barriers", "shore", 
 FORMAT = "trackgen-scenery/1"
 
 # ---- braking boards (stock gameplay_distanceboard{150,100,50}: breakable 2 x 1 m panels, numbers on local +X)
-BRAKE_BOARDS = (150, 100, 50)    # metres before the turn-in, furthest first
-BRAKE_MAX_RADIUS = 90.0          # a braking corner's apex radius is at most this...
+BRAKE_BOARDS = (150, 100, 50)    # metres before the turn-in, furthest first; a zone gets all three or none
+BRAKE_MAX_RADIUS = 80.0          # a heavy-braking corner's apex radius is at most this...
 BRAKE_MIN_TURN_DEG = 30.0        # ...it turns through at least this much...
-BRAKE_MIN_DROP_KMH = 50.0        # ...and the lap-speed estimate drops by at least this much into it
+BRAKE_MIN_APPROACH = 175.0       # ...after at least this much straight-ish road (no corner tighter than
+#                                  C.KERB_CORNER_RADIUS between the previous corner's exit and the turn-in)...
+BRAKE_MIN_DROP_KMH = 80.0        # ...and the lap-speed estimate drops by at least this much into it
 BRAKE_SPEED = {"vtop": 55.0, "lat": 11.0, "acc": 4.0, "dec": 9.0}  # m/s, m/s^2: a rough Wreckfest car
 BRAKE_GAP = 2.0                  # board's near end this far beyond the road edge (or kerb / green strip)
 BRAKE_HALF = 1.0                 # half the board's width (across the road)
-BRAKE_MIN_APPROACH = 150.0       # no boards when the previous corner's exit is closer than this to the turn-in
-BRAKE_APPROACH_SLACK = 10.0      # a board stands at least this far after the previous corner's exit
+BRAKE_APPROACH_SLACK = 5.0       # a board stands at least this far after the previous corner's exit
 BRAKE_DEDUP_M = 6.0              # boards of two layouts this close (same number, same facing) are one
+BRAKE_BACK_M = (0.0, 3.0, 6.0, 10.0, -3.0, -6.0, -10.0)  # a blocked board moves this much further back (- nearer)...
+BRAKE_OUT_M = (0.0, 1.5, 3.0, 5.0)               # ...and / or this much further out from the road edge
+BRAKE_SPACING_TOL = 10.0         # so each stands within this of its distance (150 > 100 > 50 always holds)
 
 
 def yaw_to(d) -> float:
@@ -163,12 +167,36 @@ def speed_profile(geo, r, direction: int) -> np.ndarray:
     return v
 
 
+def corner_name(geo, r, i: int) -> str:
+    """The imported track's corner label at sample i of route r (``geometry._named`` of the nearest main-route
+    point, when route r's sample lies on the main road there), else ''."""
+    if not (geo.imported or {}).get("corners"):
+        return ""
+    if r is geo.main:
+        return geo._named(float(r.s[i]))
+    m = geo.main
+    j = int(np.argmin(np.hypot(m.p[:, 0] - r.p[i, 0], m.p[:, 1] - r.p[i, 1])))
+    return geo._named(float(m.s[j])) if math.hypot(*(m.p[j, :2] - r.p[i, :2])) < 8.0 else ""
+
+
+def brake_overrides(geo) -> dict[str, set[str]]:
+    """An imported track's corrections to the braking-zone rule (recipe ``brakeBoards``, carried in
+    ``sketch.imported.brakeBoards``): corner names to ``add`` (braking boards whatever the rule says) and to
+    ``remove`` (no boards)."""
+    o = (geo.imported or {}).get("brakeBoards") or {}
+    return {"add": set(o.get("add") or []), "remove": set(o.get("remove") or [])}
+
+
 def brake_zones(geo, r, direction: int) -> list[dict]:
-    """The braking corners of route r driven ``direction`` along s: corners (``corner_runs``) tighter than
-    BRAKE_MAX_RADIUS, turning at least BRAKE_MIN_TURN_DEG, into which the speed estimate drops by at least
-    BRAKE_MIN_DROP_KMH. Per zone: the turn-in sample and s (the corner's first sample in driving order), the
-    outside side (+1 left of the route's s direction), the apex radius, the approach (metres from the previous
-    corner's exit to the turn-in) and the speeds."""
+    """The heavy-braking corners of route r driven ``direction`` along s: corners (``corner_runs``) with an apex
+    radius up to BRAKE_MAX_RADIUS, turning at least BRAKE_MIN_TURN_DEG, after at least BRAKE_MIN_APPROACH of
+    straight-ish road (from the previous kerbed corner's exit), into which the lap-speed estimate (``speed_profile``:
+    the entry speed the approach allows, down to the corner's cornering limit) drops by at least
+    BRAKE_MIN_DROP_KMH; plus the corners an imported track's ``brakeBoards.add`` names (the named corner's run with
+    the longest approach) and less the ones ``brakeBoards.remove`` names. Per zone: the turn-in sample and s (the
+    corner's first sample in driving order), the outside side (+1 left of the route's s direction), the apex
+    radius, the approach (metres from the previous corner's exit to the turn-in), the speeds, the corner's name
+    and ``why`` (``rule`` or ``add``)."""
     if r.n < 8 or not r.closed:
         return []
     runs = geo.corner_runs(r)
@@ -176,16 +204,15 @@ def brake_zones(geo, r, direction: int) -> list[dict]:
         return []
     v = speed_profile(geo, r, direction)
     L = r.length
+    ov = brake_overrides(geo)
 
     def ahead(a: float, b: float) -> float:  # metres driven from s=a to s=b
         return ((b - a) * direction) % L
 
     ends = [(float(r.s[c["i_in" if direction > 0 else "i_out"]]), float(r.s[c["i_out" if direction > 0 else "i_in"]]))
             for c in runs]
-    out = []
+    cands = []
     for c, (s_in, _s_out) in zip(runs, ends):
-        if c["radius"] > BRAKE_MAX_RADIUS or c["turnDeg"] < BRAKE_MIN_TURN_DEG:
-            continue
         # the approach: back to the exit of the previous corner in driving order (any kerbed-radius corner)
         prev = [ahead(e_out, s_in) for (e_in, e_out) in ends if (e_in, e_out) != (s_in, _s_out)]
         approach = min(prev) if prev else L - ahead(s_in, _s_out)
@@ -197,13 +224,22 @@ def brake_zones(geo, r, direction: int) -> list[dict]:
         v_peak = float(v[win].max()) if win.any() else float(v[c["i_in"]])
         v_min = float(v[idx].min())
         drop = (v_peak - v_min) * 3.6
-        if drop < BRAKE_MIN_DROP_KMH:
-            continue
+        rule = (c["radius"] <= BRAKE_MAX_RADIUS and c["turnDeg"] >= BRAKE_MIN_TURN_DEG
+                and approach >= BRAKE_MIN_APPROACH and drop >= BRAKE_MIN_DROP_KMH)
         i_in = c["i_in"] if direction > 0 else c["i_out"]
-        out.append({"i_in": int(i_in), "s_in": s_in, "outside": -int(c["inside"]), "radius": float(c["radius"]),
-                    "turnDeg": float(c["turnDeg"]), "approach": float(approach), "vPeak": v_peak, "vMin": v_min,
-                    "dropKmh": drop, "i_apex": int(c["i_apex"])})
-    return out
+        cands.append((rule, {"i_in": int(i_in), "s_in": s_in, "outside": -int(c["inside"]),
+                             "radius": float(c["radius"]), "turnDeg": float(c["turnDeg"]),
+                             "approach": float(approach), "vPeak": v_peak, "vMin": v_min, "dropKmh": drop,
+                             "i_apex": int(c["i_apex"]), "corner": corner_name(geo, r, int(c["i_apex"]))}))
+    out = []
+    for rule, z in cands:
+        if rule and z["corner"] not in ov["remove"]:
+            out.append({**z, "why": "rule"})
+    for name in sorted(ov["add"] - ov["remove"]):
+        named = [z for _rule, z in cands if z["corner"] == name]
+        if named and not any(z["corner"] == name for z in out):
+            out.append({**max(named, key=lambda z: z["approach"]), "why": "add"})
+    return sorted(out, key=lambda z: z["s_in"])
 
 
 @dataclass
@@ -1074,83 +1110,123 @@ class Planner:
             self._wl = [np.asarray(w["points"], dtype=np.float64)[:, :2] for w in self.geo.wall_runs()]
         return self._wl
 
+    def _pit_lanes(self) -> list[tuple[np.ndarray, float]]:
+        """An imported track's real pit lanes: (centreline samples, half width plus a margin)."""
+        pits = getattr(self.geo, "pits", None)
+        return [(ln.p, ln.w / 2.0 + 1.5) for ln in (pits.lanes if pits is not None else []) if len(ln.p) > 1]
+
+    def _brake_spot(self, r, z: dict, direction: int, dist: int, side: int, back: float, extra: float):
+        """Where braking board ``dist`` of zone z stands on ``side`` of route r, ``back`` metres further from the
+        turn-in than its distance and ``extra`` metres further out than BRAKE_GAP beyond the road edge, kerb or
+        green strip: (point, facing, s) or the reason it can't (``approach``, ``otherRoad``, ``wall``, ``noGo``,
+        ``gravelTrap``, ``pits``, ``terrain``)."""
+        if dist + back > z["approach"] - BRAKE_APPROACH_SLACK:
+            return "approach"
+        s = (z["s_in"] - direction * (dist + back)) % r.length
+        i = r.index_at(s)
+        edge = (r.left if side > 0 else r.right)[i, :2]
+        out = r.nl[i] * side
+        off = BRAKE_GAP + self._kerb_out(edge + out * BRAKE_GAP) + extra + BRAKE_HALF
+        q = edge + out * off
+        face = -r.tangent[i] * direction  # towards the oncoming cars
+        ends = np.array([q - out * BRAKE_HALF, q, q + out * BRAKE_HALF])
+        # own road nearest and no other road close behind it (a divider between two sections)
+        d_ends = self.field.dist(np.vstack([ends, q + out * 9.0]))
+        if d_ends[0] < off - BRAKE_HALF - 0.8 or d_ends[3] < off + 9.0 - 2.5:
+            return "otherRoad"
+        seg = edge[None, :] + out[None, :] * np.linspace(0.0, off + BRAKE_HALF + 0.4, 9)[:, None]
+        if any(float(dist_to_polyline(seg, wl).min()) < 0.6 for wl in self._wall_lines() if len(wl) > 1):
+            return "wall"
+        # bridge decks, jumps and pit buildings; the grid sector is allowed (like the flags and staff): the
+        # first corner's 150 m board often stands beside the grid (Old Hall, Hangar Hairpin, Paddock Hill)
+        if self.in_nogo(ends, 0.5, True).any():
+            return "noGo"
+        if self.measured and (self.runoff.at(ends) == 1).any():  # never in a measured gravel trap
+            return "gravelTrap"
+        if any(float(dist_to_polyline(ends, lp).min()) < hw for lp, hw in self._pit_lanes()):
+            return "pits"
+        if not self.inside(q[0], q[1], 2.0) or not self.dry(q[0], q[1]):
+            return "terrain"
+        return q, face, s
+
     def brake_boards(self) -> None:
         """Braking boards (stock ``gameplay_distanceboard150/100/50``) 150, 100 and 50 m before the turn-in of
-        every braking corner (``brake_zones``) of every layout, in its driving direction, on the outside of the
-        corner (the side cars brake on: left before a right-hander), BRAKE_GAP beyond the road edge or kerb, the
-        numbered face (local +X) towards oncoming cars. A board is skipped when the approach is too short for it
-        or it would stand on or near another road (a divider), behind a wall line, in a no-go zone or on another
-        placement; boards of two layouts that coincide are placed once."""
+        every heavy-braking corner (``brake_zones``) of every layout, in its driving direction, as a complete set
+        or not at all. A set stands on the outside of the corner (the side cars brake on: left before a
+        right-hander), else on the inside, BRAKE_GAP beyond the road edge or kerb, the numbered face (local +X)
+        towards oncoming cars. A board that would stand too close to the previous corner, on or near another road
+        (a divider), across a wall line, in a no-go zone, a gravel trap, the pit lane or on another placement moves
+        further out (BRAKE_OUT_M) and / or back (BRAKE_BACK_M, within BRAKE_SPACING_TOL); when one of the three
+        still has no spot on either side the zone gets no boards. Boards of two layouts that coincide are placed
+        once."""
         assets = {d: f"gameplay_distanceboard{d}" for d in BRAKE_BOARDS}
         if not set(assets.values()) <= self.allowed:
             return
         zones_out, placed = [], []  # placed: (number, x, y, facing unit, placement index)
-        skipped: dict[str, int] = {}
+        dropped: dict[str, int] = {}
+        shifts = [(b, e) for b in BRAKE_BACK_M for e in BRAKE_OUT_M if abs(b) <= BRAKE_SPACING_TOL]
+
+        def pick_set(r, z: dict, direction: int, side: int):
+            """The three boards on one side: [(m, point, facing, s, back, extra, shared placement)] or the
+            first board without a spot and why ("50:gravelTrap")."""
+            picks = []
+            for dist in BRAKE_BOARDS:
+                first = None
+                for back, extra in shifts:
+                    got = self._brake_spot(r, z, direction, dist, side, back, extra)
+                    if isinstance(got, str):
+                        first = first or got
+                        continue
+                    q, face, s = got
+                    dup = next((k for (dd, x, y, f, k) in placed if dd == dist and math.hypot(
+                        x - q[0], y - q[1]) < BRAKE_DEDUP_M and float(np.dot(f, face)) > 0.85), None)
+                    if dup is None and not self.occ.free(q[0], q[1], BRAKE_HALF):
+                        first = first or "occupied"
+                        continue
+                    picks.append((dist, q, face, s, back, extra, dup))
+                    break
+                else:
+                    return f"{dist}:{first}"
+            return picks
 
         for key, r, direction in layout_routes(self.geo):
             for z in brake_zones(self.geo, r, direction):
-                if z["approach"] < BRAKE_MIN_APPROACH:
+                rec = {"layout": key, "turnInS": round(z["s_in"], 1),
+                       "side": "left" if z["outside"] > 0 else "right", "radiusM": round(z["radius"], 1),
+                       "turnDeg": round(z["turnDeg"]), "approachM": round(z["approach"], 1),
+                       "dropKmh": round(z["dropKmh"]), "why": z["why"], "boards": []}
+                if z["corner"]:
+                    rec["corner"] = z["corner"]
+                why_not, picks = {}, None
+                for side, label in ((z["outside"], "outside"), (-z["outside"], "inside")):
+                    got = pick_set(r, z, direction, side)
+                    if not isinstance(got, str):
+                        picks = got
+                        break
+                    why_not[label] = got
+                if picks is None:  # no complete set on either side: no boards at all
+                    reason = why_not["outside"].split(":")[1]
+                    dropped[reason] = dropped.get(reason, 0) + 1
+                    rec["dropped"] = why_not
+                    zones_out.append(rec)
                     continue
-                rec = {"layout": key, "turnInS": round(z["s_in"], 1), "side": "left" if z["outside"] > 0 else "right",
-                       "radiusM": round(z["radius"], 1), "approachM": round(z["approach"], 1),
-                       "dropKmh": round(z["dropKmh"]), "boards": [], "skipped": {}}
-                if r is self.geo.main:
-                    name = self.geo._named(float(r.s[z["i_apex"]]))
-                    if name:
-                        rec["corner"] = name
-
-                def skip(why: str, dist: int, rec=rec) -> None:
-                    skipped[why] = skipped.get(why, 0) + 1
-                    rec["skipped"][str(dist)] = why
-
-                side = z["outside"]
-                for dist in BRAKE_BOARDS:
-                    if dist > z["approach"] - BRAKE_APPROACH_SLACK:
-                        skip("approach", dist)
-                        continue
-                    s = (z["s_in"] - direction * dist) % r.length
-                    i = r.index_at(s)
-                    edge = (r.left if side > 0 else r.right)[i, :2]
-                    out = r.nl[i] * side
-                    probe = edge + out * BRAKE_GAP
-                    off = BRAKE_GAP + self._kerb_out(probe) + BRAKE_HALF
-                    q = edge + out * off
-                    face = -r.tangent[i] * direction  # towards the oncoming cars
-                    ends = np.array([q - out * BRAKE_HALF, q, q + out * BRAKE_HALF])
-                    # own road nearest and no other road close behind it (a divider between two sections)
-                    far = q + out * 9.0
-                    d_ends = self.field.dist(np.vstack([ends, far]))
-                    if d_ends[0] < off - BRAKE_HALF - 0.8 or d_ends[3] < off + 9.0 - 2.5:
-                        skip("otherRoad", dist)
-                        continue
-                    seg = edge[None, :] + out[None, :] * np.linspace(0.0, off + BRAKE_HALF + 0.4, 9)[:, None]
-                    if any(float(dist_to_polyline(seg, wl).min()) < 0.6 for wl in self._wall_lines() if len(wl) > 1):
-                        skip("wall", dist)
-                        continue
-                    if self.in_nogo(ends, 0.5, False).any():
-                        skip("noGo", dist)
-                        continue
-                    if self.measured and (self.runoff.at(ends) == 1).any():  # never in a measured gravel trap
-                        skip("gravelTrap", dist)
-                        continue
-                    if not self.inside(q[0], q[1], 2.0) or not self.dry(q[0], q[1]):
-                        skip("terrain", dist)
-                        continue
-                    dup = next((k for (dd, x, y, f, k) in placed if dd == dist and math.hypot(
-                        x - q[0], y - q[1]) < BRAKE_DEDUP_M and float(np.dot(f, face)) > 0.85), None)
+                rec["boardSide"] = "left" if side > 0 else "right"
+                if why_not:
+                    rec["blocked"] = why_not  # the outside had no complete set
+                for dist, q, face, s, back, extra, dup in picks:
+                    b = {"m": dist, "s": round(s, 1)}
+                    if back or extra:
+                        b["shift"] = [back, extra]
                     if dup is not None:  # another layout's board on the shared road
-                        rec["boards"].append({"m": dist, "placement": dup, "s": round(s, 1), "shared": True})
-                        continue
-                    if not self.occ.free(q[0], q[1], BRAKE_HALF):
-                        skip("occupied", dist)
+                        rec["boards"].append({**b, "placement": dup, "shared": True})
                         continue
                     self.occ.add(q[0], q[1], BRAKE_HALF)
-                    rec["boards"].append({"m": dist, "placement": len(self.sc.placements), "s": round(s, 1)})
+                    rec["boards"].append({**b, "placement": len(self.sc.placements)})
                     placed.append((dist, float(q[0]), float(q[1]), face, len(self.sc.placements)))
                     self.sc.placements.append(Placement(assets[dist], "brakeBoards", float(q[0]), float(q[1]), 0.0,
                                                         yaw_x_to(face)))
                 zones_out.append(rec)
-        self.sc.info["brakeBoards"] = {"zones": zones_out, "placed": len(placed), "skipped": skipped}
+        self.sc.info["brakeBoards"] = {"zones": zones_out, "placed": len(placed), "dropped": dropped}
 
     def barriers(self) -> None:
         """The visible containment: a row of the environment's stock barrier props (concrete blocks, muddy
@@ -1617,7 +1693,8 @@ class Planner:
                                            **({"pitWall": [0.0, None], "pitBuildings": [2.0, None], "pitPaddock": [2.0, None], "realGrandstand": [1.0, None],
                                                "bridges": [None, None]} if pits is not None else {}),
                                            "brakeBoards": [BRAKE_GAP + BRAKE_HALF - 0.8,
-                                                           BRAKE_GAP + BRAKE_HALF + C.KERB_W + C.GREEN_W + 0.8]},
+                                                           BRAKE_GAP + BRAKE_HALF + C.KERB_W + C.GREEN_W
+                                                           + max(BRAKE_OUT_M) + 0.8]},
                              "treeThreshold": round(self.tree_thr, 4)})
         return self.sc
 
