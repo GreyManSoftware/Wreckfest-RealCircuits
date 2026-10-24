@@ -54,6 +54,16 @@ The same slug always gives the same file (seeded by the slug).
   Also additive (coastal environment): `walls` (stone field walls, `face: "x"`, local Y along the wall) and
   `shore` (rocks and cliff faces along the shoreline of an imported track with a sea level; the only category
   allowed below the sea).
+  Also additive (2026-10-24): `brakeBoards`, the stock breakable distance boards `gameplay_distanceboard150/100/50`
+  (`face: "+x"`: the numbered face is local +X, turned towards the oncoming cars; `width` 0.06 m along local X,
+  `depth` 2 m along local Y, i.e. across the road). `info.brakeBoards` records the plan: per braking zone the
+  layout, `turnInS` (along that layout's route), `side` (left/right of the route's s direction), `radiusM`,
+  `approachM`, `dropKmh`, `boards` (`m`, `placement` index, `s`, `shared` when another layout's board is reused)
+  and `skipped` (`{m: reason}`, reasons `approach`, `otherRoad`, `wall`, `noGo`, `terrain`, `occupied`).
+  Also additive (2026-10-24): `sponsorBoards`, our own sponsor boards (`sponsor_fence<k>`, `sponsor_billboard<k>`
+  for colourway k; `face: "-y"`, `width` along local X). They are not stock objects: their `assets` entry has
+  `"path": null` and `"mesh": true`, and the builder builds them as the base mesh `sponsor_boards` rather than
+  `#xref` subscenes (see `worker/docs/visual-assets.md`). `info.sponsorBillboards` counts the billboards.
 
 ## Rules the planner follows (and `tests/check_scene.py` re-checks)
 
@@ -64,8 +74,8 @@ The same slug always gives the same file (seeded by the slug).
   near another road) and 12 m out elsewhere, behind open run-off. `barriers` placements follow that line (between
   4.5 and 14 m from the road edge) with the environment's concrete or tyre style. No barriers when walls are none.
 - Nothing else within `edgeMinM - 1` m of any road edge (`edgeMinM` = 14.5 m with walls, i.e. behind the set-back
-  barrier, or run-off + 2 m without walls), except the start/finish gantry and the corner markers (dynamic tyre
-  stacks and bales, at least 3 m out, in front of the near barrier). `info.nearRoadM` lists these exceptions as
+  barrier, or run-off + 2 m without walls), except the start/finish gantry, the corner markers (dynamic tyre
+  stacks and bales, at least 3 m out, in front of the near barrier) and the braking boards (breakable, 2-6 m out). `info.nearRoadM` lists these exceptions as
   `{category: [min, max]}` metres from the road edge (`max` null = unbounded); readers checking clearance should
   use it rather than `edgeMinM` alone.
 - No-go discs: bridge decks and ramps (+25 m), jump take-off to landing + 40 m, and the grid sector (line - 25 m to
@@ -73,3 +83,13 @@ The same slug always gives the same file (seeded by the slug).
   exempt (containment runs past jumps and the grid).
 - Everything inside the terrain extent; footprints don't overlap (spatial hash).
 - Standing spectators face the nearest road with local +Y.
+- Braking boards (`dressing.brake_boards`, `brake_zones`): for every layout's lap (an imported track's
+  `layouts`, each its composite route; a drawn track forward and, with `reverse`, backwards) a braking corner is a
+  corner (`geometry.corner_runs`) with an apex radius up to 90 m, turning at least 30°, into which a rough
+  lap-speed estimate (cornering limit, acceleration and braking passes) drops by at least 50 km/h, at least 150 m
+  after the previous corner's exit. Its boards stand 150, 100 and 50 m before the turn-in (the corner's first
+  sample in driving order), measured along the route in the layout's driving direction, on the outside of the
+  corner (left before a right-hander), their near end 2 m beyond the road edge, kerb or green strip, numbered face
+  to the oncoming cars. A board is left out when it would stand within 10 m of the previous corner's exit, near
+  another road (a divider), across a wall line, in a no-go disc, off the terrain or on another placement. Layouts
+  sharing a road share a board (same distance, within 6 m, same facing).
