@@ -120,6 +120,50 @@ def test_branch_of_cuts_the_part_that_leaves_the_main_lap() -> None:
         irt.branch_of(main + 500.0, main, 2.0)
 
 
+def _hairpin_case() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Cadwell Woodlands: a main loop whose two straights run 9 m apart (cambered 1.8 and 4 degrees), and a
+    branch that leaves the one along it, turns back through a 4.5 m hairpin and joins the other."""
+    x = np.arange(-200.0, 200.0, 2.0)
+    arc_ = lambda cx, a0: np.column_stack([cx + 4.5 * np.cos(np.linspace(a0, a0 + math.pi, 8)[1:-1]),  # noqa: E731
+                                           4.5 * np.sin(np.linspace(a0, a0 + math.pi, 8)[1:-1])])
+    main = np.vstack([np.column_stack([x, np.full_like(x, -4.5)]), arc_(200.0, -math.pi / 2),
+                      np.column_stack([x[::-1], np.full_like(x, 4.5)]), arc_(-200.0, math.pi / 2)])
+    bank_m = np.where(main[:, 1] < 0, -1.8, -4.0)
+    th = np.linspace(-math.pi / 2, math.pi / 2, 9)
+    br = np.vstack([np.column_stack([np.arange(-20.0, 0.0, 2.0), np.full(10, -4.5)]),
+                    np.column_stack([4.5 * np.cos(th), 4.5 * np.sin(th)]),
+                    np.column_stack([np.arange(-2.0, -21.0, -2.0), np.full(10, 4.5)])])
+    return irt.resample_open(br, 2.0), main, bank_m
+
+
+def _departure_case() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Oulton's Fosters link: a 100 m branch leaving and rejoining a circle (R 200 m, cambered 4 degrees) at about
+    50 degrees."""
+    t = np.linspace(0, 2 * math.pi, 628, endpoint=False)
+    main = np.column_stack([200 * np.cos(t), 200 * np.sin(t)])
+    th = np.linspace(0.0, 0.5, 60)
+    r = 200 + 40 * np.sin(math.pi * th / 0.5)
+    return irt.resample_open(np.column_stack([r * np.cos(th), r * np.sin(th)]), 2.0), main, np.full(len(main), -4.0)
+
+
+@pytest.mark.parametrize("case", [_hairpin_case, _departure_case], ids=["hairpin", "departure"])
+def test_branch_joins_take_the_main_surface_without_a_camber_flick(case) -> None:
+    # merge_onto_main + join_blend as build() runs them on a branch cambered 1 degree the other way: its ends take
+    # the main road's camber, its own away from them. The roads' overlap is crossed in a few metres sideways, and
+    # in a hairpin the nearest main road changes from the one straight to the other: fading the main surface over
+    # half a width sideways flicked the camber at 0.77 deg/m (Cadwell Woodlands) and 0.40 (Oulton's Fosters link)
+    br, main, bank_m = case()
+    s = irt.arc(br)
+    z_b, bank_b = irt.merge_onto_main(br, np.zeros(len(br)), np.full(len(br), 1.0), main, np.zeros(len(main)),
+                                      bank_m, 10.0)
+    assert np.abs(np.gradient(bank_b, s)).max() <= irt.MERGE_MAX_BANK_RATE + 0.01
+    j0, j1 = (int(np.argmin(np.hypot(*(main - br[e]).T))) for e in (0, -1))
+    z_b, bank_b = irt.join_blend(s, z_b, bank_b, (0.0, 0.0), (bank_m[j0], bank_m[j1]))
+    assert (bank_b[0], bank_b[-1]) == pytest.approx((bank_m[j0], bank_m[j1]))
+    assert np.abs(np.gradient(bank_b, s)).max() <= ARTEFACT_LIMITS["maxCamberRateDegPerM"]
+    if s[-1] > 80:
+        assert bank_b.max() == pytest.approx(1.0)  # its own camber away from the joins
+
 def _road_dtm(offset: float, bank: float, drift: float = 0.0) -> irt.Dtm:
     """A hillside (5 % across x) with a flat 10 m road strip along y at x = offset (+ drift * y), cambered by
     ``bank``."""
