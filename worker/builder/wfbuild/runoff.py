@@ -105,7 +105,16 @@ class RunoffPlan:
             # few metres sideways), still behind every trap and apron
             r = self.geo.routes[ri]
             k = max(1, int(round(C.BARRIER_SMOOTH_M / max(float(np.median(r.seg_len())), 0.5) / 2)))
-            off = np.where(hard, a["offset"], 0.0)
+            # a barrier line runs straight on: short excursions (another object read as the barrier for a zone or
+            # two) give way to the running median over BARRIER_MEDIAN_M of the measured offsets
+            km = max(1, int(round(C.BARRIER_MEDIAN_M / max(float(np.median(r.seg_len())), 0.5) / 2)))
+            vals = np.where(hard, a["offset"], np.nan)
+            pad = np.concatenate([vals[-km:], vals, vals[:km]]) if r.closed else np.pad(vals, km, constant_values=np.nan)
+            win = np.lib.stride_tricks.sliding_window_view(pad, 2 * km + 1)
+            with np.errstate(all="ignore"):
+                cnt = np.sum(np.isfinite(win), axis=1)
+                med = np.where(cnt > 0, np.nanmedian(np.where(cnt[:, None] > 0, win, 0.0), axis=1), np.nan)
+            off = np.where(hard & np.isfinite(med), med, np.where(hard, a["offset"], 0.0))
             w = hard.astype(np.float64)
             ker = np.ones(2 * k + 1)
             if r.closed:
