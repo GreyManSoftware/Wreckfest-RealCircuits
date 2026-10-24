@@ -203,6 +203,17 @@ our own (`wfbuild/sponsor.py`, category `sponsorBoards`):
   zones at the turn-in, then mid-straight; 16–40 m beyond the road edge (behind the run-off clearance, no-go zones
   and other roads respected), one per spot, the printed face turned between square to the road and back up it
   towards the oncoming view. Measured on the samples: 2–6 billboards and 0–48 fence panels per track.
+- **Guarantee** (`dressing.sponsor_guarantee`): every layout gets at least one handle board in clear view of its
+  grid or start/finish straight (line of sight over the terrain and the larger props). When none of the boards
+  above is, it falls back to a relaxed distance band, then anywhere along the start view, then a row of three fence
+  panels beside the start straight, then a mini billboard (`sponsor_minibillboard<k>`, 3.5 × 1.75 m from 1 m up,
+  the billboard's texture) on the infield facing the grid. Props placed later across that view are dropped.
+- **Credit** (`"credit"` in `"sponsor"`: `enabled`, `text` "GreyManSoftware", `prefix` "track by", `style`
+  `plaque` | `line`, `colourway`): style `plaque` is one small plaque (`sponsor_credit`, 1.8 × 0.45 m on two short
+  posts, 0.55 m up) in muted slate with light-grey regular type, behind the clearance 40–110 m before the line on
+  the paddock side, square to the road; style `line` (also the fallback when no plaque fits) prints the credit in
+  small muted type at the bottom right of the billboard face. It is independent of `enabled` for the handle
+  boards; `"credit": {"enabled": false}` or `"credit": false` turns it off.
 
 ### Buildings
 
