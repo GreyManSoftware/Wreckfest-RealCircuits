@@ -652,13 +652,21 @@ def cross_fit(dtm: Dtm, p: np.ndarray, nl: np.ndarray, offsets: np.ndarray) -> t
     return a, b, res
 
 
+REGISTRATION_SMOOTH_M = 25.0
+
+
 def register(dtm: Dtm, p: np.ndarray, nl: np.ndarray, width: float, step: float,
-             max_shift: float = 6.0, shift_step: float = 0.5, smooth_m: float = 12.0) -> np.ndarray:
+             max_shift: float = 6.0, shift_step: float = 0.25, smooth_m: float = 12.0) -> np.ndarray:
     """Lateral correction (metres along the left normal) per sample that puts the line on the flattest
     road-wide strip of the DTM. The cost of a shift is the RMS residual of a plane fitted across the whole
     road width (so the verges on both sides count and the line is centred), averaged over +-``smooth_m``; a
     dynamic programme keeps the shift smooth along the road (and near zero where the ground is flat
-    everywhere, e.g. beside a paddock)."""
+    everywhere, e.g. beside a paddock), and the result is smoothed over REGISTRATION_SMOOTH_M.
+
+    2026-10-24 audit: the shift used to step in 0.5 m increments smoothed over only 5 m, so straights wandered
+    0.5-1 m sideways over 20 m (Cadwell Park Straight, Brands Hatch Cooper Straight; a 3 degree jink each time).
+    OSM traces and the Helmert step are out by a smoothly varying few metres, so the shift is now found in
+    0.25 m steps and smoothed over 25 m."""
     shifts = np.arange(-max_shift, max_shift + 1e-9, shift_step)
     half = 0.5 * width
     offs = np.arange(-half, half + 1e-9, 0.5)
@@ -669,7 +677,7 @@ def register(dtm: Dtm, p: np.ndarray, nl: np.ndarray, width: float, step: float,
     cost = gauss_closed(np.nan_to_num(cost, nan=1.0), smooth_m / step)
     cost = cost + 0.004 * np.abs(shifts)[None, :]  # prefer the OSM line when the ground is flat anyway
     # Dynamic programme along the (opened) loop: a cost for changing the shift between samples.
-    move = 0.02 * ((shifts[:, None] - shifts[None, :]) / shift_step) ** 2
+    move = 0.02 * ((shifts[:, None] - shifts[None, :]) / 0.5) ** 2  # per 0.5 m change (the old step)
     acc = cost[0].copy()
     back = np.zeros((len(p), len(shifts)), dtype=int)
     for i in range(1, len(p)):
@@ -680,7 +688,7 @@ def register(dtm: Dtm, p: np.ndarray, nl: np.ndarray, width: float, step: float,
     path[-1] = int(np.argmin(acc))
     for i in range(len(p) - 1, 0, -1):
         path[i - 1] = back[i, path[i]]
-    return gauss_closed(shifts[path].astype(np.float64), 5.0 / step)
+    return gauss_closed(shifts[path].astype(np.float64), REGISTRATION_SMOOTH_M / step)
 
 
 def wrap_s(d: np.ndarray, length: float) -> np.ndarray:

@@ -16,8 +16,8 @@ bike-only variant is in use.
 |---|---|---|
 | Layout source | MSV map "Brands Hatch Grand Prix Circuit" (docs.msv.com `BH Map_GP Circuit.pdf`) | MSV map "Brands Hatch Indy Circuit" (`BH Map_Indy Circuit.pdf`) |
 | Route | Brabham Straight, Paddock Hill Bend, Hailwoods Hill, Druids Bend, Graham Hill Bend, Cooper Straight, Surtees, Pilgrims Drop, Hawthorn Hill, Hawthorn Bend, Derek Minter Straight, Westfield Bend, Dingle Dell, Sheene Curve, Stirling's Bend, Clearways, Clark Curve | as the GP to Surtees, then McLaren (OSM way 4928103) to Clearways and Clark Curve |
-| Lap (built) | 3,903.2 m | 1,930.3 m |
-| Published | 3,916 m (2.433 mi; MSV, Wikipedia, racingcircuits.info): −0.33 % | 1,944 m (1.208 mi; MSV, BARC, Wikipedia infobox; Wikipedia text 1.928 km): −0.71 % |
+| Lap (built) | 3,903.5 m (2026-10-24 audit; was 3,903.2) | 1,930.5 m (was 1,930.3) |
+| Published | 3,916 m (2.433 mi; MSV, Wikipedia, racingcircuits.info): −0.32 % | 1,944 m (1.208 mi; MSV, BARC, Wikipedia infobox; Wikipedia text 1.928 km): −0.69 % |
 | OSM polyline | 3,903 m | 1,930 m |
 | Direction | clockwise: MSV map arrow by the flag on Brabham Straight points to Paddock Hill Bend; Wikipedia: clockwise since 1954; track guides | clockwise: MSV Indy map; BARC Indy briefing notes "Clockwise" |
 | Start/finish | Brabham Straight, OSM node 1825805766 (`raceway=start-finish`), 176 m from Clark Curve: the MSV maps' chequered flag in front of the pit garages; driver61's GPS for the line is 19 m further on (BARC: start and finish lines ~20 m apart) | shares the GP line (same flag on the MSV Indy map) and grid |
@@ -66,3 +66,24 @@ Renders: `.local\renders\brandshatch-{start,paddockhill,druids,oblique}.png`.
 **Check in game:** the drop into Paddock Hill Bend (−17 %) and the climb to Druids, the camber at Druids and
 Hawthorn, the grid on the climbing Brabham Straight, the Indy's McLaren link and its checkpoints, the minimap for
 both layouts, the 11 m width.
+
+## Audit 2026-10-24
+
+Pre-Workshop accuracy audit (method and the shared importer change: `docs/real-tracks.md`, "Audit notes"). Plots:
+`.local\audit\brandshatch\{before,after}-{main,indy}.png`, plan views over the LIDAR relief
+`.local\audit\brandshatch\plan-*.png`, before/after line `.local\renders\audit\brandshatch-line-cooper.png`.
+
+| Issue | Evidence | Fix |
+|---|---|---|
+| Cooper Straight wandered sideways (registration steps) | Short-wave part of the OSM-to-built offset 0.66 m on Cooper Straight, 0.4 m after Sheene Curve | Shared importer fix (registration smoothed over 25 m): 0.22 / 0.21 m; tightest bend on any straight R 188 m (the Paddock Hill descent, a real curve) |
+| Corner radii | Built minimum radius vs circle fits to OSM nodes: Druids 31/33 m, Hailwoods 34/33, Graham Hill 33/34, Westfield 35/34, Stirlings 36/41, Paddock Hill 56/69 (its tightest part is at turn-in), Hawthorn 76/97, Clark Curve 75/90 | None (plan view of Druids: the line on the paved strip) |
+| Corner handedness and order | Paddock Hill R, Druids R hairpin, Graham Hill L, Surtees L, Pilgrims Drop R kink, Hawthorn R, Westfield R, Dingle Dell R, Sheene R, Stirlings L, Clearways R, Clark Curve R: as the MSV map and guides | None |
+| Paddock Hill drop steeper than a published figure | LIDAR: 131.6 m ODN at the crest on Brabham Straight (s 150 m) to 114.3 m at the bottom (s 370 m): 17.3 m in 220 m, −17.0 % over 10 m, −15.4 % over 50 m. oversteer48.com gives 140 → 129 m (11 m) and −8 % steepest, +11 % up to Druids, from an unsourced elevation map. The raw 1 m DTM matches the built line to 1.3 cm RMS and the cross-sections show the paved strip; the published +11 % to Druids matches ours (+11.6 %), the −8 % looks like a coarse DEM's | None: the LIDAR is kept |
+| Brabham Straight camber 6-7° | Cross-sections at s 50-200 m: a uniform 11 cm/m fall from left to right across 20+ m (the straight runs along the side of the bowl); inner-edge fit RMS 2.2 cm | None (real) |
+| Paddock Hill camber | Described as off-camber in guides; the LIDAR has the outside about 0.5 m higher across the road at turn-in (+3.3°) and nearly level (+1.5°) in the compression | None; noted as uncertain (the "adverse camber" may mean the falling road) |
+| LIDAR artefacts | No bump over 12 cm against a 15 m running median; largest grade change 6.2 % per 10 m (the compression at the bottom of Paddock Hill) | None |
+| Camber elsewhere | Druids 6.0°, Hawthorn 5.6°, Stirlings 6.0° into the corner; on straights within 0.6° of the 25 m mean | None |
+| Width | Not published, no OSM `width`. LIDAR flush-surface bounds 11.5-12.5 m on the cleanest sections (Surtees to Pilgrims Drop), wider where run-off is flush | None: 11 m kept |
+
+Lap lengths: GP 3,903.2 → 3,903.5 m (published 3,916 m, −0.32 %), Indy 1,930.3 → 1,930.5 m (1,944 m, −0.69 %); the
+OSM polylines are 3,903 / 1,930 m, so the gaps are OSM's.
