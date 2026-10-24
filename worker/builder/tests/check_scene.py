@@ -26,7 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 from wfbuild import config as C
 from wfbuild import dressing as D
-from wfbuild import envs
+from wfbuild import envs, sponsor
 from wfbuild.layout import composite_route
 
 WF = os.environ.get("WRECKFEST_DIR", "/wreckfest")
@@ -64,8 +64,9 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
 
     sc = load_json(os.path.join(out, "scenery.json"))
     P = sc["placements"]
-    check(len(P) == n_props and sc["total"] == n_props, "scenery: placements match the base scene's prop subscenes",
-          f"{len(P)} placements, {n_props} subscenes")
+    n_stock = sum(1 for p in P if not sponsor.is_mesh(p["asset"]))  # sponsor boards are a mesh, not subscenes
+    check(n_stock == n_props and sc["total"] == len(P), "scenery: stock placements match the base scene's prop subscenes",
+          f"{n_stock} stock placements, {n_props} subscenes")
     geo = TrackGeometry(model, spec)
     pl = Planner(geo)
     bad_env = sorted({p["asset"] for p in P} - pl.allowed)
@@ -96,6 +97,7 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
     check(not on_road, "scenery: nothing but the gantry, the barrier row (on the wall line), corner markers and "
           "braking boards within the road/run-off clearance", f"clearance {pl.edge_min - 1.0:.1f} m; {on_road[:3]}")
     check_brake_boards(geo, pl, sc)
+    check_sponsor(out, geo, pl, sc)
     barriers = [k for k, c in enumerate(cats) if c == "barriers"]
     row = set(envs.barrier_row(pl.env_name, geo.walls))
     check(bool(barriers) == bool(row) and {P[k]["asset"] for k in barriers} <= row,
@@ -198,6 +200,51 @@ def check_brake_boards(geo, pl, sc: dict) -> None:
     check(len(boards) <= 3 * len(info["zones"]) and len(boards) <= 12 * lap / 1000.0 + 3,
           "brake boards: sensible count", f"{len(boards)} boards, {len(info['zones'])} zones, {lap / 1000:.1f} km of laps")
     print(f"INFO brake boards: {len(boards)} boards in {len(info['zones'])} zones, skipped {info.get('skipped')}")
+
+
+def check_sponsor(out: str, geo, pl, sc: dict) -> None:
+    """Our sponsor boards (category sponsorBoards, wfbuild/sponsor.py): only when enabled, a handful of
+    billboards (at most the configured number), fence panels a share of the ad fences, every printed face (local
+    -Y) towards the nearest road (billboards may turn up to ~60 deg back up the road), billboards 15-60 m off the
+    road edge, and each texture rendered into the mod (the base check resolves the materials' paths)."""
+    P = sc["placements"]
+    mine = [p for p in P if p["category"] == sponsor.CATEGORY]
+    if not sponsor.enabled():
+        check(not mine, "sponsor: no boards when the sponsor setting is off")
+        return
+    check(all(sponsor.is_mesh(p["asset"]) for p in mine), "sponsor: only our own board assets in sponsorBoards")
+    bb = [p for p in mine if sponsor.kind_of(p["asset"])[0] == "billboard"]
+    fences = [p for p in mine if sponsor.kind_of(p["asset"])[0] == "fence"]
+    cap = int(sponsor.config().get("billboards", 6))
+    check(1 <= len(bb) <= cap, "sponsor: a handful of billboards", f"{len(bb)} (cap {cap})")
+    stock = sum(1 for p in P if p["category"] == "adFence")
+    share = float(sponsor.config().get("fenceShare", 0.0))
+    check(not fences or len(fences) <= (share + 0.25) * (len(fences) + stock) + 6,
+          "sponsor: fence panels replace a share of the ad fences", f"{len(fences)} ours, {stock} stock")
+    roads = geo.index.xy
+    from wfbuild.fields import exact_edge_distance
+    bad, far = [], []
+    for p in mine:
+        # the board faces a road it stands beside: of the road samples within 15 m of the nearest one (another
+        # section may pass closer behind it), the best-faced one lies within ~66 deg (billboards) / 30 deg of -Y
+        q = np.array(p["position"][:2])
+        dd = np.hypot(*(roads - q).T)
+        near = roads[dd <= dd.min() + 15.0]
+        to = (near - q) / np.maximum(np.linalg.norm(near - q, axis=1), 1e-9)[:, None]
+        front = np.array([math.sin(p["yaw"]), -math.cos(p["yaw"])])  # local -Y
+        best = float((to @ front).max())
+        if best < (0.4 if p in bb else 0.85):
+            bad.append(f"{p['asset']} {best:.2f}")
+    if bb:
+        d = exact_edge_distance(geo, np.array([p["position"][:2] for p in bb]))
+        far = [f"{v:.0f} m" for v in d if not (pl.edge_min - 1.0 <= v <= 60.0)]
+    check(not bad, "sponsor: printed faces (local -Y) towards the road", ", ".join(bad[:3]))
+    check(not far, "sponsor: billboards behind the run-off and within 60 m of the road", ", ".join(far[:3]))
+    keys = sorted({p["asset"] for p in mine})
+    missing = [k for k in keys if not os.path.isfile(
+        os.path.join(out, "mod", *sponsor.texture_rel(sc["slug"], *sponsor.kind_of(k)).split("/")) + ".tga")]
+    check(not missing, "sponsor: every board's texture rendered into the mod textures", ", ".join(missing))
+    print(f"INFO sponsor: {len(bb)} billboards, {len(fences)} fence panels")
 
 
 def _segments_cross(p0, p1, a, b) -> np.ndarray:
@@ -515,6 +562,11 @@ def check_base(out: str, slug: str, model: dict, spec: dict, manifest: dict) -> 
     missing = [n for n in names if not os.path.isfile(os.path.join(WF, "data/art/objects", n + ".scne"))]
     check(not missing, "base: every prop exists in the game data", ", ".join(missing))
     check_scenery(out, model, spec, manifest, len(props))
+    n_sp = sum(1 for p in load_json(os.path.join(out, "scenery.json"))["placements"] if sponsor.is_mesh(p["asset"]))
+    sp_ob = obs.get("sponsor_boards")
+    check((sp_ob is not None) == (n_sp > 0) and (sp_ob is None or all(
+        m.name.startswith("sponsor_") for m in sp_ob.data.materials)),
+        "base: sponsor boards are one mesh with our own board materials", f"{n_sp} boards")
     check_roadside(obs, model, spec, manifest)
     check_maps(out, model, spec, manifest)
     # bounds
