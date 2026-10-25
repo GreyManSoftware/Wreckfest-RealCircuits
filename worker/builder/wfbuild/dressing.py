@@ -682,7 +682,10 @@ class Planner:
             a = self.runoff.side[(r.index, side)]
             win = self.walk(r, i, length + 6.0, 2.0)
             reach = np.where(np.isfinite(a["offset"]), a["offset"], self.runoff.run_off_end(r.index, side))
-            barrier = bool(np.isfinite(a["offset"][win]).all())
+            # a hard, visible barrier (armco / tyres / concrete: BARRIERS indices 1-3) all along the crowd; an earth
+            # bank or 'none' zone also carries an offset but builds no wall, so it doesn't count
+            hard = (a["barrier"] >= 1) & (a["barrier"] <= 3)
+            barrier = bool((np.isfinite(a["offset"]) & hard)[win].all())
             if not barrier:
                 return 0  # spectators only ever stand behind a real barrier (Chris 2026-10-25), never in the open
             off_f = max(off_f, float(np.max(reach[win])) + 3.0)
