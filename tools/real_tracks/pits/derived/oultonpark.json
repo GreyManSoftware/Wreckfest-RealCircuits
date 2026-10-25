@@ -770,28 +770,6 @@
    "roadDirection": [0.165, -0.986],
    "roadWidthM": 12.56,
    "source": "OSM raceway=start-finish node 235311718 (the recipe's line) on the pit straight"
-  },
-  {
-   "kind": "footbridge",
-   "name": "footbridge at Clay Hill",
-   "route": "main",
-   "sM": 3049.2,
-   "at": [358634.17, 364761.24],
-   "roadDirection": [0.13, 0.992],
-   "roadWidthM": 7.29,
-   "source": "OSM way 108784542 (highway=footway, bridge=yes, layer=1); LIDAR (EA NLP 2021) shows the span across the road, top 7.7-7.9 m",
-   "osmSpanM": 33.6
-  },
-  {
-   "kind": "bridge",
-   "name": "Warwick Bridge",
-   "route": "main",
-   "sM": 3662.9,
-   "at": [358840.1, 365211.34],
-   "roadDirection": [0.968, 0.25],
-   "roadWidthM": 8.99,
-   "source": "OSM way 108809456 (highway=service, bridge=yes) and man_made=bridge 1265663578 at the corner OSM names Warwick Bridge; LIDAR (EA NLP 2021): deck across the road over 10 m, top 4.4-6.5 m",
-   "osmSpanM": 24.2
   }
  ]
 }

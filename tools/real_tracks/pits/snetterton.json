@@ -3,7 +3,9 @@
   "pitLanes": [
    {
     "id": "pit",
-    "ways": [145755934],
+    "ways": [
+     145755934
+    ],
     "widthM": 10.0,
     "mode": "closed",
     "centreFromTrackM": 13.0,
@@ -52,12 +54,6 @@
     "name": "start/finish line",
     "sM": 0.0,
     "source": "OSM node 1717542072 'Start/finish line' (raceway=start-finish), the recipe's line on Senna Straight"
-   },
-   {
-    "kind": "bridge",
-    "name": "service bridge (Brundle)",
-    "osmWay": 98718314,
-    "source": "OSM way 98718314 (highway=service, bridge=yes, layer=1); LIDAR (EA NLP 2018/2021): deck across the road over 10 m, top 5.2-7.0 m"
    }
   ]
  },
