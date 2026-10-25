@@ -55,7 +55,18 @@ def check_pits_base(check, geo, sc: dict, obs: dict, manifest: dict, to_scene, w
             dd = np.array([np.hypot(*(row - q).T).min() for q in lane.wall[::2]])
             check(float(dd.max()) <= WALL_STEP_MAX / 2 + 0.6, f"pits: {lane.id} concrete row continuous along the pit wall",
                   f"worst {dd.max():.2f} m from the nearest element")
-        if lane.mode == "closed":
+        from wfbuild import pits as PITS  # noqa: PLC0415
+        if PITS.OPEN_LANES:
+            check(not lane.closures(), f"pits: {lane.id} open at both ends (no barrier across the lane or a junction)")
+            cps = [c for c in geo.model["checkpoints"] if c.get("routeIndex", 0) == 0] if hasattr(geo, "model") else []
+            raw = getattr(lane, "d", None) or {}
+            a, b = raw.get("entrySM"), raw.get("exitSM")
+            if cps and a is not None and b is not None:
+                L = geo.main.length
+                span = (b - a) % L
+                ins = [c for c in cps if 10.0 < (c["s"] - a) % L < span - 10.0]
+                check(span <= 30.0 or bool(ins), f"pits: {lane.id} a checkpoint on the bypassed stretch (no pit short cut)")
+        elif lane.mode == "closed":
             cl = lane.closures()
             check(len(cl) == 2, f"pits: {lane.id} closed at both ends (barriers across the lane where the wall ends)")
         # the wall plan: no track barrier on the pit side over the wall's stretch, AI margin in front of the wall
