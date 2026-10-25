@@ -96,6 +96,12 @@
     "name": "start/finish line",
     "sM": 0.0,
     "source": "the recipe's line (driver61.com coordinates; MSV maps), beside the middle of the pit lane"
+   },
+   {
+    "kind": "footbridge",
+    "name": "footbridge before the line",
+    "sM": 3914.0,
+    "source": "LIDAR (EA NLP 2022, SK4025): a span across the road at s 3912-3916 m, top 8.0-8.8 m, between Goddards and the line"
    }
   ]
  },

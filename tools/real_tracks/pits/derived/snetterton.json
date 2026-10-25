@@ -849,6 +849,23 @@
     "topMedianM": null,
     "topMaxM": null
    }
+  },
+  {
+   "kind": "bridge",
+   "name": "service bridge (Brundle)",
+   "route": "main",
+   "sM": 3326.4,
+   "at": [600581.33, 289447.61],
+   "roadDirection": [1.0, 0.008],
+   "roadWidthM": 15.18,
+   "source": "OSM way 98718314 (highway=service, bridge=yes, layer=1); LIDAR (EA NLP 2018/2021): deck across the road over 10 m, top 5.2-7.0 m",
+   "osmSpanM": 33.3,
+   "lidar": {
+    "coverAcrossRoad": 1.0,
+    "atOffsetM": -6.0,
+    "topMedianM": 6.8,
+    "topMaxM": 6.9
+   }
   }
  ]
 }
