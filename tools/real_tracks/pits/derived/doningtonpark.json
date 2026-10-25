@@ -846,22 +846,6 @@
     "topMedianM": null,
     "topMaxM": null
    }
-  },
-  {
-   "kind": "footbridge",
-   "name": "footbridge before the line",
-   "route": "main",
-   "sM": 3914.0,
-   "at": [441978.41, 325976.79],
-   "roadDirection": [-0.985, 0.17],
-   "roadWidthM": 11.27,
-   "source": "LIDAR (EA NLP 2022, SK4025): a span across the road at s 3912-3916 m, top 8.0-8.8 m, between Goddards and the line",
-   "lidar": {
-    "coverAcrossRoad": 0.95,
-    "atOffsetM": 1.0,
-    "topMedianM": 8.6,
-    "topMaxM": 8.8
-   }
   }
  ]
 }

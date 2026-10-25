@@ -3,7 +3,9 @@
   "pitLanes": [
    {
     "id": "pit",
-    "ways": [117976650],
+    "ways": [
+     117976650
+    ],
     "widthM": 7.0,
     "mode": "closed",
     "centreFromTrackM": 9.5,
@@ -32,11 +34,26 @@
     "kind": "paddock",
     "name": "Paddock (west of the run to the Mountain)",
     "polygon": [
-     [-40, 150],
-     [90, 172],
-     [96, 92],
-     [30, 74],
-     [-40, 95]
+     [
+      -40,
+      150
+     ],
+     [
+      90,
+      172
+     ],
+     [
+      96,
+      92
+     ],
+     [
+      30,
+      74
+     ],
+     [
+      -40,
+      95
+     ]
     ],
     "source": "hand-drawn over the LIDAR relief: the open ground reached by OSM's 'Paddock Entry' (142058939) and 'Paddock Exit' (117976649) service roads, beside the Club House and the scrutineering shed (117990859); OSM has no paddock polygon"
    }
@@ -47,18 +64,6 @@
     "name": "start/finish line",
     "sM": 0.0,
     "source": "the recipe's start/finish line (where the pit garage lane rejoins the pit lane; ukCircuits: the lights opposite the start of the pit exit lane)"
-   },
-   {
-    "kind": "footbridge",
-    "name": "footbridge before Coppice",
-    "sM": 260.0,
-    "source": "LIDAR (EA NLP 2019, TF2580): a span across the whole road at s 259-261 m, top 8.0-8.2 m; not in OSM"
-   },
-   {
-    "kind": "footbridge",
-    "name": "footbridge at Woodland",
-    "sM": 2466.0,
-    "source": "LIDAR (EA NLP 2019, TF2580): a span across the whole road at s 2465-2467 m, top 7.9-8.3 m; not in OSM"
    }
   ]
  },

@@ -424,38 +424,6 @@
     "topMedianM": null,
     "topMaxM": null
    }
-  },
-  {
-   "kind": "footbridge",
-   "name": "footbridge before Coppice",
-   "route": "main",
-   "sM": 260.0,
-   "at": [529306.11, 380777.74],
-   "roadDirection": [-0.285, -0.958],
-   "roadWidthM": 8.02,
-   "source": "LIDAR (EA NLP 2019, TF2580): a span across the whole road at s 259-261 m, top 8.0-8.2 m; not in OSM",
-   "lidar": {
-    "coverAcrossRoad": 1.0,
-    "atOffsetM": 0.0,
-    "topMedianM": 8.1,
-    "topMaxM": 8.2
-   }
-  },
-  {
-   "kind": "footbridge",
-   "name": "footbridge at Woodland",
-   "route": "main",
-   "sM": 2466.0,
-   "at": [529288.67, 380783.33],
-   "roadDirection": [0.34, 0.94],
-   "roadWidthM": 8.01,
-   "source": "LIDAR (EA NLP 2019, TF2580): a span across the whole road at s 2465-2467 m, top 7.9-8.3 m; not in OSM",
-   "lidar": {
-    "coverAcrossRoad": 1.0,
-    "atOffsetM": -2.0,
-    "topMedianM": 7.9,
-    "topMaxM": 8.2
-   }
   }
  ]
 }

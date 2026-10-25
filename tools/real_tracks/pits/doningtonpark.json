@@ -3,7 +3,9 @@
   "pitLanes": [
    {
     "id": "pit",
-    "ways": [90102737],
+    "ways": [
+     90102737
+    ],
     "widthM": 10.0,
     "mode": "closed",
     "centreFromTrackM": 13.0,
@@ -56,13 +58,34 @@
     "kind": "paddock",
     "name": "Paddock (behind the pit garages)",
     "polygon": [
-     [-640, -110],
-     [-560, -85],
-     [-470, -112],
-     [-300, -140],
-     [-262, -150],
-     [-270, -168],
-     [-560, -168]
+     [
+      -640,
+      -110
+     ],
+     [
+      -560,
+      -85
+     ],
+     [
+      -470,
+      -112
+     ],
+     [
+      -300,
+      -140
+     ],
+     [
+      -262,
+      -150
+     ],
+     [
+      -270,
+      -168
+     ],
+     [
+      -560,
+      -168
+     ]
     ],
     "source": "hand-drawn over the LIDAR relief and the OSM service roads: the ground behind the pit garages (OSM 410366924), the scrutineering bay (410366927) and the Redgate Suites, inside the Melbourne loop; OSM has no paddock polygon"
    }
@@ -73,12 +96,6 @@
     "name": "start/finish line",
     "sM": 0.0,
     "source": "the recipe's line (driver61.com coordinates; MSV maps), beside the middle of the pit lane"
-   },
-   {
-    "kind": "footbridge",
-    "name": "footbridge before the line",
-    "sM": 3914.0,
-    "source": "LIDAR (EA NLP 2022, SK4025): a span across the road at s 3912-3916 m, top 8.0-8.8 m, between Goddards and the line"
    }
   ]
  },

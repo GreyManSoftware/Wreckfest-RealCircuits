@@ -3,7 +3,9 @@
   "pitLanes": [
    {
     "id": "pit",
-    "ways": [195101700],
+    "ways": [
+     195101700
+    ],
     "widthM": 12.0,
     "mode": "closed",
     "centreFromTrackM": 16.0,
@@ -44,12 +46,6 @@
     "name": "start/finish line",
     "sM": 0.0,
     "source": "the recipe's line opposite the middle of the pit building (MSV map)"
-   },
-   {
-    "kind": "gantry",
-    "name": "gantry over the main straight",
-    "sM": 156.0,
-    "source": "LIDAR (Gobierno de Navarra 2024): a span across the road at s 154-158 m, top 6.7-6.9 m; not in OSM"
    }
   ]
  },
