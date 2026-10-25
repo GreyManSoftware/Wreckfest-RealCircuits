@@ -631,7 +631,7 @@ class Planner:
                 q, tw, tg = self.side_point(r, i, side, self.edge_min + 1.5)
                 a = self.common["flags"][0] if abs(along) < 15 else self.pick(self.common["flags"])
                 self.try_place(a, "flags", q[0], q[1], self.face_yaw(a, tw, tg), self.edge_min, exempt=True)
-        for k in range(4):
+        for k in range(0 if self.measured else 4):  # no trackside staff in the open on real circuits
             i = r.index_at((r.s[i0] - 8.0 + 5.0 * k) % r.length)
             q, tw, tg = self.side_point(r, i, -g_side, self.edge_min + 1.2 + 0.8 * (k % 2))
             a = self.pick(self.common["staff"])
@@ -683,7 +683,9 @@ class Planner:
             win = self.walk(r, i, length + 6.0, 2.0)
             reach = np.where(np.isfinite(a["offset"]), a["offset"], self.runoff.run_off_end(r.index, side))
             barrier = bool(np.isfinite(a["offset"][win]).all())
-            off_f = max(off_f, float(np.max(reach[win])) + 3.0, 0.0 if barrier else C.MEASURED_CROWD_MIN_M)
+            if not barrier:
+                return 0  # spectators only ever stand behind a real barrier (Chris 2026-10-25), never in the open
+            off_f = max(off_f, float(np.max(reach[win])) + 3.0)
             if off_f > C.MEASURED_CROWD_MAX_M:
                 return 0
         for k in ([] if self.measured else self.walk(r, i, length + 6.0, fw)):
