@@ -64,6 +64,13 @@
     "name": "start/finish line",
     "sM": 0.0,
     "source": "the recipe's start/finish line (where the pit garage lane rejoins the pit lane; ukCircuits: the lights opposite the start of the pit exit lane)"
+   },
+   {
+    "kind": "footbridge",
+    "name": "footbridge at Woodland",
+    "sM": 2466.0,
+    "source": "LIDAR (EA NLP 2019, TF2580): a span across the whole road at s 2465-2467 m, top 7.9-8.3 m; not in OSM",
+    "note": "an approved real span (Chris 2026-10-26): always the stock footbridge, scaled and nudged across the road so its pillars stand off the roads (preferably every part 4 m beyond the verge; nearer is reported, not swapped) (wfbuild/pits.py _span); restored 2026-10-26 (the start-straight footbridge before Coppice stays removed)"
    }
   ]
  },

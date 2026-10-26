@@ -398,6 +398,23 @@
     "topMedianM": null,
     "topMaxM": null
    }
+  },
+  {
+   "kind": "footbridge",
+   "name": "footbridge at Woodland",
+   "route": "main",
+   "sM": 2466.0,
+   "at": [529288.67, 380783.33],
+   "roadDirection": [0.34, 0.94],
+   "roadWidthM": 8.01,
+   "source": "LIDAR (EA NLP 2019, TF2580): a span across the whole road at s 2465-2467 m, top 7.9-8.3 m; not in OSM",
+   "lidar": {
+    "coverAcrossRoad": 1.0,
+    "atOffsetM": -2.0,
+    "topMedianM": 7.9,
+    "topMaxM": 8.2
+   },
+   "note": "an approved real span (Chris 2026-10-26): always the stock footbridge, scaled and nudged across the road so its pillars stand off the roads (preferably every part 4 m beyond the verge; nearer is reported, not swapped) (wfbuild/pits.py _span); restored 2026-10-26 (the start-straight footbridge before Coppice stays removed)"
   }
  ]
 }

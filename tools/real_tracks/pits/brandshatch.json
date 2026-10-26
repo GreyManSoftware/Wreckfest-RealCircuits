@@ -75,21 +75,21 @@
     "name": "Hailwood Hill footbridge",
     "osmWay": 842276417,
     "source": "OSM way 842276417 (highway=footway, bridge=covered, layer=1) over Hailwood Hill; LIDAR (EA NLP 2018) shows the span across the whole road, top 7.6-8.0 m",
-    "note": "built as the stock footbridge only where its pillars, stairs and bases stand 4 m beyond the road and verge, else as a stock gantry (wfbuild/pits.py _span; Chris 2026-10-25)"
+    "note": "an approved real span (Chris 2026-10-26): always the stock footbridge, scaled and nudged across the road so its pillars stand off the roads (preferably every part 4 m beyond the verge; nearer is reported, not swapped) (wfbuild/pits.py _span)"
    },
    {
     "kind": "bridge",
     "name": "service bridge (Pilgrims Drop)",
     "osmWay": 115385663,
     "source": "OSM way 115385663 (highway=service, bridge=yes, layer=1) over the GP loop; LIDAR (EA NLP 2018) shows the deck across the road, top 5.2-5.7 m",
-    "note": "built as the stock footbridge only where its pillars, stairs and bases stand 4 m beyond the road and verge, else as a stock gantry (wfbuild/pits.py _span; Chris 2026-10-25)"
+    "note": "an approved real span (Chris 2026-10-26): always the stock footbridge, scaled and nudged across the road so its pillars stand off the roads (preferably every part 4 m beyond the verge; nearer is reported, not swapped) (wfbuild/pits.py _span)"
    },
    {
     "kind": "bridge",
     "name": "service bridge (Clearways)",
     "osmWay": 115380228,
     "source": "OSM way 115380228 (highway=service, bridge=yes, layer=1); LIDAR (EA NLP 2018) shows the deck across the road, top 4.4-5.8 m",
-    "note": "built as the stock footbridge only where its pillars, stairs and bases stand 4 m beyond the road and verge, else as a stock gantry (wfbuild/pits.py _span; Chris 2026-10-25)"
+    "note": "an approved real span (Chris 2026-10-26): always the stock footbridge, scaled and nudged across the road so its pillars stand off the roads (preferably every part 4 m beyond the verge; nearer is reported, not swapped) (wfbuild/pits.py _span)"
    }
   ]
  },

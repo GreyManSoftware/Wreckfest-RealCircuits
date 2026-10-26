@@ -6,7 +6,10 @@
 - no AI strip (route, safe, race) of any layout reaches onto the pit lane;
 - pit buildings, grandstands and paddock props stand off every road and off the pit lane;
 - the start lights, bridges and gantries stand at their real sM (within GANTRY_S_TOL) with at least
-  MIN_CLEARANCE between the road and their lowest part;
+  MIN_CLEARANCE between the road and their lowest part, every pillar off the roads (nearer than PART_CLEAR: reported,
+  the real spans are approved);
+- span banners on every driven face, within the span's footprint and MIN_CLEARANCE over the road, the welcome banner
+  on the span nearest each layout's start (check_banners);
 - the start camera isn't inside or looking through a pit building.
 """
 from __future__ import annotations
@@ -116,7 +119,7 @@ def check_pits_base(check, geo, sc: dict, obs: dict, manifest: dict, to_scene, w
               f"{on_trap} lane samples, {b_trap} buildings on a trap")
     # gantries and bridges: real sM, clearance
     m = geo.main
-    over = [p for p in P if p["category"] in ("gantry", "bridges")]
+    over = [p for p in P if p["category"] in ("gantry", "bridges") and not p["asset"].startswith("sponsor_")]
     for g in pits.gantries:
         r = m if g.get("route", "main") == "main" else geo.by_id.get(g["route"])
         want = float(g["sM"])
@@ -129,15 +132,24 @@ def check_pits_base(check, geo, sc: dict, obs: dict, manifest: dict, to_scene, w
         ok = best is not None and best[0] <= GANTRY_S_TOL + (12.0 if g["kind"] == "startLights" else 0.0)
         check(ok, f"pits: {g['kind']} {g.get('name', '')} at its real position (s {want:.0f} m)",
               f"{best[0]:.1f} m along" if best else "missing")
-    # no part of a bridge or gantry (pillars, stairs, bases, legs) within 4 m beyond any road's verge
-    worst_part = []
-    for p in [p for p in P if p["category"] == "bridges"]:
-        pts = pits_mod.span_parts(p["asset"], p["position"][:2], p["yaw"], p["scale"])
-        e = float(exact_edge_distance(geo, pts).min())
-        if e < pits_mod.PART_CLEAR - 0.3:
-            worst_part.append(f"{p['asset']} {e:.1f} m")
-    check(not worst_part, f"pits: every bridge and gantry part stands {pits_mod.PART_CLEAR - 3.7:.0f} m beyond the "
-          "road and verge edges", ", ".join(worst_part[:3]))
+    # the real spans are approved (Chris 2026-10-26): their pillars / posts must stand off every road; pillars on the
+    # verge and stairs or bases nearer than PART_CLEAR are reported (pits.py warns), not failed
+    spans = [p for p in P if p["category"] == "bridges" and pits_mod.is_span(p["asset"])]
+    on_road, near = [], []
+    for p in spans:
+        legs = float(exact_edge_distance(geo, pits_mod.span_parts(p["asset"], p["position"][:2], p["yaw"], p["scale"],
+                                                                  legs_only=True)).min())
+        parts = float(exact_edge_distance(geo, pits_mod.span_parts(p["asset"], p["position"][:2], p["yaw"],
+                                                                   p["scale"])).min())
+        if legs < pits_mod.LEG_MIN - 0.3:
+            on_road.append(f"{p['asset']} {legs:.1f} m")
+        if parts < pits_mod.PART_CLEAR - 0.3 or legs < pits_mod.LEG_CLEAR - 0.3:
+            near.append(f"{p['asset']} pillars {legs:.1f} m, parts {parts:.1f} m")
+    check(not on_road, "pits: every bridge pillar and gantry post stands off the roads", ", ".join(on_road[:3]))
+    if near:
+        print(f"INFO pits: spans kept nearer than the preferred {pits_mod.PART_CLEAR:.1f} m (approved real spans): "
+              + "; ".join(near))
+    check_banners(check, geo, P, spans)
     for rep in sc["info"].get("pits", {}).get("gantries", []):
         check(rep["clearanceM"] >= pits_mod.MIN_CLEARANCE - 0.05 and not rep["problems"],
               f"pits: {rep['kind']} {rep['name']} clears the road by at least {pits_mod.MIN_CLEARANCE:.0f} m, legs off the pits",
@@ -163,6 +175,82 @@ def check_pits_base(check, geo, sc: dict, obs: dict, manifest: dict, to_scene, w
                     break
         check(not blocked, f"pits: {lay['name']} start camera has a clear view (not in or through a pit building)",
               ", ".join(blocked[:3]))
+
+
+def check_banners(check, geo, P: list, spans: list) -> None:
+    """Span banners (pits._banners, sponsor.py span / welcome panels): every span face a layout drives towards
+    carries one (pits.driven_faces); each banner lies within its span's footprint (between the pillars, flush on a
+    face, printed side outwards, from the span's lowest part up to the top of the face) and at least MIN_CLEARANCE
+    over every road under it; every layout that drives under a span has the welcome banner on the face it sees of
+    the span nearest its start line."""
+    from wfbuild import pits as pits_mod, sponsor
+
+    if not spans or not (sponsor.span_rotation() or sponsor.welcome()):
+        return
+    banners = [p for p in P if sponsor.is_banner(p["asset"])]
+    on_face: dict[tuple[int, int], list[str]] = {}
+    outside, low = [], []
+    for b in banners:
+        q = np.array(b["position"][:2])
+        h = float(b["scale"])
+        w = sponsor.banner_width(b["asset"], h)
+        # every road under the panel (its width + 0.5 m, 3 m either side): the panel's lower edge over the highest
+        BX, BY = pits_mod._axes(b["yaw"])
+        tops = []
+        for r in geo.routes:
+            rel = r.p[:, :2] - q
+            sel = (np.abs(rel @ BX) <= w / 2.0 + 0.5) & (np.abs(rel @ BY) <= 3.0)
+            if sel.any():
+                tops.append(float(max(r.p[sel, 2].max(), r.left[sel, 2].max(), r.right[sel, 2].max())))
+        if tops and b["position"][2] - max(tops) < pits_mod.MIN_CLEARANCE - 0.05:
+            low.append(f"{b['asset']} {b['position'][2] - max(tops):.2f} m")
+        home = None
+        for k, sp in enumerate(spans):
+            F, s = pits_mod.FACES[sp["asset"]], sp["scale"]
+            X, Y = pits_mod._axes(sp["yaw"])
+            rel = q - np.array(sp["position"][:2])
+            u, v = float(rel @ X), float(rel @ Y)
+            if abs(u) <= F["half"] * s + 0.1 and F["neg"] * s - 0.4 <= v <= F["pos"] * s + 0.4:
+                home = (k, sp, F, s, X, Y, u, v)
+                break
+        if home is None:
+            outside.append(f"{b['asset']} on no span")
+            continue
+        k, sp, F, s, X, Y, u, v = home
+        face = -1 if v < (F["neg"] + F["pos"]) / 2.0 * s else 1
+        out_dir = np.array([math.sin(b["yaw"]), -math.cos(b["yaw"])])  # the banner's printed side (local -Y)
+        z0 = float(sp["position"][2])
+        bad = []
+        if abs(u) + w / 2.0 > F["half"] * s + 0.05:
+            bad.append(f"ends {abs(u) + w / 2.0:.1f} m out of {F['half'] * s:.1f}")
+        if not (b["position"][2] >= z0 + F["low"] * s - 0.01 and b["position"][2] + h <= z0 + F["top"] * s + 0.01):
+            bad.append("above or below the face")
+        if float(out_dir @ Y) * face < 0.95:
+            bad.append("printed side not outwards")
+        if bad:
+            outside.append(f"{b['asset']}: {', '.join(bad)}")
+            continue
+        on_face.setdefault((k, face), []).append(b["asset"])
+    check(not outside, "pits: span banners hang on their span's faces (between the pillars, printed side out)",
+          "; ".join(outside[:3]))
+    check(not low, f"pits: span banners clear the road by at least {pits_mod.MIN_CLEARANCE:.0f} m", ", ".join(low[:3]))
+    missing, near = [], {}
+    for k, sp in enumerate(spans):
+        df = pits_mod.driven_faces(geo, sp["asset"], sp["position"][:2], sp["yaw"], sp["scale"])
+        for f, passes in df.items():
+            if passes and not on_face.get((k, f)):
+                missing.append(f"{sp['asset']} #{k} {'-y' if f < 0 else '+y'} ({passes[0]['layout']})")
+            for ps in passes:
+                if ps["layout"] not in near or ps["fromLineM"] < near[ps["layout"]][0]:
+                    near[ps["layout"]] = (ps["fromLineM"], (k, f))
+    check(not missing, "pits: every span face a layout drives towards carries a banner", ", ".join(missing[:3]))
+    if sponsor.welcome():
+        nowel = [f"{lay} ({d:.0f} m from its line)" for lay, (d, kf) in near.items()
+                 if "sponsor_welcome" not in on_face.get(kf, [])]
+        check(bool(near) and not nowel, "pits: the welcome banner faces each layout on the span nearest its start",
+              ", ".join(nowel) if near else "no layout drives under a span")
+    per = {f"#{k}{'-y' if f < 0 else '+y'}": [sponsor.sponsor_of(a) or "welcome" for a in v] for (k, f), v in on_face.items()}
+    print(f"INFO pits: span banners {per}")
 
 
 def check_pits_layout(check, geo, name: str, obs: dict, manifest: dict, to_scene, world_verts) -> None:

@@ -1188,7 +1188,7 @@
     "topMedianM": 6.7,
     "topMaxM": 6.9
    },
-   "note": "built as the stock footbridge only where its pillars, stairs and bases stand 4 m beyond the road and verge, else as a stock gantry (wfbuild/pits.py _span; Chris 2026-10-25)"
+   "note": "an approved real span (Chris 2026-10-26): always the stock footbridge, scaled and nudged across the road so its pillars stand off the roads (preferably every part 4 m beyond the verge; nearer is reported, not swapped) (wfbuild/pits.py _span)"
   }
  ]
 }
