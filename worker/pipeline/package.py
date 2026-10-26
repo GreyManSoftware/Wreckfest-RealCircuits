@@ -6,7 +6,7 @@ Tree for slug S with layouts S_race (and S_race_reverse):
     data/property/weather/S/S.weli                     (stock .weat paths only)
     data/track/S/S_base.scne, S_race.scne, S_race.tcat (generated, or the recorded upload), ...
     data/track/S/menu/event_S_race_{loading_1920x1200,results_812x162,small_250x116}_raw.bmap
-    data/menu/textures/env_S_{large_832x386,small_250x116}_raw.bmap
+    data/menu/textures/env_S_{large_832x386,small_250x116,skew_182x70}_raw.bmap
     data/menu/textures/event_S_race_small_250x116_raw.bmap
 """
 from __future__ import annotations
@@ -185,7 +185,9 @@ def package(spec: dict, manifest: dict, model: dict, project: str, sizes: dict, 
     jobs.append((f"data/menu/textures/env_{slug}_large_832x386_raw", images.card(832, 386, env_out, name, sub), True))
     jobs.append((f"data/menu/textures/env_{slug}_small_250x116_raw", images.card(250, 116, env_out, name, sub, text=False),
                  True))
-    probs = images.check_menu({rel: img for rel, img, _ in jobs}, [lay["name"] for lay in layouts])
+    # the lobby header's tile beside the event name (stock env_*_skew_182x70; missing, the game draws a pink square)
+    jobs.append((f"data/menu/textures/env_{slug}_skew_182x70_raw", images.skew(182, 70, env_out), True))
+    probs = images.check_menu({rel: img for rel, img, _ in jobs}, [lay["name"] for lay in layouts], slug)
     if probs:
         for msg in probs:
             log.error(f"menu images: {msg}")

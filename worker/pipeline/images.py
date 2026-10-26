@@ -245,6 +245,24 @@ def card(w: int, h: int, outline: dict, title: str, subtitle: str, text: bool = 
     return im.convert("RGB")
 
 
+SKEW_SHIFT = 11 / 69  # stock env_*_skew_182x70: a parallelogram, the top row 11 px right of the bottom one
+ENV_KINDS = ("large_832x386", "small_250x116", "skew_182x70")  # every stock environment ships all three
+
+
+def skew(w: int, h: int, outline: dict) -> Image.Image:
+    """The environment's skewed header tile (stock ``env_*_skew_182x70_raw``: the lobby header shows it left of the
+    event name; without it the game draws its pink missing-texture square, Chris 2026-10-26): the small card's art
+    in a parallelogram, transparent outside, each row 171 of 182 px wide, slanting 11 px over the height."""
+    im = card(w, h, outline, "", "", text=False).convert("RGBA")
+    span = w - round(SKEW_SHIFT * (h - 1))
+    y = np.arange(h)[:, None] + 0.5
+    x = np.arange(w)[None, :] + 0.5
+    x0 = SKEW_SHIFT * (h - y)                     # the left edge at this row
+    a = np.clip(np.minimum(x - x0, x0 + span - x) + 0.5, 0.0, 1.0)  # 1 px anti-aliased edges
+    im.putalpha(Image.fromarray((a * 255).astype(np.uint8), "L"))
+    return im
+
+
 def save_tga(img: Image.Image, path: str, alpha: bool) -> str:
     """Save at the named size in the top-left of a power-of-two canvas, like the example mod's sources."""
     w, h = img.size
@@ -261,10 +279,15 @@ def save_preview_jpg(outline: dict, title: str, subtitle: str, path: str, size=(
     return path
 
 
-def check_menu(images: dict[str, Image.Image], layouts: list[str]) -> list[str]:
+def check_menu(images: dict[str, Image.Image], layouts: list[str], env: str | None = None) -> list[str]:
     """Problems with a build's menu images ({relpath: image}): each layout has its small, results and loading
-    image at the named size (the name ends in _<w>x<h>_raw), and layouts of one track don't share a picture."""
+    image at the named size (the name ends in _<w>x<h>_raw), layouts of one track don't share a picture, and the
+    environment ``env`` has all three stock variants (large, small, skew)."""
     probs = []
+    if env is not None:
+        for kind in ENV_KINDS:
+            if f"data/menu/textures/env_{env}_{kind}_raw" not in images:
+                probs.append(f"environment {env}: no {kind} image")
     for rel, im in images.items():
         size = rel.rsplit("_", 2)[-2]
         w, h = (int(v) for v in size.split("x"))
