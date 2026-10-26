@@ -436,41 +436,119 @@ class LayoutBuilder:
         self.warnings.append(f"checkpoint at s {s:.0f} of {r.id}: no built road within {reach:.0f} m")
         return s
 
-    def cone_off_main(self, branch_id: str) -> list[Empty]:
-        """A row of stock traffic cones (CONE_ASSET) across the main road where the layout's branch has left it
-        (``coneOffMain``): the first main sample past the split whose centre is clear of the branch's road by
-        CONE_CLEAR_M, cones every CONE_SPACING_M from edge to edge. Layout scene props: the other layouts don't
-        have them."""
+    # --------------------------------------------------------------------------------- junction cones
+    def _keep_out(self, r: Route, lay: Layout) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Where no cone of layout ``lay`` (driving ``r``) may stand besides its road: plan quads (k x 4 x 2) of its
+        blue AI route strips (``blue`` marks them) and of its run-off reach (road edge out to the wall plan's
+        barrier or the end of the measured trap or apron) along every road sample it drives; and its road as
+        centreline segments (m x 2 x 2) with their half widths (m)."""
         geo = self.geo
-        br = geo.by_id.get(branch_id)
-        if br is None or not br.start_join or br.start_join["route"] != "main":
-            self.warnings.append(f"cones: layout {branch_id} has no branch leaving the main road; none placed")
-            return []
-        m = geo.main
-        i0 = int(br.start_join["sampleIndex"])
-        bp = br.p[:, :2]
-        for k in range(m.n):
-            i = (i0 + k) % m.n
-            if m.s_dist(m.s[i], m.s[i0]) > 150.0:
-                break
-            d = np.hypot(*(bp - m.p[i, :2]).T) - br.w / 2.0
-            if float(d.min()) >= m.w[i] / 2.0 + C.CONE_CLEAR_M:
-                break
-        else:
-            i = i0
-        if m.s_dist(m.s[i], m.s[i0]) > 150.0:
-            self.warnings.append(f"cones: layout {branch_id}'s branch never clears the main road; none placed")
-            return []
-        L, R = m.left[i], m.right[i]
-        width = float(np.hypot(*(L[:2] - R[:2])))
-        n = max(2, int(width // C.CONE_SPACING_M) + 1)
+        quads = [np.array([m.verts[i][:2] for i in f]) for m in lay.meshes
+                 if m.kind == "ai" and m.name.startswith("#ai_route_") for f in m.faces if len(f) == 4]
+        n_blue = len(quads)
+        seg_a, seg_b, seg_hw = _segments(r)
+        ro = getattr(geo, "runoff", None)
+        for (ri, side), pl in geo.wall_plan().items():
+            rr = pl["route"]
+            on = geo.svalid[rr.index] & (_polyline_dist(rr.p[:, :2], seg_a, seg_b)[0] < 0.5)
+            if not on.any():
+                continue
+            reach = np.where(pl["ok"], np.nan_to_num(pl["offset"]), 0.0)
+            if ro is not None and ro.active:
+                reach = np.maximum(reach, ro.run_off_end(ri, side))
+            edge = rr.left if side > 0 else rr.right
+            far = edge[:, :2] + pl["out"] * reach[:, None]
+            for a in range(rr.segs):
+                b = (a + 1) % rr.n
+                if on[a] and on[b] and max(reach[a], reach[b]) > 0.05:
+                    quads.append(np.array([edge[a, :2], edge[b, :2], far[b], far[a]]))
+        q = np.array(quads).reshape(-1, 4, 2)
+        blue = np.arange(len(q)) < n_blue
+        return q, blue, np.stack([seg_a, seg_b], axis=1), seg_hw
+
+    def junction_arms(self) -> list[dict]:
+        """Every junction (a branch or extra road leaving or rejoining the main route): its plan point and its
+        three arms as (route, first sample, step), each walking away from the junction."""
         out = []
-        yaw = math.atan2(m.tangent[i][1], m.tangent[i][0])
-        for t in np.linspace(0.04, 0.96, n):
-            q = L + (R - L) * t
-            out.append(Empty(f"#xref ob/{C.CONE_ASSET}.scne", (float(q[0]), float(q[1]), float(q[2])), yaw,
-                             display="PLAIN_AXES", size=0.5))
+        m = self.geo.main
+        for br in self.geo.routes:
+            if br.is_main or br.closed:
+                continue
+            for join, own in ((br.start_join, (br, 0, 1)), (br.end_join, (br, br.n - 1, -1))):
+                if not join or join.get("route") != "main":
+                    continue
+                i = int(join["sampleIndex"])
+                out.append({"branch": br.id, "kind": "split" if own[2] > 0 else "merge", "at": m.p[i, :2].copy(),
+                            "arms": [(m, i, 1), (m, i, -1), own]})
         return out
+
+    def junction_cones(self, r: Route, lay: Layout) -> list[Empty]:
+        """Rows of stock traffic cones (CONE_ASSET) across the mouth of every road this layout does not take, at
+        every junction it passes (Chris 2026-10-26: cones "on the incorrect corner to make it obvious which way
+        around the circuit will go", as Oulton Park's International Trackday first had). Each arm of a junction
+        the layout's road runs through is walked away from it, up to CONE_REACH_M; the row goes at the first built
+        sample (a built road or paved link) where every cone of a row across that road (CONE_SPACING_M apart,
+        edge to edge) is CONE_CLEAR_M clear of the layout's road and outside its run-off reach and, where there
+        is room, its blue AI route (_keep_out). Arms the layout drives are skipped; neighbouring junctions that
+        share a mouth share its row. Layout scene props: each layout has its own."""
+        geo = self.geo
+        quads, blue, segs, seg_hw = self._keep_out(r, lay)
+        qc = quads.mean(1) if len(quads) else np.zeros((0, 2))
+        rows: list[tuple[str, np.ndarray]] = []
+        cones: list[Empty] = []
+        info = []
+        for jn in self.junction_arms():
+            d0, j0 = _polyline_dist(jn["at"][None, :], segs[:, 0], segs[:, 1])
+            if float(d0[0]) > float(seg_hw[j0[0]]):
+                continue  # the junction isn't on the layout's road: it doesn't pass it
+            near = np.hypot(*(segs.mean(1) - jn["at"]).T) < C.CONE_REACH_M + 80.0
+            sa, sb, shw = segs[near, 0], segs[near, 1], seg_hw[near]
+            close = np.hypot(*(qc - jn["at"]).T) < C.CONE_REACH_M + 120.0
+            for arm, i0, step in jn["arms"]:
+                built = geo.svalid[arm.index] | (arm.index in geo.apron_routes)
+                walk = []
+                for k in range(arm.n):
+                    i = (i0 + step * k) % arm.n
+                    if (not arm.closed and not 0 <= i0 + step * k < arm.n) or \
+                            arm.s_dist(arm.s[i], arm.s[i0]) > C.CONE_REACH_M:
+                        break
+                    walk.append(i)
+                k_drive = walk[min(len(walk) - 1, 15)]
+                if float(_polyline_dist(arm.p[k_drive, None, :2], sa, sb)[0][0]) < 0.3:
+                    continue  # the layout drives this arm (30 m on, its centreline is the layout's)
+                row = None
+                # off the blue AI route too where it can be; a short link between two close roads may lie wholly
+                # inside it (the AI route reaches half way to another road: Cadwell Park's Club and Woodlands links)
+                for qn in (quads[close], quads[close & ~blue]):
+                    for i in walk:
+                        if not built[i]:
+                            continue
+                        pts = _cone_row(arm, i)
+                        d, j = _polyline_dist(pts, sa, sb)
+                        if float((d - shw[j]).min()) >= C.CONE_CLEAR_M and not _in_quads(pts, qn).any():
+                            row = (i, pts)
+                            break
+                    if row is not None:
+                        break
+                if row is None:
+                    self.warnings.append(f"cones: no room for a row across {arm.id} at the {jn['branch']} "
+                                         f"{jn['kind']} within {C.CONE_REACH_M:.0f} m; none placed")
+                    continue
+                i, pts = row
+                c = pts.mean(0)
+                if any(rid == arm.id and float(np.hypot(*(c - rc))) < 10.0 for rid, rc in rows):
+                    continue  # the same mouth, seen from a neighbouring junction
+                rows.append((arm.id, c))
+                yaw = math.atan2(arm.tangent[i][1], arm.tangent[i][0])
+                z = np.interp(np.linspace(0.04, 0.96, len(pts)), [0.0, 1.0], [arm.left[i, 2], arm.right[i, 2]])
+                for q, zq in zip(pts, z):
+                    cones.append(Empty(f"#xref ob/{C.CONE_ASSET}.scne", (float(q[0]), float(q[1]), float(zq)), yaw,
+                                       display="PLAIN_AXES", size=0.5))
+                info.append({"junction": f"{jn['branch']} {jn['kind']}", "route": arm.id, "sample": int(i),
+                             "cones": len(pts), "at": [round(float(v), 1) for v in c]})
+        lay.info["coneRows"] = info
+        lay.info["cones"] = len(cones)
+        return cones
 
     def _build_imported(self, defs: list[dict]) -> list[Layout]:
         """One layout per TrackModel ``layouts`` entry (imported tracks with alternative layouts): the main
@@ -496,11 +574,7 @@ class LayoutBuilder:
             self.lap_checkpoints(lay, r, first_s)
             lay.empties.append(Empty(f"#xref {self.slug}_base.scne", (0.0, 0.0, 0.0), 0.0, "vis = true|col = true",
                                      display="PLAIN_AXES", size=5.0, xdir=f"data/track/{self.slug}"))
-            alt = {a.get("id"): a for a in ((self.geo.imported or {}).get("altLayouts") or [])}.get(d["id"], {})
-            if not is_main and alt.get("coneOffMain"):
-                cones = self.cone_off_main(d["id"])
-                lay.empties += cones
-                lay.info["cones"] = len(cones)
+            lay.empties += self.junction_cones(r, lay)
             if self.warnings:
                 lay.info.setdefault("warnings", []).extend(self.warnings)
                 self.warnings = []
@@ -573,3 +647,39 @@ def strip_end_lines(layouts: list[Layout]) -> list[np.ndarray]:
 
 def e_is(a, b) -> bool:
     return a is not None and a[0] == b[0] and a[1] is b[1] and a[2] == b[2]
+
+
+def _segments(r: Route) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """A route's centreline as plan segments (start points, end points) with their half widths."""
+    nxt = (np.arange(r.segs) + 1) % r.n
+    return r.p[:r.segs, :2], r.p[nxt, :2], np.minimum(r.w[:r.segs], r.w[nxt]) / 2.0
+
+
+def _polyline_dist(q: np.ndarray, a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Plan distance from points q (n x 2) to the nearest of the segments a->b (m x 2), and that segment's index."""
+    if not len(a):
+        return np.full(len(q), np.inf), np.zeros(len(q), dtype=int)
+    ab = b - a
+    ll = np.maximum((ab * ab).sum(1), 1e-12)
+    t = np.clip(((q[:, None, :] - a[None]) * ab[None]).sum(2) / ll[None], 0.0, 1.0)
+    foot = a[None] + t[..., None] * ab[None]
+    d = np.hypot(q[:, None, 0] - foot[..., 0], q[:, None, 1] - foot[..., 1])
+    j = np.argmin(d, axis=1)
+    return d[np.arange(len(q)), j], j
+
+
+def _in_quads(q: np.ndarray, quads: np.ndarray) -> np.ndarray:
+    """Which points q (n x 2) lie inside any of the convex plan quads (k x 4 x 2), either winding."""
+    if not len(quads) or not len(q):
+        return np.zeros(len(q), dtype=bool)
+    e = np.roll(quads, -1, axis=1) - quads  # k x 4 x 2
+    rel = q[:, None, None, :] - quads[None]  # n x k x 4 x 2
+    cr = e[None, ..., 0] * rel[..., 1] - e[None, ..., 1] * rel[..., 0]
+    return ((cr >= 0).all(2) | (cr <= 0).all(2)).any(1)
+
+
+def _cone_row(arm: Route, i: int) -> np.ndarray:
+    """Plan points of a row of cones across a road at sample i, about CONE_SPACING_M apart from edge to edge."""
+    L, R = arm.left[i, :2], arm.right[i, :2]
+    n = max(2, int(float(np.hypot(*(L - R))) // C.CONE_SPACING_M) + 1)
+    return np.array([L + (R - L) * t for t in np.linspace(0.04, 0.96, n)])

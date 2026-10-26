@@ -413,9 +413,11 @@ collision) ends at the road's bounding box + 60 m, i.e. 48-111 m beyond the blue
 (median 113-301 m per layout); beyond it the far ground had no collision, so a car fell forever.
 
 **Ours now** (`worker/builder/wfbuild/bounds.py`, checks `tests/check_bounds.py`): per layout a `bounds_reset`
-wall (4 m outside the blue route, top +2 m, foot −4 m) with a 16 m lid at +2 m round the outside; in the base
+wall (top +2 m, foot −4 m) with a 16 m lid at +2 m round the outside, since 2026-10-26 at least twice as far from
+the road as the first walls (4 m outside the blue route) and at least 48 m, within the terrain; in the base
 invisible far-ground collision (~230 m past the terrain), `#resetplayer` sheets 0.3 m under imported lakes and the
-sea, and a `#resetplayer` kill floor 25 m below the lowest collision. See worker/README.md "Out of bounds".
+sea, `#resetplayer` boxes round every spectator crowd, and a `#resetplayer` kill floor 25 m below the lowest
+collision. See worker/README.md "Out of bounds".
 
 ## Real-circuit run-off and barriers (2026-10-24)
 
