@@ -557,10 +557,15 @@ py tools\real_tracks_data\apply_pits.py <slug> ...              # into the commi
   no AI strip, checkpoint or minimap; no clutter grass grows through it (`paved` zones).
 - buildings: stock pit garages (`prop_tarmac2_pitstop_part2`, roller doors towards the lane), race control / media
   (`prop_startbuilding_fields14`), hospitality and others (`prop_start_building_forest11/09`), paddock halls
-  (`prop_tarmac2_tenthall`), tiled along each footprint's long side and scaled uniformly to the real height
-  (0.55-1.4), front on the footprint's front edge (moved back where OSM's footprint reaches the lane);
-  grandstands (`prop_start_grandstand3g` / `1`) the same; paddock: trucks, tents and crew buses spread over the real
-  paddock (at most 45 per area). These replace the generic grandstand and paddock beside the line.
+  (`prop_tarmac2_tenthall`, its 35 m side along the row), tiled along each footprint's long side, 3 % apart, and
+  scaled uniformly to the real height (0.55-1.4), front on the footprint's front edge (moved back where OSM's
+  footprint reaches the lane); grandstands (`prop_start_grandstand1`; not `3g`, whose front boards are two strips of
+  adverts 13 mm apart that flicker) the same; paddock: trucks, tents and crew buses spread over the real paddock (at
+  most 45 per area). These replace the generic grandstand and paddock beside the line.
+- no shared faces (2026-10-26): the pit wall's `prop_barrier8` elements stand end to end 4 cm apart (they overlapped
+  by 6-12 cm, flickering along every pit wall), ad fence panels the same along the line, none within 8 m of a
+  grandstand or building (their own boards); `check_scene` fails on any two props with a vertical face on one plane
+  (`footprint.coplanar`, measured stock extents in `footprint.EXTENTS`).
 - start lights: a stock cantilever (`prop_forest5_startlight01`: a pole and an arm 7.2 m up) on the pit wall at the
   real line, the arm over the track (the generated tracks' banner gantry hangs only 4 m over the road at scale 1);
   bridges, footbridges and the Navarra gantry: `prop_bridge03_green` across the road at the real sM, scaled so its
