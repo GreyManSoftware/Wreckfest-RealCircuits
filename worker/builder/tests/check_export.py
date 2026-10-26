@@ -298,6 +298,19 @@ def check_driving_order(scene: str, scne: str) -> None:
 CAM_MIN_ABOVE_M, CAM_MAX_ABOVE_M = 2.0, 150.0
 CAM_TARGET_NEAR_ROUTE_M = 25.0
 CAM_NEAR_SECTORS_M = 250.0
+# trackside cameras on hills (wfbuild/cameras.py ABOVE_CARS_M, 3 m): above every car (sector gate + 1 m) of their
+# sectors, and the cars of at least CAM_RANGE_SEEN of those sectors in view over the terrain
+CAM_ABOVE_CARS_M, CAM_RANGE_SEEN = 1.0, 0.8
+
+
+def _terrain_clear(ter, eye, target, n: int = 30) -> bool:
+    """The sight line eye -> target stays 0.3 m above the terrain (ends excluded)."""
+    for t in np.linspace(0.04, 0.96, n):
+        q = eye + t * (target - eye)
+        g = ter.height(q[0], q[1])
+        if g is not None and q[2] < g + 0.3:
+            return False
+    return True
 _terrain_cache: dict[str, "Surface | None"] = {}
 
 
@@ -370,8 +383,9 @@ def check_track_data(scene: str, scne: str, track: str) -> dict | None:
     one start camera with the pole in view, and trackside cameras with sector activation whose sector ranges
     cover every sector of the compiled main route (the game's trackside camera mode cuts between them), each near
     its sectors; every camera
-    CAM_MIN_ABOVE_M..CAM_MAX_ABOVE_M above the exported terrain (the base .scne's raw vertices) and its view
-    ray reaching the ground within CAM_TARGET_NEAR_ROUTE_M of a compiled AI route. Needs only the shipped
+    CAM_MIN_ABOVE_M..CAM_MAX_ABOVE_M above the exported terrain (the base .scne's raw vertices); the start camera's
+    view ray reaching the ground within CAM_TARGET_NEAR_ROUTE_M of a compiled AI route; each trackside camera
+    CAM_ABOVE_CARS_M above every car of its sectors and seeing at least CAM_RANGE_SEEN of them over the terrain. Needs only the shipped
     files (layout and base .scne, .tcat), so tools/build_track_bundle.py runs it on every track of a bundle:
     put further checks of what a .tcat ships here. Returns the parsed track data, or None when it doesn't
     parse."""
@@ -416,6 +430,7 @@ def check_track_data(scene: str, scne: str, track: str) -> dict | None:
         return td
     route_pts = np.array([p[:2] for r in lay.routes for a, b in r for p in (a, b, ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2))])
     mids = np.array([((a[0] + b[0]) / 2, (a[1] + b[1]) / 2) for a, b in lay.routes[0]])
+    cars = np.array([((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2 + 1.0) for a, b in lay.routes[0]])
     pole = next((sp for sp in lay.startpoints if sp[0] == "#startpoint01"), None)
     bad = []
     for k, c in enumerate(cams):
@@ -434,6 +449,14 @@ def check_track_data(scene: str, scne: str, track: str) -> dict | None:
                 d = float(np.min(np.hypot(*(mids[a:b + 1] - pos[:2]).T)))
                 if d > CAM_NEAR_SECTORS_M:
                     bad.append(f"camera {k} {d:.0f} m from its sectors {a}-{b}")
+                    continue
+                below = float(cars[a:b + 1, 2].max()) + CAM_ABOVE_CARS_M - pos[2]
+                if below > 0:
+                    bad.append(f"camera {k} {below:.1f} m too low for a car on its sectors {a}-{b}")
+                    continue
+                seen = np.mean([_terrain_clear(ter, pos, car) for car in cars[a:b + 1]])
+                if seen < CAM_RANGE_SEEN:
+                    bad.append(f"camera {k} sees the cars of {seen:.0%} of its sectors {a}-{b} over the terrain")
             continue  # a rotating camera turns to its target: its stored view doesn't matter
         d = _view(c)
         hit = None
@@ -459,7 +482,7 @@ def check_track_data(scene: str, scne: str, track: str) -> dict | None:
                 bad.append(f"start camera {k}: the pole is {ang:.0f} deg off the view centre")
     desc = "; ".join(f"({c['pos'][0]:.0f}, {c['pos'][1]:.0f}, {c['pos'][2]:.1f}) flags {c['flags']}" for c in cams[:2])
     check(cams and not bad, f"{scene}: cameras {CAM_MIN_ABOVE_M:.0f}-{CAM_MAX_ABOVE_M:.0f} m above the exported "
-          "terrain, the start camera looking at the grid, trackside cameras by their sectors",
+          "terrain, the start camera looking at the grid, trackside cameras by their sectors, above and seeing their cars",
           "; ".join(bad[:3]) or desc)
     check_result_camera(scene, scne, track, ter, route_pts)
     return td
