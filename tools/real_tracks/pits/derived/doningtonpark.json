@@ -475,7 +475,8 @@
    "lengthM": 367.6,
    "gapsAt": "entry and exit only (the merges)",
    "source": "derived: 1.5 m off the pit lane's edge towards the track (midway where narrower), where the edges are at least 1.2 m apart",
-   "osmBarrierWithin3mShare": 0.77
+   "osmBarrierWithin3mShare": 0.77,
+   "trimmed": "OSM barriers within 3 m (whole line)"
   }
  ],
  "buildings": [

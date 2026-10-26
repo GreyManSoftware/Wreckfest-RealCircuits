@@ -2,7 +2,7 @@
 
 - the pit lane surface and its collision wall exist; the wall (collision and concrete row) is continuous from
   one end of its stretch to the other, with the closures across the lane at both ends: the only openings are the
-  entry and exit merges, outside the stretch;
+  entry and exit merges, outside the stretch; it doesn't wrap round the corners or junction noses at its ends;
 - no AI strip (route, safe, race) of any layout reaches onto the pit lane;
 - pit buildings, grandstands and paddock props stand off every road and off the pit lane;
 - the start lights, bridges and gantries stand at their real sM (within GANTRY_S_TOL) with at least
@@ -17,6 +17,7 @@ import numpy as np
 
 GANTRY_S_TOL = 3.0
 WALL_STEP_MAX = 6.5      # concrete elements 6 m long: no gap between neighbours on the line
+WALL_MAX_TURN_DEG = 90.0  # the pit wall's heading range (smoothed over +-6 m): measured walls 3-74 deg
 
 
 def _rect(p: dict, info: dict) -> np.ndarray:
@@ -50,6 +51,18 @@ def check_pits_base(check, geo, sc: dict, obs: dict, manifest: dict, to_scene, w
         d = np.array([np.hypot(*(V - q).T).min() for q in line[::2]])
         check(float(d.max()) < 1.5, f"pits: {lane.id} collision wall continuous along the pit wall",
               f"{len(line)} m of wall, worst {d.max():.2f} m from the collision mesh")
+        # one run along the pit straight, not round the corners at its ends (Anglesey 2026-10-26: the derived wall
+        # wrapped the corner and the junction nose before the straight, 177 deg; tools/real_tracks_data/pits.py
+        # trim_wall keeps it where the evidence puts it)
+        if lane.wall is not None and len(lane.wall) > 2:
+            ss = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(lane.wall, axis=0).T))])
+            lo = np.searchsorted(ss, ss - 6.0)
+            hi = np.minimum(np.searchsorted(ss, ss + 6.0, side="right") - 1, len(ss) - 1)
+            dv = lane.wall[hi] - lane.wall[lo]
+            h = np.unwrap(np.arctan2(dv[:, 1], dv[:, 0]))
+            turn = math.degrees(float(h.max() - h.min()))
+            check(turn <= WALL_MAX_TURN_DEG, f"pits: {lane.id} pit wall doesn't wrap round a corner or junction nose",
+                  f"heading range {turn:.0f} deg over {ss[-1]:.0f} m (max {WALL_MAX_TURN_DEG:.0f})")
         row = np.array([p["position"][:2] for p in P if p["category"] == "pitWall"])
         if len(row):
             dd = np.array([np.hypot(*(row - q).T).min() for q in lane.wall[::2]])

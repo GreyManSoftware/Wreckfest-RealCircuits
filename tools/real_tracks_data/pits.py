@@ -36,6 +36,11 @@ DERIVED = ("pitLanes", "pitWalls", "buildings", "paddocks", "grandstands", "gant
 WALL_MIN_GAP_M = 1.2      # the pit wall stands where the pit lane's edge is at least this far from the track's edge
 WALL_HEIGHT_M = 1.0       # concrete pit wall (the fence on top is decoration)
 WALL_LANE_GAP_M = 1.5     # the wall stands this far off the pit lane's edge (midway when the gap is narrower)
+WALL_EVIDENCE_M = 3.0     # an OSM barrier this close to the derived line puts the pit wall there (trim_wall)
+WALL_STRAIGHT_DEG = 8.0   # ...and the wall continues over unmapped ends only while it turns less than this
+WALL_TURN_DEG = 45.0      # mapped points turned further than this from the mapped wall's mean heading don't count
+WALL_HEADING_M = 6.0      # headings smoothed over +- this along the line
+WALL_MIN_M = 20.0         # a shorter trimmed wall is dropped
 
 
 # ------------------------------------------------------------------------------------------------ geometry helpers
@@ -285,7 +290,79 @@ class Pits:
             osm_share = self.osm_barrier_share(pts)
             if osm_share is not None:
                 wall["osmBarrierWithin3mShare"] = round(osm_share, 2)
+            wall = self.trim_wall(wall)
         return lane, wall
+
+    def trim_wall(self, wall: dict) -> dict | None:
+        """The pit wall only where the evidence puts it. The derived line follows the pit lane round its ends, past
+        where the real wall stops: at Anglesey it wrapped the corner before the pit straight and the junction nose
+        there, where the real wall is one straight run (Chris 2026-10-26). Where OSM maps a barrier along the line
+        (within WALL_EVIDENCE_M), the wall runs from the first to the last such point, continuing over unmapped
+        ends only while it runs straight on (within WALL_STRAIGHT_DEG of the mapped end's heading); without any
+        OSM barrier, it is the straight run through the middle of the line. Already trimmed walls stay as they are."""
+        if wall.get("trimmed"):
+            return wall
+        pts = self.c.local_of_grid(wall["line"])
+        if len(pts) < 3:
+            return wall
+        ev = self.osm_barrier_near(pts) < WALL_EVIDENCE_M
+        s = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(pts, axis=0).T))])
+        # headings smoothed over +-WALL_HEADING_M along the line (the derived line has small jogs)
+        lo = np.searchsorted(s, s - WALL_HEADING_M)
+        hi = np.minimum(np.searchsorted(s, s + WALL_HEADING_M, side="right") - 1, len(s) - 1)
+        d = pts[hi] - pts[lo]
+        head = np.arctan2(d[:, 1], d[:, 0])
+
+        def dev(k: int, ref: float) -> float:
+            return abs(math.degrees((head[k] - ref + math.pi) % (2 * math.pi) - math.pi))
+
+        if ev.any():
+            # mapped points turning right away from the mapped wall's run belong to another barrier (Brands Hatch: one
+            # round the nose where the lane rejoins)
+            ref = math.atan2(float(np.sin(head[ev]).mean()), float(np.cos(head[ev]).mean()))
+            ev &= np.array([dev(k, ref) <= WALL_TURN_DEG for k in range(len(pts))])
+        if ev.any():
+            a, b = int(np.nonzero(ev)[0][0]), int(np.nonzero(ev)[0][-1])
+            why = f"OSM barriers within {WALL_EVIDENCE_M:.0f} m"
+        else:
+            a = b = len(pts) // 2
+            why = "no OSM barrier: the straight run through the middle"
+        ha, hb = head[a], head[b]
+        while a > 0 and not ev[a - 1] and dev(a - 1, ha) <= WALL_STRAIGHT_DEG:
+            a -= 1
+        while b < len(pts) - 1 and not ev[b + 1] and dev(b + 1, hb) <= WALL_STRAIGHT_DEG:
+            b += 1
+        if s[b] - s[a] < WALL_MIN_M:
+            return None
+        if a == 0 and b == len(pts) - 1:
+            return {**wall, "trimmed": why + " (whole line)"}
+        keep = pts[a:b + 1]
+        i, _, lat = self.c.nearest_main(keep)
+        out = {**wall, "line": rnd(self.c.grid_of_local(keep)),
+               "s0": round(float(self.c.s[i[0]]), 1), "s1": round(float(self.c.s[i[-1]]), 1),
+               "offsetFromCentreM": [round(float(np.abs(lat).min()), 2), round(float(np.abs(lat).max()), 2)],
+               "lengthM": round(polyline_length(keep), 1),
+               "trimmed": f"{why}; {s[a]:.0f}-{s[b]:.0f} m of the derived {s[-1]:.0f} m line"}
+        share = self.osm_barrier_share(keep)
+        if share is not None:
+            out["osmBarrierWithin3mShare"] = round(share, 2)
+        return out
+
+    def osm_barrier_near(self, pts: np.ndarray) -> np.ndarray:
+        """Per point: the distance to the nearest OSM barrier way (inf without one)."""
+        lines = [self.c.geom(w) for w in self.c.ways.values()
+                 if w.get("tags", {}).get("barrier") in ("wall", "fence", "guard_rail", "jersey_barrier", "yes", "concrete")
+                 and w.get("geometry")]
+        lines = [g for g in lines if len(g) > 1]
+        if not lines:
+            return np.full(len(pts), np.inf)
+        segs_a = np.vstack([g[:-1] for g in lines])
+        ab = np.vstack([g[1:] for g in lines]) - segs_a
+        out = np.empty(len(pts))
+        for k, q in enumerate(pts):
+            t = np.clip(((q - segs_a) * ab).sum(1) / np.maximum((ab * ab).sum(1), 1e-9), 0, 1)
+            out[k] = float(np.hypot(*(segs_a + ab * t[:, None] - q).T).min())
+        return out
 
     def osm_barrier_share(self, pts: np.ndarray) -> float | None:
         lines = [self.c.geom(w) for w in self.c.ways.values()
@@ -494,10 +571,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("slug")
     ap.add_argument("--plots", action="store_true")
     ap.add_argument("--candidates", action="store_true")
+    ap.add_argument("--trim-walls", action="store_true",
+                    help="only trim the derived file's pit walls (trim_wall), keeping everything else byte for byte")
     a = ap.parse_args(argv)
     p = Pits(a.slug)
     if a.candidates:
         candidates(p)
+        return 0
+    if a.trim_walls:
+        doc = json.loads(p.out.read_text(encoding="utf-8"))
+        walls = [w for w in (p.trim_wall(w) for w in doc["pitWalls"]) if w]
+        for old, new in zip(doc["pitWalls"], walls):
+            print(f"  wall {old['lengthM']} m -> {new['lengthM']} m (s {new['s0']} - {new['s1']}): {new.get('trimmed')}")
+        doc["pitWalls"] = walls
+        p.out.write_text(dumps(doc) + "\n", encoding="utf-8", newline="\n")
         return 0
     d = p.derive()
     p.write(d)
