@@ -19,7 +19,11 @@ the board runs along local X, the origin is on the ground at its middle.
 
 Assets: ``sponsor_<id>_fence<k>`` (ad-fence panel), ``sponsor_<id>_billboard<k>`` (7 x 3.5 m on posts),
 ``sponsor_<id>_minibillboard<k>`` (3.5 x 1.75 m on posts, the billboard's texture at half size), for design k of
-sponsor id, and ``sponsor_credit`` (the small "track by ..." plaque, ``"credit"`` in the configuration).
+sponsor id, ``sponsor_credit`` (the small "track by ..." plaque, ``"credit"`` in the configuration), and the span
+banners hung on the real footbridges and gantries (pits.py): ``sponsor_<id>_span<k>`` (a long thin panel,
+SPAN_ASPECT : 1, in the ``wide`` style or the design's ``span`` override) and ``sponsor_welcome`` ("Welcome to
+<track>", WELCOME_ASPECT : 1, ``"welcome"`` in the configuration). A span banner's placement is the panel itself:
+position the panel's middle, ``z`` its lower edge (not the ground), ``scale`` its height in metres.
 """
 from __future__ import annotations
 
@@ -40,16 +44,24 @@ FENCE = {"w": 3.84, "h": 1.0, "z0": 0.08, "t": 0.05}                # panel widt
 BILLBOARD = {"w": 7.0, "h": 3.5, "z0": 2.0, "t": 0.12, "post": 0.22, "sink": 0.6, "depth": 0.8}
 MINI = {"w": 3.5, "h": 1.75, "z0": 1.0, "t": 0.1, "post": 0.16, "sink": 0.5, "depth": 0.6}  # the small banner board
 CREDIT = {"w": 1.8, "h": 0.45, "z0": 0.55, "t": 0.06, "post": 0.08, "sink": 0.4, "depth": 0.4}  # the credit plaque
-TEX = {"fence": (1024, 512), "board": (1024, 1024), "credit": (512, 256)}  # front art in the top half
+TEX = {"fence": (1024, 512), "board": (1024, 1024), "credit": (512, 256),  # front art in the top half
+       "span": (2048, 512), "welcome": (4096, 512)}
 POSTED = {"billboard": BILLBOARD, "minibillboard": MINI, "credit": CREDIT}       # panels on two posts
-KINDS = ("fence", "billboard", "minibillboard")
+SPAN_ASPECT = 8.0        # a span banner panel: width : height (its texture's front half, 2048 x 256)
+WELCOME_ASPECT = 16.0    # the welcome banner (4096 x 256): as wide as two span panels
+SPAN_T = 0.06            # banner thickness
+BANNERS = {"span": SPAN_ASPECT, "welcome": WELCOME_ASPECT}
+KINDS = ("fence", "billboard", "minibillboard", "span")
 CREDIT_DEFAULT = {"enabled": True, "text": "GreyManSoftware", "prefix": "track by", "style": "plaque",
                   "colourway": {"background": [52, 56, 60], "text": [176, 180, 178], "accent": [96, 100, 104],
                                 "back": [60, 62, 66]}}
 SPONSOR_DEFAULT = {"kinds": ["fence", "minibillboard"], "share": 1.0, "billboards": 0, "guarantee": False,
                    "lapGuarantee": False, "style": "slant", "font": "sans", "uppercase": False, "glyph": None,
                    "subtext": None, "tagline": None, "logo": None}
-ASSET_RE = re.compile(r"sponsor_([a-z0-9]+)_(fence|billboard|minibillboard)(\d+)")
+ASSET_RE = re.compile(r"sponsor_([a-z0-9]+)_(fence|billboard|minibillboard|span)(\d+)")
+WELCOME_DEFAULT = {"enabled": True, "prefix": "Welcome to", "colourway": {
+    "background": [14, 27, 61], "text": [255, 255, 255], "prefix": [176, 192, 222], "accent": [215, 25, 42],
+    "stripe": [255, 255, 255], "back": [40, 44, 56]}}
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -113,11 +125,13 @@ def sponsors() -> tuple[dict, ...]:
             design = {"style": d.get("style", s.get("style", "slant")), "font": d.get("font", s.get("font", "sans")),
                       "colourway": cw, "name": f"{d.get('style', s.get('style', 'slant'))}-{name}",
                       "layout": d.get("layout", s.get("layout"))}
-            fence = d.get("fence", s.get("fence"))  # another style / colourway / layout on fence panels
-            if isinstance(fence, dict):
-                fc = fence.get("colourway", cw)
-                design["fence"] = {**design, **fence, "colourway": cws.get(fc) if isinstance(fc, str) else fc}
-                design["fence"].pop("fence", None)
+            for key in ("fence", "span"):  # another style / colourway / layout on fence panels, span banners
+                over = d.get(key, s.get(key))
+                if isinstance(over, dict):
+                    fc = over.get("colourway", cw)
+                    design[key] = {**design, **over, "colourway": cws.get(fc) if isinstance(fc, str) else fc}
+                    design[key].pop("fence", None)
+                    design[key].pop("span", None)
             designs.append(design)
         kinds = [k for k in s.get("kinds", SPONSOR_DEFAULT["kinds"]) if k in KINDS]
         if designs and kinds:
@@ -163,6 +177,24 @@ def credit() -> dict | None:
     return out
 
 
+def welcome() -> dict | None:
+    """The welcome banner settings (``"welcome"``: ``prefix``, ``colourway``, ``enabled``) over the defaults, or
+    None when it is off. Independent of the sponsors being on."""
+    c = config().get("welcome", {})
+    if c is False or c is None:
+        return None
+    out = {**WELCOME_DEFAULT, **(c if isinstance(c, dict) else {})}
+    out["colourway"] = {**WELCOME_DEFAULT["colourway"], **(out.get("colourway") or {})}
+    return out if out.get("enabled", True) else None
+
+
+def span_rotation() -> list[str]:
+    """The sponsors the span banners rotate through: ``spanOrder``, then any other span sponsor as listed."""
+    ids = [s["id"] for s in with_kind("span")]
+    order = [i for i in config().get("spanOrder", []) if i in ids]
+    return order + [i for i in ids if i not in order]
+
+
 def credit_line() -> str | None:
     c = credit()
     return " ".join(x for x in (c.get("prefix"), c["text"]) if x) if c else None
@@ -177,6 +209,8 @@ def asset_names() -> list[str]:
     out = [f"sponsor_{s['id']}_{kind}{k}" for s in sponsors() for kind in s["kinds"] for k in range(len(s["designs"]))]
     if credit():
         out.append("sponsor_credit")
+    if welcome():
+        out.append("sponsor_welcome")
     return out
 
 
@@ -184,6 +218,8 @@ def parse(name: str) -> tuple[str, str, int] | None:
     """(sponsor id, 'fence' | 'billboard' | 'minibillboard' | 'credit', design) for one of our assets, else None."""
     if name == "sponsor_credit":
         return "", "credit", 0
+    if name == "sponsor_welcome":
+        return "", "welcome", 0
     m = ASSET_RE.fullmatch(name)
     return (m.group(1), m.group(2), int(m.group(3))) if m else None
 
@@ -196,7 +232,7 @@ def kind_of(name: str) -> tuple[str, int] | None:
 
 def sponsor_of(name: str) -> str | None:
     p = parse(name)
-    return p[0] if p and p[1] != "credit" else None
+    return p[0] if p and p[1] not in ("credit", "welcome") else None
 
 
 def is_handle(name: str) -> bool:
@@ -205,12 +241,22 @@ def is_handle(name: str) -> bool:
 
 
 def tex_kind(kind: str) -> str:
-    return "fence" if kind == "fence" else "board"
+    return kind if kind in ("fence", "span", "welcome") else "board"
+
+
+def is_banner(name: str) -> bool:
+    """A span banner (``span`` or ``welcome``): hung on a bridge or gantry by pits.py, not a board on the ground."""
+    k = kind_of(name)
+    return k is not None and k[0] in BANNERS
+
+
+def banner_width(name: str, height: float) -> float:
+    return BANNERS[kind_of(name)[0]] * height
 
 
 def material_of(name: str) -> str:
     sid, kind, k = parse(name)
-    return "sponsor_credit" if kind == "credit" else f"sponsor_{sid}_{tex_kind(kind)}{k}"
+    return f"sponsor_{kind}" if kind in ("credit", "welcome") else f"sponsor_{sid}_{tex_kind(kind)}{k}"
 
 
 def dims(kind: str) -> dict:
@@ -221,6 +267,8 @@ def asset_info(name: str) -> dict | None:
     k = kind_of(name)
     if k is None:
         return None
+    if k[0] in BANNERS:  # up on a span: no footprint on the ground, never a sight-line blocker
+        return {"r": 0.0, "h": 0.0, "face": "-y", "width": 0.1, "depth": 0.1, "mesh": True}
     if k[0] == "fence":
         return {"r": FENCE["w"] / 2.0, "h": FENCE["z0"] + FENCE["h"], "face": "-y", "width": FENCE["w"],
                 "depth": 0.3, "mesh": True}
@@ -807,8 +855,122 @@ def _style_livery(img, sp, cw, layout: dict):
         _paste(img, pad, x, y, col(t.get("fill", "text")))
 
 
+def _fit_parts(strings: list[str], face: str, max_w: float, max_h: float):
+    """_prefix_masks of the parts at the largest size whose whole line fits max_w x max_h."""
+    px = max(8, int(max_h * 1.6))
+    while True:
+        ms = _prefix_masks(strings, face, px)
+        if (ms[0].width <= max_w and ms[0].height <= max_h) or px <= 8:
+            return ms
+        px = max(8, min(px - 1, int(px * min(0.98, max_w / ms[0].width, max_h / ms[0].height))))
+
+
+def _url_like(s: str | None) -> bool:
+    return bool(s) and " " not in s and "." in s
+
+
+def _style_wide(img, sp, cw, face, fence):
+    """A long, thin span banner (SPAN_ASPECT : 1) that uses its width: the logo (or the glyph) at the left, the
+    name large (``parts``: [text, colourway key or colour] in their colours), a slanted accent divider, then the
+    tagline over the URL, racing stripes at the right end and accent rules top and bottom. ``tagline`` (or a
+    ``subtext`` that isn't a domain) and ``url`` (or a domain-like ``subtext``) are optional; without both the
+    name is centred. Colours: ``background``, ``text``, ``accent``, optional ``tagline``, ``url``, ``stripe``
+    (the middle racing stripe) and ``plate`` (a rounded plate behind the logo); ``logoPlate`` false drops it,
+    ``logoMaxW`` caps the logo's width (share of the banner, default 0.17: wide wordmark logos take more)."""
+    from PIL import Image, ImageDraw
+
+    W, H = img.size
+
+    def col(c):
+        return _rgb(cw[c]) if isinstance(c, str) and c in cw else _rgb(c)
+
+    fg, acc = col("text"), col("accent")
+    d = ImageDraw.Draw(img)
+    rule = max(3, H // 26)
+    d.rectangle((0, 0, W, rule), fill=acc)
+    d.rectangle((0, H - rule, W, H), fill=acc)
+    compact = W / H < 6.0  # a shorter panel (an ad-fence panel, 4 : 1): narrower stripes, tagline under the name
+    # racing stripes at the right end
+    sw, gap, lean = (H * 0.08, H * 0.04, H * 0.3) if compact else (H * 0.15, H * 0.06, H * 0.5)
+    x = W - H * 0.3 - 3 * sw - 2 * gap - lean / 2
+    stripes_x = x
+    for c in (acc, col(cw.get("stripe", cw["text"])), acc):
+        d.polygon([(x + lean, rule), (x + sw + lean, rule), (x + sw, H - rule), (x, H - rule)], fill=c)
+        x += sw + gap
+    y0, y1 = rule + H * 0.13, H - rule - H * 0.13
+    left, right = H * 0.3, stripes_x - H * 0.35
+    if sp.get("logo"):
+        lg = _logo(sp["logo"])
+        bb = lg.getchannel("A").getbbox()
+        lg = lg.crop(bb) if bb else lg
+        plate = cw.get("plate") if sp.get("logoPlate", True) else None
+        ph = (H - 2 * rule) * 0.86 if plate else (y1 - y0) * 1.08
+        pad = ph * 0.1 if plate else 0.0
+        s = min((ph - 2 * pad) / lg.height, (W * float(sp.get("logoMaxW", 0.17)) - 2 * pad) / lg.width)
+        im = lg.resize((max(1, int(lg.width * s)), max(1, int(lg.height * s))), Image.LANCZOS)
+        pw = im.width + 2 * pad
+        top = (H - ph) / 2
+        if plate:
+            d.rounded_rectangle((left, top, left + pw, top + ph), radius=int(ph * 0.14), fill=col(plate))
+        img.paste(im, (int(left + pad), int(top + (ph - im.height) / 2)), im)
+        left += pw + H * 0.25
+    elif sp.get("glyph"):
+        g = (y1 - y0) * 0.86
+        _glyph(d, (left, (H - g) / 2, left + g, (H + g) / 2), fg, max(3, int(g * 0.095)))
+        left += g + H * 0.3
+    sub = sp.get("subtext")
+    tag = sp.get("tagline") or (sub if sub and not _url_like(sub) else None)
+    url = sp.get("url") or (sub if _url_like(sub) else None)
+    if url and _url_like(sp.get("text")) and url.lower() == sp["text"].lower():
+        url = None  # the name is the address already
+    parts = sp.get("parts") or [[sp["text"].upper() if sp.get("uppercase") else sp["text"], "text"]]
+    strings = [p[0] for p in parts]
+    avail = right - left
+    if compact:  # the name over the tagline (or the URL), left-aligned beside the logo
+        ms = _fit_parts(strings, face, avail, (y1 - y0) * (0.56 if (tag or url) else 0.8))
+        line = None
+        if tag or url:
+            line = (_fit(tag or url, "heavyitalic" if tag else "sans", avail, ms[0].height * 0.55),
+                    col(cw.get("tagline", cw["text"])) if tag else col(cw.get("url", cw["accent"])))
+        g = ms[0].height * 0.3 if line else 0.0
+        y = (H - ms[0].height - (line[0].height + g if line else 0.0)) / 2
+        for m, (_t, c) in zip(ms[1:], parts):
+            _paste(img, m, left, y, col(c))
+        if line:
+            _paste(img, line[0], left, y + ms[0].height + g, line[1])
+        return
+    if not (tag or url):
+        ms = _fit_parts(strings, face, avail, (y1 - y0) * 0.8)
+        x0 = left + (avail - ms[0].width) / 2
+    else:
+        ms = _fit_parts(strings, face, avail * 0.46, (y1 - y0) * 0.74)
+        x0 = left
+    yn = (H - ms[0].height) / 2
+    for m, (_t, c) in zip(ms[1:], parts):
+        _paste(img, m, x0, yn, col(c))
+    if not (tag or url):
+        return
+    # the divider, then the tagline over the URL, left-aligned in the rest
+    x = x0 + ms[0].width + H * 0.22
+    dl = H * 0.26
+    d.polygon([(x + dl, y0), (x + dl + H * 0.07, y0), (x + H * 0.07, y1), (x, y1)], fill=acc)
+    x += dl + H * 0.07 + H * 0.22
+    cwid = right - x
+    lines = []
+    if tag:
+        lines.append(_fit(tag, "heavyitalic", cwid, (y1 - y0) * (0.4 if url else 0.5)))
+    if url:
+        lines.append(_fit(url, "sans", cwid, (y1 - y0) * (0.26 if tag else 0.36)))
+    g = (y1 - y0) * 0.14
+    y = (H - sum(m.height for m in lines) - g * (len(lines) - 1)) / 2
+    cols = ([col(cw.get("tagline", cw["text"]))] if tag else []) + ([col(cw.get("url", cw["accent"]))] if url else [])
+    for m, c in zip(lines, cols):
+        _paste(img, m, x, y, c)
+        y += m.height + g
+
+
 STYLES = {"slant": _style_slant, "stripes": _style_stripes, "badge": _style_badge, "split": _style_split,
-          "wordmark": _style_wordmark, "logoband": _style_logoband, "banner": _style_banner}
+          "wordmark": _style_wordmark, "logoband": _style_logoband, "banner": _style_banner, "wide": _style_wide}
 
 
 def render_front(sp: dict, design: dict, tex: str, size: tuple[int, int]):
@@ -818,6 +980,11 @@ def render_front(sp: dict, design: dict, tex: str, size: tuple[int, int]):
 
     if tex == "fence" and design.get("fence"):
         design = design["fence"]
+    if tex == "span":  # span banners: the wide style unless the design's ``span`` override names another
+        design = design.get("span") or {**design, "style": "wide"}
+    # an override may change what is printed too
+    sp = {**sp, **{k: design[k] for k in ("parts", "logo", "logoPlate", "logoMaxW", "glyph", "tagline", "url",
+                                          "text", "subtext") if k in design}}
     cw = design["colourway"]
     img = Image.new("RGB", size, _rgb(cw["background"]))
     face = design.get("font", "sans")
@@ -826,7 +993,47 @@ def render_front(sp: dict, design: dict, tex: str, size: tuple[int, int]):
     if design.get("style") == "livery":
         _style_livery(img, sp, cw, design.get("layout") or {})
     else:
-        STYLES.get(design.get("style"), _style_slant)(img, sp, cw, face, tex == "fence")
+        STYLES.get(design.get("style"), _style_slant)(img, sp, cw, face, tex in ("fence", "span"))
+    return img
+
+
+def render_welcome(cfg: dict, track: str, size: tuple[int, int]):
+    """The welcome banner's face (circuit-signage manner: deep navy, white heavy capitals, a red rule and
+    chevrons): "<prefix> <TRACK NAME>" centred, the prefix lighter and smaller."""
+    from PIL import Image, ImageDraw
+
+    W, H = size
+    cw = cfg["colourway"]
+    img = Image.new("RGB", (W, H), _rgb(cw["background"]))
+    d = ImageDraw.Draw(img)
+    acc, fg = _rgb(cw["accent"]), _rgb(cw["text"])
+    rule = max(4, H // 16)
+    d.rectangle((0, 0, W, rule), fill=acc)
+    d.rectangle((0, H - rule, W, H), fill=acc)
+    # chevrons pointing inwards at both ends
+    cw_, lean = H * 0.22, H * 0.34
+    for side in (1, -1):
+        for k in range(3):
+            x = H * 0.35 + k * cw_ * 1.25
+            pts = [(x, rule), (x + cw_ * 0.55, rule), (x + cw_ * 0.55 + lean, H / 2), (x + cw_ * 0.55, H - rule),
+                   (x, H - rule), (x + lean, H / 2)]
+            if side < 0:
+                pts = [(W - px, py) for px, py in pts]
+            d.polygon(pts, fill=acc if k != 1 else _rgb(cw.get("stripe", fg)))
+    left, right = H * 0.35 + 3 * cw_ * 1.25 + lean + H * 0.4, W - (H * 0.35 + 3 * cw_ * 1.25 + lean + H * 0.4)
+    pre = (cfg.get("prefix") or "").upper()
+    name = track.upper()
+    gap = H * 0.35
+    avail = right - left
+    m_name = _fit(name, "heavy", avail * (0.68 if pre else 1.0), (H - 2 * rule) * 0.6, 0.04)
+    m_pre = _fit(pre, "sans", avail - m_name.width - gap, m_name.height * 0.62, 0.06) if pre else None
+    total = m_name.width + ((m_pre.width + gap) if m_pre else 0.0)
+    x = left + (avail - total) / 2
+    base = (H + m_name.height) / 2  # the name's baseline (capitals: ink bottom)
+    if m_pre is not None:
+        _paste(img, m_pre, x, base - m_pre.height, cw.get("prefix", fg))
+        x += m_pre.width + gap
+    _paste(img, m_name, x, base - m_name.height, fg)
     return img
 
 
@@ -852,11 +1059,12 @@ def credit_strip(img, cw: dict, line: str) -> None:
     _paste(img, m, W * 0.96 - m.width, H - H * 0.075 - m.height, col)
 
 
-def write_textures(root: str, slug: str, credit_style: str | None = None, assets=None) -> dict[str, str]:
+def write_textures(root: str, slug: str, credit_style: str | None = None, assets=None,
+                   track_name: str | None = None) -> dict[str, str]:
     """Render the board textures to <root>/data/track/<slug>/textures/*.tga: those of ``assets`` (the placed
     boards; None: every design and kind) and the credit plaque when it is on. ``credit_style`` is the style the
-    planner settled on (``info.sponsorCredit``: "line" when the plaque found no room). Returns {material key: data
-    path}."""
+    planner settled on (``info.sponsorCredit``: "line" when the plaque found no room); ``track_name`` goes on the
+    welcome banner. Returns {material key: data path}."""
     from PIL import Image
 
     from .maps import write_tga
@@ -866,6 +1074,14 @@ def write_textures(root: str, slug: str, credit_style: str | None = None, assets
     style = (credit_style or cr["style"]) if cr else None
     line = credit_line() if style == "line" else None
     names = asset_names() if assets is None else sorted(set(assets))
+    wc = welcome()
+    if wc and "sponsor_welcome" in names:
+        W, H = TEX["welcome"]
+        sheet = Image.new("RGB", (W, H), _rgb(wc["colourway"].get("back", (40, 44, 56))))
+        sheet.paste(render_welcome(wc, track_name or slug, (W, H // 2)), (0, 0))
+        rel = texture_rel(slug, "sponsor_welcome")
+        write_tga(os.path.join(root, *rel.split("/")) + ".tga", np.asarray(sheet, dtype=np.float64)[::-1])
+        out["sponsor_welcome"] = rel
     seen: set[str] = set()
     for name in names:
         if not is_handle(name) or material_of(name) in seen:
@@ -951,7 +1167,10 @@ def build_mesh(placements) -> Mesh | None:
         ax = np.array([np.cos(p.yaw), np.sin(p.yaw)])          # local +X
         ay = np.array([-np.sin(p.yaw), np.cos(p.yaw)])         # local +Y (the printed face is -Y)
         z = float(p.z)
-        if kind == "fence":
+        if kind in BANNERS:  # a span banner: the panel itself, z its lower edge, scale its height
+            h = float(p.scale)
+            _box(m, (p.x, p.y), ax, ay, BANNERS[kind] * h, SPAN_T, z, z + h, mat, FRONT_UV, BACK_UV)
+        elif kind == "fence":
             F = FENCE
             _box(m, (p.x, p.y), ax, ay, F["w"], F["t"], z + F["z0"], z + F["z0"] + F["h"], mat, FRONT_UV, BACK_UV)
             for sx in (-1, 1):  # two short feet

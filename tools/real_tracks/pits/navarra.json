@@ -52,7 +52,7 @@
     "name": "gantry over the main straight",
     "sM": 156.0,
     "source": "LIDAR (Gobierno de Navarra 2024): a span across the road at s 154-158 m, top 6.7-6.9 m; not in OSM",
-    "note": "built as the stock footbridge only where its pillars, stairs and bases stand 4 m beyond the road and verge, else as a stock gantry (wfbuild/pits.py _span; Chris 2026-10-25)"
+    "note": "an approved real span (Chris 2026-10-26): always the stock footbridge, scaled and nudged across the road so its pillars stand off the roads (preferably every part 4 m beyond the verge; nearer is reported, not swapped) (wfbuild/pits.py _span)"
    }
   ]
  },

@@ -161,7 +161,7 @@
                      "c": "fields:decal_asphalt_sand_transition_fields13_c5", "ao": "fields:decal_asphalt_sand_transition_fields13_ao",
                      "n": "fields:decal_asphalt_sand_transition_fields13_n", "s": "fields:decal_asphalt_sand_transition_fields13_s"},
  "sponsor": {
-  "_comment": "Our own sponsor boards (wfbuild/sponsor.py, category sponsorBoards). sponsors: each with its text (subtext, tagline, logo, glyph), the board kinds it goes on (fence = ad-fence panels replacing fenceShare of the stock ad-fence blocks, minibillboard = 3.5 x 1.75 m banners, billboard = 7 x 3.5 m), share (weight among the sponsors of a kind, one number or per kind), billboards (its cap of big boards), guarantee (one of its boards in view of every layout's start), lapGuarantee (one of its billboards in clear view somewhere on every layout's lap), colourways and designs (style slant|stripes|badge|split|wordmark|logoband|banner|livery, font sans|heavy|italic|heavyitalic|serif|mono|monoitalic|regular|regularitalic; livery draws its layout: gradient/carbon, stripes, chequer, polys, lines, logo, texts, in shares of the face; fence: another design for fence panels). billboards / minis cap the big and small boards per circuit (the guarantees may add a few). Override with the JSON file named in TRACKGEN_SPONSOR (\"sponsors\": {\"turdchecker\": {\"tagline\": \"...\"}} changes one sponsor); enabled false turns them off.",
+  "_comment": "Our own sponsor boards (wfbuild/sponsor.py, category sponsorBoards). sponsors: each with its text (subtext, tagline, logo, glyph), the board kinds it goes on (fence = ad-fence panels replacing fenceShare of the stock ad-fence blocks, minibillboard = 3.5 x 1.75 m banners, billboard = 7 x 3.5 m), share (weight among the sponsors of a kind, one number or per kind), billboards (its cap of big boards), guarantee (one of its boards in view of every layout's start), lapGuarantee (one of its billboards in clear view somewhere on every layout's lap), colourways and designs (style slant|stripes|badge|split|wordmark|logoband|banner|livery, font sans|heavy|italic|heavyitalic|serif|mono|monoitalic|regular|regularitalic; livery draws its layout: gradient/carbon, stripes, chequer, polys, lines, logo, texts, in shares of the face; wide: logo, name (parts), tagline and url across a long thin panel; fence / span: another design for fence panels / span banners, which may also set parts, logo, logoPlate, logoMaxW, glyph, tagline, url). span = the banners on the real footbridges and gantries (pits.py), rotating through spanOrder; welcome = the 'Welcome to <track>' banner on the approach face of the span nearest each layout's start. billboards / minis cap the big and small boards per circuit (the guarantees may add a few). Override with the JSON file named in TRACKGEN_SPONSOR (\"sponsors\": {\"turdchecker\": {\"tagline\": \"...\"}} changes one sponsor); enabled false turns them off.",
   "enabled": true,
   "fenceShare": 0.5,
   "billboards": 7,
@@ -169,9 +169,15 @@
   "credit": {"_comment": "A subtle credit on every circuit (sponsor.credit): style plaque = one small muted plaque near the start/finish line on the paddock side, line = small type along the bottom of the billboards (also the fallback when the plaque finds no room). enabled false (or credit false) turns it off.",
              "enabled": true, "text": "GreyManSoftware", "prefix": "track by", "style": "plaque",
              "colourway": {"background": [52, 56, 60], "text": [176, 180, 178], "accent": [96, 100, 104], "back": [60, 62, 66]}},
+  "welcome": {"_comment": "The 'Welcome to <track name>' banner (sponsor.render_welcome) in circuit-signage colours: navy, white capitals, red rules and chevrons; no operator name or logo.",
+              "enabled": true, "prefix": "Welcome to",
+              "colourway": {"background": [14, 27, 61], "text": [255, 255, 255], "prefix": [176, 192, 222], "accent": [215, 25, 42],
+                            "stripe": [255, 255, 255], "back": [40, 44, 56]}},
+  "spanOrder": ["turdchecker", "straight6", "opentrack", "greyman", "flatshift", "roadtrip"],
   "sponsors": [
    {"id": "flatshift", "text": "@flatshiftcars", "tagline": "FOLLOW ON INSTAGRAM", "glyph": "instagram",
-    "kinds": ["fence", "minibillboard"], "share": {"fence": 2}, "guarantee": true,
+    "kinds": ["fence", "minibillboard", "span"], "share": {"fence": 2}, "guarantee": true,
+    "span": {"style": "wide", "colourway": "black", "font": "heavyitalic"},
     "colourways": {
      "black": {"background": [18, 18, 22], "text": [255, 255, 255], "accent": [228, 34, 58], "back": [44, 44, 48]},
      "red": {"background": [200, 24, 42], "text": [255, 255, 255], "accent": [255, 204, 0], "back": [62, 62, 66]},
@@ -192,8 +198,12 @@
     ]},
    {"id": "turdchecker", "text": "TurdChecker", "url": "turdchecker.greymansoftware.com", "tagline": "Find your next glorious shitbox",
     "logo": "assets/sponsors/turdchecker/turdchecker-logo-512.png",
-    "kinds": ["billboard"], "share": 3, "billboards": 3, "lapGuarantee": true, "style": "livery",
-    "colourways": {"livery": {"background": "#1b1c20", "primary": "#e8410f", "accent": "#f5b700", "text": "#1b1d22", "back": "#3a3c40"}},
+    "kinds": ["billboard", "span"], "share": 3, "billboards": 3, "lapGuarantee": true, "style": "livery",
+    "colourways": {"livery": {"background": "#1b1c20", "primary": "#e8410f", "accent": "#f5b700", "text": "#1b1d22", "back": "#3a3c40"},
+                   "span": {"background": "#1b1c20", "text": "#ffffff", "accent": "#e8410f", "tagline": "#ffffff", "url": "#f5b700",
+                            "stripe": "#f5b700", "back": "#3a3c40"}},
+    "designs": [{"colourway": "livery"}],
+    "span": {"style": "wide", "colourway": "span", "font": "heavyitalic", "parts": [["Turd", "accent"], ["Checker", "text"]]},
     "layout": {
      "gradient": ["#24262b", "#121316"],
      "stripes": {"x": 0.643, "colours": ["primary", "accent", "primary"], "width": 0.043, "gap": 0.0157, "slope": 0.55},
@@ -208,10 +218,12 @@
        "fill": [255, 255, 255], "shadow": [80, 20, 0]}
      ]}},
    {"id": "straight6", "text": "@straight6trackdays", "glyph": "instagram", "logo": "assets/sponsors/straight6/straight6-logo-1024.png",
-    "kinds": ["billboard", "fence"], "share": 2, "billboards": 2, "lapGuarantee": true, "style": "livery",
+    "kinds": ["billboard", "fence", "span"], "share": 2, "billboards": 2, "lapGuarantee": true, "style": "livery",
     "colourways": {"livery": {"background": "#eef1f6", "red": "#e21c24", "navy": "#1d2f8f", "back": "#2c3038"},
-                   "white": {"background": "#ffffff", "text": "#1d2f8f", "primary": "#1d2f8f", "onPrimary": "#ffffff", "back": "#2c3038"}},
-    "designs": [{"style": "livery", "colourway": "livery", "fence": {"style": "logoband", "colourway": "white", "font": "sans"}}],
+                   "white": {"background": "#ffffff", "text": "#1d2f8f", "primary": "#1d2f8f", "onPrimary": "#ffffff", "back": "#2c3038"},
+                   "span": {"background": "#ffffff", "text": "#1d2f8f", "accent": "#e21c24", "stripe": "#1d2f8f", "back": "#2c3038"}},
+    "designs": [{"style": "livery", "colourway": "livery", "fence": {"style": "logoband", "colourway": "white", "font": "sans"},
+                 "span": {"style": "wide", "colourway": "span", "font": "heavyitalic", "logoMaxW": 0.45, "logoPlate": false}}],
     "layout": {
      "gradient": ["#ffffff", "#dfe4ee"],
      "stripes": {"x": 0.757, "colours": ["navy", "red", "navy"], "width": 0.0286, "gap": 0.0086, "slope": 0.55},
@@ -222,15 +234,22 @@
        "fill": "navy", "stroke": 0.007, "strokeFill": [255, 255, 255], "shadow": [120, 120, 140]}
      ]}},
    {"id": "opentrack", "text": "OpenTrack.co.uk", "subtext": "Experts in Open Pit Lane Track Days", "parts": [["Open", "red"], ["Track", "black"], [".co.uk", "red"]],
-    "kinds": ["billboard", "fence"], "share": 2, "billboards": 2, "lapGuarantee": true, "style": "banner",
+    "kinds": ["billboard", "fence", "span"], "share": 2, "billboards": 2, "lapGuarantee": true, "style": "banner",
     "colourways": {
      "dark": {"background": "#111114", "stripe": "#1c1c22", "text": "#1d1d1b", "red": "#e30f13", "black": "#1d1d1b",
               "accent": "#e30f13", "dark": "#050506", "outline": "#ffffff", "dash": "#ffffff", "subColour": "#ffffff",
-              "back": "#2c2c30"}
-    }},
+              "back": "#2c2c30"},
+     "span": {"background": "#111114", "text": "#ffffff", "accent": "#e30f13", "tagline": "#ffffff", "stripe": "#ffffff", "back": "#2c2c30"}
+    },
+    "designs": [{"colourway": "dark", "span": {"style": "wide", "colourway": "span", "font": "heavyitalic",
+                                               "parts": [["Open", "accent"], ["Track", "text"], [".co.uk", "accent"]]}}]},
    {"id": "greyman", "text": "GreyManSoftware", "subtext": "git.greymansoftware.com",
-    "kinds": ["billboard"], "share": 1, "billboards": 1, "style": "livery",
-    "colourways": {"livery": {"background": "#15171b", "blue": "#2f8cff", "light": "#7fb3ff", "text": "#e8ecf2", "back": "#3a3c40"}},
+    "kinds": ["billboard", "span"], "share": 1, "billboards": 1, "style": "livery",
+    "colourways": {"livery": {"background": "#15171b", "blue": "#2f8cff", "light": "#7fb3ff", "text": "#e8ecf2", "back": "#3a3c40"},
+                   "span": {"background": "#15171b", "text": "#e8ecf2", "accent": "#2f8cff", "light": "#7fb3ff", "url": "#7fb3ff",
+                            "stripe": "#7fb3ff", "back": "#3a3c40"}},
+    "designs": [{"colourway": "livery", "span": {"style": "wide", "colourway": "span", "font": "heavyitalic",
+                                                 "parts": [["GREYMAN", "text"], ["SOFTWARE", "light"]]}}],
     "layout": {
      "carbon": ["#1d2026", "#15171b", "#2a2f38", "#0b0c0f"],
      "stripes": {"x": 0.743, "colours": ["blue", "light"], "width": 0.043, "gap": 0.013, "slope": 0.55},
@@ -239,6 +258,27 @@
       {"text": "GREYMAN", "at": [0.05, 0.115], "size": 0.21, "maxW": 0.62, "face": "heavyitalic", "fill": "text", "shadow": [0, 0, 0]},
       {"text": "SOFTWARE", "at": [0.214, 0.43], "size": 0.145, "maxW": 0.5, "face": "heavyitalic", "fill": "light", "shadow": [0, 0, 0]},
       {"text": "{subtext}", "at": [0.057, 0.775], "size": 0.08, "maxW": 0.62, "face": "italic", "fill": [255, 255, 255], "shadow": [0, 0, 0]}
+     ]}},
+   {"id": "roadtrip", "text": "ROADTRIP PLANNER", "tagline": "Less planning. More good roads.", "taglineShort": "Find the good roads.",
+    "logo": "assets/sponsors/roadtrip/roadtrip-mark-512.png", "parts": [["ROADTRIP ", "text"], ["PLANNER", "planner"]],
+    "kinds": ["billboard", "fence", "span"], "share": 1, "billboards": 1, "style": "livery",
+    "colourways": {"dark": {"background": [18, 22, 28], "top": [30, 36, 46], "text": [242, 242, 240], "accent": [255, 106, 19],
+                            "planner": [255, 106, 19], "tagline": [242, 242, 240], "stripe": [242, 242, 240], "back": [40, 44, 52]},
+                   "light": {"background": [244, 241, 234], "top": [255, 253, 248], "text": [18, 22, 28], "accent": [255, 106, 19],
+                             "planner": [18, 22, 28], "tagline": [18, 22, 28], "stripe": [18, 22, 28], "back": [70, 72, 76]}},
+    "designs": [{"colourway": "dark", "fence": {"style": "wide", "font": "heavy", "tagline": "Find the good roads."},
+                 "span": {"style": "wide", "font": "heavy"}},
+                {"colourway": "light", "fence": {"style": "wide", "font": "heavy", "tagline": "Find the good roads."},
+                 "span": {"style": "wide", "font": "heavy"}}],
+    "layout": {
+     "gradient": ["top", "background"],
+     "stripes": {"x": 0.86, "colours": ["accent", "accent"], "width": 0.022, "gap": 0.012, "slope": 0.4},
+     "logo": {"box": [0.04, 0.1, 0.2, 0.6]},
+     "polys": [{"points": [[0, 0.76], [1, 0.76], [1, 0.775], [0, 0.775]], "colour": "accent"}],
+     "texts": [
+      {"text": "ROADTRIP", "at": [0.28, 0.14], "size": 0.2, "maxW": 0.56, "face": "heavy", "fill": "text"},
+      {"text": "PLANNER", "at": [0.28, 0.42], "size": 0.2, "maxW": 0.56, "face": "heavy", "fill": "planner"},
+      {"text": "{tagline}", "at": [0.045, 0.83], "size": 0.075, "maxW": 0.79, "face": "italic", "fill": "tagline"}
      ]}}
   ]
  },

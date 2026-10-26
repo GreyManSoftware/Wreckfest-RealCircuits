@@ -12,6 +12,8 @@ lights, bridges and gantries at their real positions over the road. Pure numpy (
   barrier plan on the pit side is switched off (``wall_hook``) and the AI route's run-off margin ends in front of
   the pit wall.
 - **Buildings, grandstands, paddock, gantries** (``Pits.place``, called by the dressing planner): see PROPS.
+- **Span banners** (``Pits._banners``): our sponsor banners (sponsor.py ``span`` panels, two or three side by side)
+  on every bridge face a layout drives towards, "Welcome to <track>" on the one nearest each layout's start.
 
 The planner reserves the pit areas first (``reserve``: occupancy for the lane, buildings, paddock and gantry
 legs, no-go discs over the buildings so the start camera keeps out), so no generic scenery lands on them.
@@ -19,6 +21,7 @@ legs, no-go discs over the buildings so the start camera keeps out), so no gener
 from __future__ import annotations
 
 import math
+import zlib
 
 import numpy as np
 
@@ -44,26 +47,75 @@ BRIDGE_ASSET = "prop_bridge03_green"      # 55 m footbridge: inner pillars +-11 
 BRIDGE_INNER = 11.0
 BRIDGE_REACH = 27.5
 BRIDGE_LOW = 5.97
-GANTRY_ASSET = "prop_start_archway01"     # 32.7 m start arch: legs at +-16.35 m, banner underside about 6 m
-GANTRY_LEG = 16.35
-GANTRY_LOW = 6.0
+GANTRY_ASSET = "prop_start_archway01"     # 32.7 m start arch (measured, .local/probe): posts at x +-11 m (y 0.1-1.4 m),
+GANTRY_LEG = 11.0                         # stays from them down to feet at x +-16.4 m (y -4 / +4.4); its stock banner
+GANTRY_FOOT = 16.35                       # (x -9.8..8.7 m, y 0.73-0.98 m) hangs lowest, 5.32 m up mid-span
+GANTRY_LOW = 5.32
 SPANS = {"bridge": (BRIDGE_ASSET, BRIDGE_INNER, BRIDGE_LOW), "gantry": (GANTRY_ASSET, GANTRY_LEG, GANTRY_LOW)}
-PART_CLEAR = 4.0 + 3.7     # every pillar, stair and base: 4 m beyond the verge (shoulder, or kerb + green strip)
+PART_CLEAR = 4.0 + 3.7     # preferred: every pillar, stair and base 4 m beyond the verge (shoulder, or kerb + green strip)
+LEG_CLEAR = 3.7 + 0.5      # required of the pillars / posts of a real (approved) span: off the road and its verge
+LEG_MIN = 0.5              # a real span is replaced by the gantry only where its pillars would stand on a road
 SPAN_SCALE_MAX = 1.8
+NUDGE_M = 6.0              # a span may move this far across the road to get a pillar off it
+# span faces for banners (sponsor.py span / welcome panels), unscaled: the usable half-length along the span (between
+# the pillars / posts), the y of the -Y and +Y facing surfaces, the lowest part, and the banner's lower and highest
+# edge. Footbridge: side walls at y +-1.88 m from 6.04 to 9.03 m, pillars x +-11..13 (y +-2); arch: the stock
+# banner's -Y face at y 0.73, the frame's +Y face at 1.09, the top beam from 7.42 m.
+FACES = {BRIDGE_ASSET: {"half": 10.5, "neg": -1.88, "pos": 1.88, "low": BRIDGE_LOW, "bottom": 6.05, "top": 9.0},
+         GANTRY_ASSET: {"half": 8.5, "neg": 0.73, "pos": 1.09, "low": GANTRY_LOW, "bottom": 5.4, "top": 7.4}}
+BANNER_GAP = 0.03          # between the span's face and the banner
+BANNER_MIN_H = 1.2         # three sponsors side by side when each panel is still this tall, else two
+
+
+def is_span(asset: str) -> bool:
+    return asset in FACES
 
 
 def span_parts(asset: str, centre, yaw: float, s: float, legs_only: bool = False) -> np.ndarray:
-    """Ground points of a span's legs, pillars, stairs and bases (local X across the road), placed."""
+    """Ground points of a span's legs, pillars, stairs, stays and bases (local X across the road), placed."""
     X = np.array([math.cos(yaw), math.sin(yaw)])
     Y = np.array([-math.sin(yaw), math.cos(yaw)])
     c = np.asarray(centre, dtype=np.float64)[:2]
     if asset == BRIDGE_ASSET:
         xs = [BRIDGE_INNER] if legs_only else list(np.arange(BRIDGE_INNER - 1.0, BRIDGE_REACH + 0.01, 1.0))
-        ys = (-1.5, 0.0, 1.5)
+        loc = [(sd * x, y) for sd in (1, -1) for x in xs for y in (-1.5, 0.0, 1.5)]
     else:
-        xs = [GANTRY_LEG] if legs_only else [GANTRY_LEG - 1.0, GANTRY_LEG, GANTRY_LEG + 0.6]
-        ys = (-1.0, 0.0, 1.0)
-    return np.array([c + X * sd * x * s + Y * y * s for sd in (1, -1) for x in xs for y in ys])
+        loc = [(sd * x, y) for sd in (1, -1) for x in (GANTRY_LEG - 0.5, GANTRY_LEG + 0.5) for y in (0.1, 0.75, 1.4)]
+        if not legs_only:  # the stays, from the posts out to their feet (the -X foot at y -4, the +X one at +4.4)
+            loc += [(sd * (GANTRY_LEG + t * (GANTRY_FOOT - GANTRY_LEG)), 0.75 + t * ((4.4 if sd > 0 else -4.0) - 0.75))
+                    for sd in (1, -1) for t in np.linspace(0.0, 1.0, 7)]
+    return np.array([c + X * x * s + Y * y * s for x, y in loc])
+
+
+def _axes(yaw: float) -> tuple[np.ndarray, np.ndarray]:
+    """A placement's local X and Y in the plane (a span: X across the road, Y along it)."""
+    return np.array([math.cos(yaw), math.sin(yaw)]), np.array([-math.sin(yaw), math.cos(yaw)])
+
+
+def driven_faces(geo, asset: str, centre, yaw: float, s: float) -> dict[int, list[dict]]:
+    """The faces of a span that layouts drive towards: {-1: passes, +1: passes}, -1 being the -Y face (seen by cars
+    driving along +Y). A pass is one stretch of a layout's lap under the span (within the usable half-length plus
+    2 m across, 4 m along): {layout, s (along that layout's route), fromLineM (from its start line, either way
+    round the lap)}."""
+    from .dressing import layout_starts  # noqa: PLC0415 - dressing imports this module
+
+    X, Y = _axes(yaw)
+    c = np.asarray(centre, dtype=np.float64)[:2]
+    half = FACES[asset]["half"] * s + 2.0
+    out: dict[int, list[dict]] = {-1: [], 1: []}
+    for st in layout_starts(geo):
+        r, direction = st["route"], st["direction"]
+        rel = r.p[:, :2] - c
+        u, v = rel @ X, rel @ Y
+        idx = np.nonzero((np.abs(u) <= half) & (np.abs(v) <= 4.0))[0]
+        if not len(idx):
+            continue
+        for run in np.split(idx, np.nonzero(np.diff(idx) > 1)[0] + 1):
+            j = int(run[np.argmin(np.abs(v[run]))])
+            face = -1 if float((r.tangent[j] * direction) @ Y) > 0 else 1
+            d = ((float(r.s[j]) - st["lineS"]) * direction) % r.length
+            out[face].append({"layout": st["layout"], "s": float(r.s[j]), "fromLineM": float(min(d, r.length - d))})
+    return out
 # building props per kind: (asset, length along local X, depth, height, face): tiled along the footprint
 PROPS = {
     "garages": [("prop_tarmac2_pitstop_part2", 28.4, 12.4, 10.4, "+y")],
@@ -381,6 +433,7 @@ class Pits:
         # gantries and bridges over the road
         for gnt in self.gantries:
             self._gantry(planner, gnt, add)
+        self._banners(planner, add)
 
     def _row(self, line: np.ndarray, step: float):
         seg = np.hypot(*np.diff(line, axis=0).T)
@@ -394,10 +447,12 @@ class Pits:
             t = (p1 - p0) / max(float(np.hypot(*(p1 - p0))), 1e-9)
             yield (p0 + p1) / 2.0, t
 
-    def _on_pits(self, q: np.ndarray, r: float) -> bool:
+    def _on_pits(self, q: np.ndarray, r: float, lanes_only: bool = False) -> bool:
         for lane in self.lanes:
             if lane.b1 >= lane.b0 and np.hypot(*(lane.p[lane.b0:lane.b1 + 1] - q).T).min() < lane.w / 2 + r:
                 return True
+        if lanes_only:
+            return False
         for _b, poly in self.buildings + self.grandstands:
             if point_in_poly(q[None, :], poly)[0] or np.hypot(*(poly - q).T).min() < r:
                 return True
@@ -506,47 +561,154 @@ class Pits:
         self._span(planner, gnt, r, i, need, add)
 
     def _span(self, planner, gnt: dict, r, i: int, need: dict, add) -> None:
-        """A bridge, footbridge or gantry across the road: the stock footbridge where its pillars, stairs and bases
-        all stand PART_CLEAR beyond every road and verge edge (kind ``gantry``: never), else a stock archway gantry
-        scaled so its legs do (Chris 2026-10-25: Cadwell's footbridge pillars on the track edge wrecked his car).
-        Deck or banner at least MIN_CLEARANCE over the road."""
+        """A bridge, footbridge or gantry across the road (every kind: the real spans are approved, Chris 2026-10-26):
+        the stock footbridge, scaled (deck at least MIN_CLEARANCE over the road) and nudged up to NUDGE_M across the
+        road so that, in order of preference, every pillar, stair and base stands PART_CLEAR beyond every road and
+        verge edge; or its pillars at least LEG_CLEAR (off the verge, the clearest parts; reported); or at least
+        LEG_MIN (off the road; reported). Never a pillar, stair or base on a road or the pit lane, never a pillar in
+        a pit building (stairs may run into one, as a real footbridge lands on it), and the deck never over a second
+        road (Cadwell's Woodland footbridge would reach the start straight, whose bridge stays removed). Only where
+        no footbridge position does, the stock archway gantry
+        (posts at +-11 m, banner 5.32 m up mid-span) is tried the same way (Chris 2026-10-25: Cadwell's footbridge
+        pillars on the track edge wrecked his car)."""
         g = self.geo
         p, t, nl = r.p[i], r.tangent[i], r.nl[i]
-        half = (need[1] + need[-1]) / 2.0
-        shift = (need[1] - need[-1]) / 2.0     # along +nl
-        centre = p[:2] + nl * shift
+        base = p[:2] + nl * (need[1] - need[-1]) / 2.0     # centred between what it must clear on each side
         road_top = float(max(r.left[i, 2], r.right[i, 2], p[2]))
         yaw = yaw_to(t)
+        dist = planner.field.dist
         choice = None
-        kinds = ["gantry"] if gnt["kind"] == "gantry" else ["bridge", "gantry"]
-        for k in kinds:
+        for k in ("bridge", "gantry"):
             asset, leg, low = SPANS[k]
-            for s in np.arange(max(half / leg, 1.0), SPAN_SCALE_MAX + 1e-6, 0.02):
-                pts = span_parts(asset, centre, yaw, float(s))
-                if float(planner.field.dist(pts).min()) < PART_CLEAR or any(self._on_pits(q, 0.5) for q in pts[::4]):
-                    continue
-                legs = span_parts(asset, centre, yaw, float(s), legs_only=True)
-                z = float(min(g.terrain(np.column_stack([legs, np.zeros(len(legs))])).min(), road_top))
-                s = max(float(s), (MIN_CLEARANCE + road_top - z) / low)
-                pts = span_parts(asset, centre, yaw, s)
-                if float(planner.field.dist(pts).min()) >= PART_CLEAR:
-                    choice = (k, asset, s, z, low, float(planner.field.dist(pts).min()))
-                    break
-            if choice:
-                break
+            cands = []
+            for sh in sorted(np.arange(-NUDGE_M, NUDGE_M + 1e-6, 0.5), key=lambda v: (abs(v), v)):
+                centre = base + nl * sh
+                for s0 in np.arange(1.0, SPAN_SCALE_MAX + 1e-6, 0.04):
+                    legs = span_parts(asset, centre, yaw, float(s0), legs_only=True)
+                    z = float(min(g.terrain(np.column_stack([legs, np.zeros(len(legs))])).min(), road_top))
+                    s = max(float(s0), (MIN_CLEARANCE + road_top - z) / low)
+                    legs = span_parts(asset, centre, yaw, s, legs_only=True)
+                    dl = float(dist(legs).min())
+                    parts = span_parts(asset, centre, yaw, s)
+                    dp = float(dist(parts).min())
+                    # never a pillar, stair or base on a road or the pit lane; pillars never in a pit building (stairs
+                    # may run into one: a real footbridge often lands on the pit building, Donington)
+                    if (min(dl, dp) < LEG_MIN or any(self._on_pits(q, 0.5) for q in legs)
+                            or any(self._on_pits(q, 0.5, lanes_only=True) for q in parts[::2])
+                            or self._spans_other_road(p, centre, yaw, (leg + 2.0) * s)):
+                        continue
+                    full = dp >= PART_CLEAR and not any(self._on_pits(q, 0.5) for q in parts[::4])
+                    tier = 0 if full else (1 if dl >= LEG_CLEAR else 2)
+                    cands.append((tier, sh, s, z, dl, dp, centre))
+                    if full:
+                        break  # a bigger scale at this nudge gains nothing
+            if cands:
+                best_tier = min(c[0] for c in cands)
+                pool = [c for c in cands if c[0] == best_tier]
+                # every part clear: the smallest, least moved; else within 1 m of the clearest parts (pillars off the
+                # verge) or pillars (on the verge), the smallest, least moved
+                if best_tier:
+                    m = 5 if best_tier == 1 else 4
+                    top = max(c[m] for c in pool)
+                    pool = [c for c in pool if c[m] >= min(top - 1.0, PART_CLEAR if m == 5 else LEG_CLEAR)]
+                choice = (k, asset, low, *min(pool, key=lambda c: (c[2] + 0.1 * abs(c[1]),)))
+                break  # a real span stays the footbridge whenever its pillars can stand off the roads
         if choice is None:
-            self.report["warnings"].append(f"{gnt['kind']} {gnt.get('name', '')}: no span clears the roads, left out")
+            self.report["warnings"].append(f"{gnt['kind']} {gnt.get('name', '')}: every pillar position is on a road, "
+                                           "left out")
             return
-        k, asset, s, z, low, part_clear = choice
+        k, asset, low, tier, sh, s, z, dl, dp, centre = choice
         P = planner.sc.placements
         add(asset, "bridges", centre, yaw, s)
         P[-1].z = z
-        self.report["gantries"].append({"kind": gnt["kind"], "name": gnt.get("name", ""), "sM": round(float(r.s[i]), 1),
-                                        "asset": asset, "built": k, "scale": round(s, 3),
-                                        "clearanceM": round(low * s + z - road_top, 2),
-                                        "partsFromRoadM": round(part_clear, 2), "problems": []})
+        name = f"{gnt['kind']} {gnt.get('name', '')}".strip()
+        if tier > 0:  # approved real spans stay; report what doesn't meet the preferred clearance
+            why = ("its stairs run into a pit building" if dp >= PART_CLEAR else
+                   f"parts {dp:.1f} m from a road edge (preferred {PART_CLEAR:.1f})")
+            self.report["warnings"].append(
+                f"{name}: {why}, pillars {dl:.1f} m" + (f" (below {LEG_CLEAR:.1f}: on the verge)" if tier == 2 else "")
+                + f"; kept as the {k}, approved real span")
+        rep = {"kind": gnt["kind"], "name": gnt.get("name", ""), "sM": round(float(r.s[i]), 1),
+               "asset": asset, "built": k, "scale": round(s, 3), "clearanceM": round(low * s + z - road_top, 2),
+               "partsFromRoadM": round(dp, 2), "legsFromRoadM": round(dl, 2), "nudgeM": round(float(sh), 2),
+               "problems": [], "banners": []}
+        self.report["gantries"].append(rep)
         self._fixed_z = getattr(self, "_fixed_z", [])
         self._fixed_z.append((P[-1], z))
+        self._spans = getattr(self, "_spans", [])
+        self._spans.append({"asset": asset, "centre": np.asarray(centre, dtype=np.float64), "yaw": yaw, "s": s, "z": z,
+                            "report": rep})
+
+    def _spans_other_road(self, p: np.ndarray, centre: np.ndarray, yaw: float, half: float) -> bool:
+        """Does the deck (``half`` either side of ``centre`` across, 3 m along) also pass over another road than
+        the one at ``p`` (Cadwell: the start straight 18 m beside Woodland; its bridge stays removed)?"""
+        X, Y = _axes(yaw)
+        for rr in self.geo.routes:
+            rel = rr.p[:, :2] - centre
+            under = (np.abs(rel @ X) <= half) & (np.abs(rel @ Y) <= 3.0)
+            if under.any() and (np.abs((rr.p[under, :2] - p[:2]) @ X) > 3.0).any():
+                return True
+        return False
+
+    def _banners(self, planner, add) -> None:
+        """Banners (sponsor.py span / welcome panels) on every span face a layout drives towards (``driven_faces``):
+        the face of the span nearest each layout's start line along its lap carries "Welcome to <track>"
+        (``sponsor.welcome``), every other driven face two or three sponsors side by side (three when each panel is
+        still BANNER_MIN_H tall), rotating through ``sponsor.span_rotation`` across the circuit's faces in span order
+        from a start that depends on the track's name. Each panel hangs flush on the face between the pillars, its
+        lower edge FACES ``bottom`` (above the span's lowest part), no higher than ``top``."""
+        from . import sponsor  # noqa: PLC0415 - sponsor imports envs only, but keep pits light
+
+        spans = getattr(self, "_spans", [])
+        rot = sponsor.span_rotation()
+        wc = sponsor.welcome()
+        if not spans or not (rot or wc):
+            return
+        faces = []
+        for n, sp in enumerate(spans):
+            df = driven_faces(self.geo, sp["asset"], sp["centre"], sp["yaw"], sp["s"])
+            faces += [(n, f, df[f]) for f in (-1, 1) if df[f]]
+        welcome: set[tuple[int, int]] = set()
+        if wc:
+            near: dict[str, tuple[float, tuple[int, int]]] = {}
+            for n, f, passes in faces:
+                for ps in passes:
+                    if ps["layout"] not in near or ps["fromLineM"] < near[ps["layout"]][0]:
+                        near[ps["layout"]] = (ps["fromLineM"], (n, f))
+            welcome = {v[1] for v in near.values()}
+        k0 = zlib.crc32(str((self.geo.model or {}).get("name", "")).encode("utf-8")) % len(rot) if rot else 0
+        count = 0
+        P = planner.sc.placements
+        for n, f, passes in faces:
+            span = spans[n]
+            F, s = FACES[span["asset"]], span["s"]
+            X, Y = _axes(span["yaw"])
+            usable = 2.0 * F["half"] * s
+            tall = (F["top"] - F["bottom"]) * s
+            if (n, f) in welcome:
+                h = min(usable / sponsor.WELCOME_ASPECT, tall)
+                panels = [("sponsor_welcome", 0.0)]
+            elif rot:
+                m = min(3 if usable / (3 * sponsor.SPAN_ASPECT) >= BANNER_MIN_H else 2, len(rot))
+                h = min(usable / (m * sponsor.SPAN_ASPECT), tall)
+                panels = [(sponsor.asset(rot[(k0 + count + j) % len(rot)], "span", 0),
+                           (j - (m - 1) / 2.0) * sponsor.SPAN_ASPECT * h) for j in range(m)]
+                count += m
+            else:
+                continue
+            plane = (F["neg"] if f < 0 else F["pos"]) * s + f * (BANNER_GAP + sponsor.SPAN_T / 2.0)
+            yaw = span["yaw"] if f < 0 else span["yaw"] + math.pi   # the printed face (local -Y) outwards
+            bottom = span["z"] + F["bottom"] * s
+            for asset, xo in panels:
+                add(asset, "bridges", span["centre"] + X * xo + Y * plane, yaw, h)
+                P[-1].z = bottom
+                self._fixed_z.append((P[-1], bottom))
+            rep = span["report"]
+            rep["banners"].append({"face": "-y" if f < 0 else "+y", "layouts": sorted({p["layout"] for p in passes}),
+                                   "welcome": (n, f) in welcome, "panels": [a for a, _x in panels],
+                                   "heightM": round(h, 2), "widthM": round(len(panels) * h * (
+                                       sponsor.WELCOME_ASPECT if (n, f) in welcome else sponsor.SPAN_ASPECT), 2),
+                                   "clearanceM": round(rep["clearanceM"] + (F["bottom"] - F["low"]) * s, 2)})
 
     def _start_lights(self, planner, gnt: dict, r, i: int, add) -> None:
         """The start lights: a stock cantilever (pole and an arm 7.2 m up reaching 10.5 m) on the pit wall, the arm
