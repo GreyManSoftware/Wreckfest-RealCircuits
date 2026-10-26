@@ -1088,6 +1088,60 @@
     "topMedianM": null,
     "topMaxM": null
    }
+  },
+  {
+   "kind": "footbridge",
+   "name": "Hailwood Hill footbridge",
+   "route": "main",
+   "sM": 531.5,
+   "at": [557766.82, 164610.08],
+   "roadDirection": [-0.035, -0.999],
+   "roadWidthM": 9.81,
+   "source": "OSM way 842276417 (highway=footway, bridge=covered, layer=1) over Hailwood Hill; LIDAR (EA NLP 2018) shows the span across the whole road, top 7.6-8.0 m",
+   "osmSpanM": 27.5,
+   "lidar": {
+    "coverAcrossRoad": 1.0,
+    "atOffsetM": 1.0,
+    "topMedianM": 7.7,
+    "topMaxM": 7.9
+   },
+   "note": "built as the stock footbridge only where its pillars, stairs and bases stand 4 m beyond the road and verge, else as a stock gantry (wfbuild/pits.py _span; Chris 2026-10-25)"
+  },
+  {
+   "kind": "bridge",
+   "name": "service bridge (Pilgrims Drop)",
+   "route": "main",
+   "sM": 1725.0,
+   "at": [557750.54, 164406.43],
+   "roadDirection": [0.914, -0.406],
+   "roadWidthM": 8.95,
+   "source": "OSM way 115385663 (highway=service, bridge=yes, layer=1) over the GP loop; LIDAR (EA NLP 2018) shows the deck across the road, top 5.2-5.7 m",
+   "osmSpanM": 30.0,
+   "lidar": {
+    "coverAcrossRoad": 1.0,
+    "atOffsetM": -1.0,
+    "topMedianM": 3.5,
+    "topMaxM": 5.4
+   },
+   "note": "built as the stock footbridge only where its pillars, stairs and bases stand 4 m beyond the road and verge, else as a stock gantry (wfbuild/pits.py _span; Chris 2026-10-25)"
+  },
+  {
+   "kind": "bridge",
+   "name": "service bridge (Clearways)",
+   "route": "main",
+   "sM": 3315.8,
+   "at": [557346.71, 164406.87],
+   "roadDirection": [-0.951, 0.31],
+   "roadWidthM": 9.56,
+   "source": "OSM way 115380228 (highway=service, bridge=yes, layer=1); LIDAR (EA NLP 2018) shows the deck across the road, top 4.4-5.8 m",
+   "osmSpanM": 29.8,
+   "lidar": {
+    "coverAcrossRoad": 1.0,
+    "atOffsetM": -3.0,
+    "topMedianM": 3.5,
+    "topMaxM": 5.2
+   },
+   "note": "built as the stock footbridge only where its pillars, stairs and bases stand 4 m beyond the road and verge, else as a stock gantry (wfbuild/pits.py _span; Chris 2026-10-25)"
   }
  ]
 }

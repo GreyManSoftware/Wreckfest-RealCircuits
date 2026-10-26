@@ -1390,6 +1390,23 @@
     "topMedianM": null,
     "topMaxM": null
    }
+  },
+  {
+   "kind": "gantry",
+   "name": "gantry over the main straight",
+   "route": "main",
+   "sM": 156.0,
+   "at": [568289.19, 4712208.56],
+   "roadDirection": [-0.384, 0.923],
+   "roadWidthM": 14.43,
+   "source": "LIDAR (Gobierno de Navarra 2024): a span across the road at s 154-158 m, top 6.7-6.9 m; not in OSM",
+   "lidar": {
+    "coverAcrossRoad": 1.0,
+    "atOffsetM": -1.0,
+    "topMedianM": 6.7,
+    "topMaxM": 6.9
+   },
+   "note": "built as the stock footbridge only where its pillars, stairs and bases stand 4 m beyond the road and verge, else as a stock gantry (wfbuild/pits.py _span; Chris 2026-10-25)"
   }
  ]
 }

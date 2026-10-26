@@ -705,6 +705,8 @@ class Planner:
                     continue
                 q, tw, tg = self.side_point(r, k, side, off_f + 1.6 + 1.4 * row + float(self.rng.uniform(-0.3, 0.3)))
                 q = q + tg * float(self.rng.uniform(-0.35, 0.35))
+                if float(self.field.dist(q)[0]) < off_f + 0.5 + 1.4 * row:
+                    continue  # another road (a layout's branch, the far side of a hairpin) is nearer: no barrier there
                 a = self.pick(self.common["spectators"])
                 self.try_place(a, "spectators", q[0], q[1], yaw_to(tw) + float(self.rng.normal(0, 0.25)),
                                off_f + 0.5, r=0.55)

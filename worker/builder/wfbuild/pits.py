@@ -44,6 +44,26 @@ BRIDGE_ASSET = "prop_bridge03_green"      # 55 m footbridge: inner pillars +-11 
 BRIDGE_INNER = 11.0
 BRIDGE_REACH = 27.5
 BRIDGE_LOW = 5.97
+GANTRY_ASSET = "prop_start_archway01"     # 32.7 m start arch: legs at +-16.35 m, banner underside about 6 m
+GANTRY_LEG = 16.35
+GANTRY_LOW = 6.0
+SPANS = {"bridge": (BRIDGE_ASSET, BRIDGE_INNER, BRIDGE_LOW), "gantry": (GANTRY_ASSET, GANTRY_LEG, GANTRY_LOW)}
+PART_CLEAR = 4.0 + 3.7     # every pillar, stair and base: 4 m beyond the verge (shoulder, or kerb + green strip)
+SPAN_SCALE_MAX = 1.8
+
+
+def span_parts(asset: str, centre, yaw: float, s: float, legs_only: bool = False) -> np.ndarray:
+    """Ground points of a span's legs, pillars, stairs and bases (local X across the road), placed."""
+    X = np.array([math.cos(yaw), math.sin(yaw)])
+    Y = np.array([-math.sin(yaw), math.cos(yaw)])
+    c = np.asarray(centre, dtype=np.float64)[:2]
+    if asset == BRIDGE_ASSET:
+        xs = [BRIDGE_INNER] if legs_only else list(np.arange(BRIDGE_INNER - 1.0, BRIDGE_REACH + 0.01, 1.0))
+        ys = (-1.5, 0.0, 1.5)
+    else:
+        xs = [GANTRY_LEG] if legs_only else [GANTRY_LEG - 1.0, GANTRY_LEG, GANTRY_LEG + 0.6]
+        ys = (-1.0, 0.0, 1.0)
+    return np.array([c + X * sd * x * s + Y * y * s for sd in (1, -1) for x in xs for y in ys])
 # building props per kind: (asset, length along local X, depth, height, face): tiled along the footprint
 PROPS = {
     "garages": [("prop_tarmac2_pitstop_part2", 28.4, 12.4, 10.4, "+y")],
@@ -483,35 +503,48 @@ class Pits:
         if kind == "startLights":
             self._start_lights(planner, gnt, r, i, add)
             return
-        asset, leg, low, reach = BRIDGE_ASSET, BRIDGE_INNER, BRIDGE_LOW, BRIDGE_REACH
+        self._span(planner, gnt, r, i, need, add)
+
+    def _span(self, planner, gnt: dict, r, i: int, need: dict, add) -> None:
+        """A bridge, footbridge or gantry across the road: the stock footbridge where its pillars, stairs and bases
+        all stand PART_CLEAR beyond every road and verge edge (kind ``gantry``: never), else a stock archway gantry
+        scaled so its legs do (Chris 2026-10-25: Cadwell's footbridge pillars on the track edge wrecked his car).
+        Deck or banner at least MIN_CLEARANCE over the road."""
+        g = self.geo
+        p, t, nl = r.p[i], r.tangent[i], r.nl[i]
         half = (need[1] + need[-1]) / 2.0
         shift = (need[1] - need[-1]) / 2.0     # along +nl
-        s = max(half / leg, 1.0)
         centre = p[:2] + nl * shift
-        legs = np.array([centre + nl * leg * s, centre - nl * leg * s])
-        z_legs = g.terrain(np.column_stack([legs, np.zeros(2)]))
         road_top = float(max(r.left[i, 2], r.right[i, 2], p[2]))
-        z = float(min(z_legs.min(), road_top))
-        # deck / banner at least MIN_CLEARANCE over the road
-        s = max(s, (MIN_CLEARANCE + road_top - z) / low)
-        legs = np.array([centre + nl * leg * s, centre - nl * leg * s])
-        ends = np.array([centre + nl * reach * s, centre - nl * reach * s])
-        clear = low * s + z - road_top
-        problems = []
-        for q in np.vstack([legs, ends]):
-            if self._on_pits(q, 0.5):
-                problems.append("a leg or stair on the pits")
+        yaw = yaw_to(t)
+        choice = None
+        kinds = ["gantry"] if gnt["kind"] == "gantry" else ["bridge", "gantry"]
+        for k in kinds:
+            asset, leg, low = SPANS[k]
+            for s in np.arange(max(half / leg, 1.0), SPAN_SCALE_MAX + 1e-6, 0.02):
+                pts = span_parts(asset, centre, yaw, float(s))
+                if float(planner.field.dist(pts).min()) < PART_CLEAR or any(self._on_pits(q, 0.5) for q in pts[::4]):
+                    continue
+                legs = span_parts(asset, centre, yaw, float(s), legs_only=True)
+                z = float(min(g.terrain(np.column_stack([legs, np.zeros(len(legs))])).min(), road_top))
+                s = max(float(s), (MIN_CLEARANCE + road_top - z) / low)
+                pts = span_parts(asset, centre, yaw, s)
+                if float(planner.field.dist(pts).min()) >= PART_CLEAR:
+                    choice = (k, asset, s, z, low, float(planner.field.dist(pts).min()))
+                    break
+            if choice:
                 break
-        dist_legs = planner.field.dist(legs)
-        if (dist_legs < 1.0).any():
-            problems.append("a leg on a road")
+        if choice is None:
+            self.report["warnings"].append(f"{gnt['kind']} {gnt.get('name', '')}: no span clears the roads, left out")
+            return
+        k, asset, s, z, low, part_clear = choice
         P = planner.sc.placements
-        add(asset, "gantry" if kind == "startLights" else "bridges", centre, yaw_to(t), s)
+        add(asset, "bridges", centre, yaw, s)
         P[-1].z = z
-        self.report["gantries"].append({"kind": kind, "name": gnt.get("name", ""), "sM": round(float(r.s[i]), 1),
-                                        "scale": round(s, 3), "clearanceM": round(clear, 2),
-                                        "legsFromCentreM": [round(float(np.hypot(*(q - p[:2]))), 1) for q in legs],
-                                        "problems": problems})
+        self.report["gantries"].append({"kind": gnt["kind"], "name": gnt.get("name", ""), "sM": round(float(r.s[i]), 1),
+                                        "asset": asset, "built": k, "scale": round(s, 3),
+                                        "clearanceM": round(low * s + z - road_top, 2),
+                                        "partsFromRoadM": round(part_clear, 2), "problems": []})
         self._fixed_z = getattr(self, "_fixed_z", [])
         self._fixed_z.append((P[-1], z))
 

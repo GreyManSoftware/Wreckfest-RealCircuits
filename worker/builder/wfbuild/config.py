@@ -64,6 +64,7 @@ WALL_HALF = {"concrete": 0.35, "tyres": 0.5, "armco": 0.25}   # half thickness o
 WALL_CUSTOM_DATA = "vis = false | col = true"
 OTHER_ROUTE_S = 60.0          # same-route samples further than this (along s) count as another road
 MOUTH_CLEAR = 0.5             # an alt-route cross-section must be this far outside the road it leaves
+GORE_PAVE_M = 3.0             # imported forks: the gore between a branch and its road is paved until this wide
 TERRAIN_CELL = 4.0
 TERRAIN_TILE_CELLS = 32       # 128 m terrain tiles
 TERRAIN_SINK = 0.15           # terrain under the road sits this far below it (no poke-through on a 4 m grid)...

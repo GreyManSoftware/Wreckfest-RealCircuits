@@ -116,6 +116,15 @@ def check_pits_base(check, geo, sc: dict, obs: dict, manifest: dict, to_scene, w
         ok = best is not None and best[0] <= GANTRY_S_TOL + (12.0 if g["kind"] == "startLights" else 0.0)
         check(ok, f"pits: {g['kind']} {g.get('name', '')} at its real position (s {want:.0f} m)",
               f"{best[0]:.1f} m along" if best else "missing")
+    # no part of a bridge or gantry (pillars, stairs, bases, legs) within 4 m beyond any road's verge
+    worst_part = []
+    for p in [p for p in P if p["category"] == "bridges"]:
+        pts = pits_mod.span_parts(p["asset"], p["position"][:2], p["yaw"], p["scale"])
+        e = float(exact_edge_distance(geo, pts).min())
+        if e < pits_mod.PART_CLEAR - 0.3:
+            worst_part.append(f"{p['asset']} {e:.1f} m")
+    check(not worst_part, f"pits: every bridge and gantry part stands {pits_mod.PART_CLEAR - 3.7:.0f} m beyond the "
+          "road and verge edges", ", ".join(worst_part[:3]))
     for rep in sc["info"].get("pits", {}).get("gantries", []):
         check(rep["clearanceM"] >= pits_mod.MIN_CLEARANCE - 0.05 and not rep["problems"],
               f"pits: {rep['kind']} {rep['name']} clears the road by at least {pits_mod.MIN_CLEARANCE:.0f} m, legs off the pits",

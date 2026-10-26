@@ -848,13 +848,18 @@ class TrackGeometry:
                 last = p0
                 while 0 <= k < r.n and len(chains[n_c]) < 60:
                     q = ecol[k, :2]
-                    if float(np.min(dist_to_polyline(q[None, :], wpts))) <= hw_t:
+                    # on the target road: within its local half width (imported tracks' widths vary; the window's
+                    # widest stopped the chain short and left a sliver of grass beside the target, Oulton's Hislop's)
+                    jq = int(np.argmin(np.hypot(*(wpts - q).T)))
+                    hw_q = float(t.w[win[jq]]) / 2.0 if self.imported else hw_t
+                    if float(np.min(dist_to_polyline(q[None, :], wpts))) <= hw_q:
                         break
                     # on a third road (another junction right beside this one, Anglesey's Bus Stop): that one's
                     # mouth paves it, so this side keeps the plain chord
                     mask = self.index.ri != t.index
                     if self.index.near_other(ecol[k:k + 1], np.array([r.index]), r.s[k:k + 1], 0.0, mask=mask)[0]:
-                        chains[n_c] = []
+                        if not (self.imported and len(chains[n_c]) >= 4):  # a long chain keeps its own edge (Hislop's)
+                            chains[n_c] = []
                         break
                     chains[n_c].append(k)
                     last = q
@@ -908,9 +913,124 @@ class TrackGeometry:
             ids = (poly_ids[a], poly_ids[b], poly_ids[cc])
             mesh.face(ids, mat, [(mesh.verts[i][0] / tile, mesh.verts[i][1] / tile) for i in ids])
         self.__dict__.setdefault("stitch_polys", []).append(xy)
+        if self.imported and cut.kind == "mouth":
+            self._pave_gore(mesh, vid, cut, chains, ja, jb, lo, hi, win, col, wpts, jc, away, step_k, used)
         self.stitched = getattr(self, "stitched", [])
         self.stitched.append({"route": r.id, "sample": cut.sample, "target": t.id,
                               "edgeVertices": [list(mesh.verts[i]) for i in edge_ids]})
+
+    def _pave_gore(self, mesh: Mesh, vid, cut: Cut, chains, ja, jb, lo: int, hi: int, win, col: int, wpts, jc: int,
+                   away, step_k: int, used: set) -> None:
+        """Imported tracks: pave the gore of a shallow fork, the wedge between the branch's inner edge and the road
+        it leaves, from the mouth on until the two edges are GORE_PAVE_M apart. Left as grass it was a thin strip
+        running diagonally across the tarmac with bare ground in it (Oulton Park's Hislop's split, Chris
+        2026-10-25). One polygon sharing the mouth's, the target's and the branch's edge vertices (no cracks)."""
+        r, t = cut.route, cut.target
+        cross = r.cross_section(cut.sample)
+        out_dir = r.tangent[cut.sample] * float(-step_k)  # along the branch, away from the junction
+        tdir = t.tangent[win[jc]] * (1.0 if float(np.dot(t.tangent[win[jc]], out_dir)) >= 0 else -1.0)
+        tedge = (t.left if col == 0 else t.right)
+        # the gore runs along the target's edge ahead (the way the target continues past the fork) from the mouth's
+        # end there; the gore corner of the branch is the one whose mouth side reaches that end
+        dk = 1 if float(np.dot(t.tangent[win[jc]], tdir)) >= 0 else -1
+        h = hi if dk == 1 else lo
+        ends_xy = [r.left[chains[0][-1], :2] if chains[0] else cross[0, :2],
+                   r.right[chains[1][-1], :2] if chains[1] else cross[-1, :2]]
+        n_g = int(np.argmin([np.hypot(*(e - tedge[win[h], :2])) for e in ends_xy]))
+        # the main gore ahead, then the other corner's (a shallow merge can leave a wedge on both sides)
+        for n_g, h, dk in ((n_g, h, dk), (1 - n_g, lo if h == hi else hi, -dk)):
+            self._gore_side(mesh, vid, cut, chains, n_g, h, dk, win, col, wpts, tedge, step_k, used, lo, hi)
+
+    def _gore_side(self, mesh: Mesh, vid, cut: Cut, chains, n_g: int, h: int, dk: int, win, col: int, wpts, tedge,
+                   step_k: int, used: set, lo: int, hi: int) -> None:
+        r, t = cut.route, cut.target
+        bcol = 0 if n_g == 0 else r.m
+        bedge = r.left if n_g == 0 else r.right
+        tw = t.w[win] / 2.0
+        ks = []
+        k = cut.sample - step_k
+        while 0 <= k < r.n and len(ks) < 80:
+            q = bedge[k, :2]
+            j = int(np.argmin(np.hypot(*(wpts - q).T)))
+            if float(dist_to_polyline(q[None, :], tedge[win])[0]) >= C.GORE_PAVE_M:
+                break
+            ks.append(k)
+            k -= step_k
+        q0 = bedge[cut.sample, :2]
+        j0 = int(np.argmin(np.hypot(*(wpts - q0).T)))
+        if float(np.hypot(*(wpts[j0] - q0))) - float(tw[j0]) > C.GORE_PAVE_M + 1.0:
+            return  # a wide gore already at the mouth: grass
+        last = bedge[ks[-1], :2] if ks else bedge[cut.sample, :2]
+        je = int(np.argmin(np.hypot(*(tedge[win, :2] - last).T)))
+        je = max(je + 1, h + 1) if dk == 1 else min(je - 1, h - 1)  # one segment past the nearest (and at least one)
+        je = min(max(je, 0), len(win) - 1)
+        if (je - h) * dk < 1:
+            return
+        trange = list(range(h, je + dk, dk))
+        if any((win[min(a, b)], win[max(a, b)]) in used for a, b in zip(trange, trange[1:])):
+            return
+        chain = list(chains[n_g])  # from the cut corner towards the target (empty: the mouth's plain chord)
+        branch_ids = [vid(r, kk, bcol) for kk in ks[::-1]] + [vid(r, cut.sample, bcol)] + [vid(r, kk, bcol) for kk in chain]
+        poly_ids = [vid(t, win[k2], col) for k2 in trange] + branch_ids  # h .. je, then back along the branch
+        if len(set(poly_ids)) != len(poly_ids):
+            self.warnings.append(f"gore-degenerate: {r.id}@{cut.sample} -> {t.id}")
+            return
+        xy = np.array([mesh.verts[i][:2] for i in poly_ids])
+        used.update((win[min(a, b)], win[max(a, b)]) for a, b in zip(trange, trange[1:]))
+        mat = self.road_material(r, cut.sample)
+        tile = C.TEX_TILE["road"]
+        for a, b, cc in ear_clip(xy):
+            ids = (poly_ids[a], poly_ids[b], poly_ids[cc])
+            mesh.face(ids, mat, [(mesh.verts[i][0] / tile, mesh.verts[i][1] / tile) for i in ids])
+        # no kerb, verge or edge decal along the paved gore's edges
+        self.mouth_samples.setdefault((t.index, 1 if col == 0 else -1), set()).update(win[k2] for k2 in trange)
+        self.mouth_samples.setdefault((r.index, 1 if n_g == 0 else -1), set()).update(ks + [cut.sample])
+        self.__dict__.setdefault("stitch_polys", []).append(xy)
+        self.__dict__.setdefault("gores", []).append({"route": r.id, "target": t.id, "samples": len(ks), "cut": cut.sample,
+                                                      "corner": n_g, "h": h, "je": je, "lo": lo, "hi": hi})
+
+    def junction_slivers(self, max_gap: float | None = None) -> list[str]:
+        """Every junction mouth: points between a branch edge and the road it leaves, where the two edges are less
+        than ``max_gap`` (GORE_PAVE_M less 0.5 m) apart, that the road mesh doesn't cover (a grass or bare-ground
+        sliver across the tarmac). Empty when every narrow gap at every junction is paved."""
+        max_gap = C.GORE_PAVE_M - 0.5 if max_gap is None else max_gap
+        tri = TriIndex.of(self.build_road())
+        out = []
+        for cut in self.cuts:
+            if cut.kind != "mouth":
+                continue
+            r, t = cut.route, cut.target
+            win = t.window(cut.target_sample, 60)
+            # only the target edge on the branch's side (a branch crossing the target overlaps it on the far side)
+            cc = r.cross_section(cut.sample)[:, :2].mean(0)
+            jc_ = int(np.argmin(np.hypot(*(t.p[win, :2] - cc).T)))
+            sides = (t.left,) if float(np.dot(cc - t.p[win[jc_], :2], t.nl[win[jc_]])) > 0 else (t.right,)
+            step_k = -1 if cut.sample < r.n // 2 else 1
+            for edge in (r.left, r.right):
+                for n in range(-30, 60):
+                    k = cut.sample - step_k * n
+                    if not 0 <= k < r.n:
+                        continue
+                    q = edge[k, :2]
+                    jn = int(np.argmin(np.hypot(*(t.p[win, :2] - q).T)))
+                    if float(dist_to_polyline(q[None, :], t.p[win])[0]) <= float(t.w[win[jn]]) / 2.0 + 0.05:
+                        continue  # on the target road
+                    best = None
+                    for tedge in sides:
+                        f_ = _project_polyline(q, tedge[win, :2], max_dist=1e9)
+                        k0 = min(int(f_), len(win) - 2)
+                        e_ = tedge[win[k0], :2] + (tedge[win[k0 + 1], :2] - tedge[win[k0], :2]) * (f_ - k0)
+                        g_ = float(np.hypot(*(e_ - q)))
+                        if best is None or g_ < best[0]:
+                            best = (g_, e_)
+                    gap, e = best
+                    if 0.4 < gap < max_gap:
+                        for u in (0.3, 0.5, 0.7):
+                            m = q + (e - q) * u
+                            if not tri.covered(m):
+                                out.append(f"{r.id}@{r.s[k]:.0f}m (cut {cut.sample}, k {k})->{t.id} gap {gap:.1f} m")
+                                break
+        return out
 
     # ------------------------------------------------------------------------ kerbs and shoulders
     def _side_points(self, r: Route, side: int, offset: np.ndarray | float) -> np.ndarray:
