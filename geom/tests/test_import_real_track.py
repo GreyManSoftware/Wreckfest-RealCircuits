@@ -334,8 +334,10 @@ def test_imported_sample_drives_the_recipes_corner_order_in_every_layout(recipe_
     """The committed sample, built into a TrackModel, is driven (increasing s from the start line, which the
     builder's layouts and the built-.scne driving-order check follow) through the published corner order, the
     right way round, in the main and every alternative layout; every layout has a 24-car grid on the tarmac of
-    its own lap, ahead of its line and facing the driving direction, its line where the recipe puts it, a lap
-    within 3 % of the published length, and the recipe names the source of its route, direction and line."""
+    its own lap, facing the driving direction, ahead of its timing line (the finish checkpoint) and behind its
+    real start line (the recipe's, or the main start lights), the pole row within a few metres of that line
+    unless the recipe's startGridNote says why not; a lap within 3 % of the published length, and the recipe
+    names the source of its route, direction and line."""
     from trackgen_geom import build_track_model
 
     recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
@@ -362,24 +364,46 @@ def test_imported_sample_drives_the_recipes_corner_order_in_every_layout(recipe_
             tol = float(src.get("lapLengthTolerancePct", 3.0))
             assert tol <= 3.0 or len(src.get("lapLengthNote", "")) >= 40, (src.get("id"), "no lapLengthNote")
             assert abs(lap / src["publishedLapLengthM"] - 1.0) <= tol / 100.0, (src.get("id"), lap)
-        # the line: the recipe's own startFinish gives the layout its own line and grid, else it shares main's
+        # the real start line: the recipe's own startFinish, else the main one (its start lights, else main s 0)
         own = lay is not None and lay.id in spec_alts and "startFinish" in spec_alts[lay.id]
-        assert own == (lay is not None and lay.grid is not None and lay.start_finish is not None)
         if own:
-            want = spec_alts[lay.id]["startFinish"]
-            assert math.hypot(lay.start_finish["position"][0] - want["x"], lay.start_finish["position"][1] - want["y"]) < 2.0
-            assert np.hypot(*(xy[0] - [want["x"], want["y"]])) < 2.5  # the lap starts at it
+            want = [spec_alts[lay.id]["startFinish"]["x"], spec_alts[lay.id]["startFinish"]["y"]]
         else:
-            assert np.hypot(*(xy[0] - [model.route("main").samples[0].x, model.route("main").samples[0].y])) < 1e-6
+            lights = [g for g in (spec["sketch"]["imported"].get("pits") or {}).get("gantries", [])
+                      if g["kind"] == "startLights" and g.get("route", "main") == "main"]
+            p = min(model.route("main").samples, key=lambda q: abs(q.s - (lights[0]["sM"] if lights else 0.0)))
+            want = [p.x, p.y]
+        if lay is None:  # a single-layout import: grid ahead of its line, as on a drawn track
+            assert np.hypot(*(xy[0] - want)) < 1e-6
+            grid, lead = model.grid, None
+        else:
+            # every layout runs from its timing line (the finish checkpoint), its grid ahead of that and behind
+            # the real line (pipeline._layout_grids): the game wants the grid in the first sector
+            assert lay.grid is not None and lay.start_finish is not None and lay.start_line is not None
+            assert math.hypot(lay.start_line["position"][0] - want[0], lay.start_line["position"][1] - want[1]) < 2.0
+            assert np.hypot(*(xy[0] - lay.start_finish["position"][:2])) < 2.5  # the lap starts at the timing line
+            grid, lead = lay.grid, float(lay.start_line["leadM"])
+            assert np.hypot(*(xy[int(np.argmin(np.abs(np.cumsum(np.r_[0, np.hypot(*np.diff(xy, axis=0).T)]) - lead)))]
+                              - want)) < 3.0  # the real line at its lap position
+            if not own and lay.id != "main":
+                main_lay = next(x for x in model.layouts if x.id == "main")
+                if lead == main_lay.start_line["leadM"]:  # sharing the main line, timing line and grid
+                    assert np.allclose([sl.position for sl in grid.slots], [sl.position for sl in main_lay.grid.slots], atol=0.05)
         # the game races up to 24 cars and puts any without a start point beside the grid (on the grass)
-        grid = lay.grid if own else model.grid
         assert spec["options"]["gridSize"] == 24 == len(grid.slots)
+        if lead is not None:
+            # the whole grid behind the real start line, the pole row within a few metres of it, unless the
+            # recipe says why the road behind the line can't hold it (a junction, a grade over 4 %, a road
+            # narrower than two slots)
+            gap = lead - max(sl.s for sl in grid.slots)
+            note = src.get("startGridNote") or ("" if own else recipe.get("startGridNote", ""))
+            assert 0.0 <= gap <= 6.0 or len(note) >= 40, (lay.id, f"pole {gap:.1f} m behind the real line", note)
         tangent = np.gradient(xy, axis=0)
         for sl in grid.slots:
             d = np.hypot(*(xy - np.array(sl.position[:2])).T)
             k = int(np.argmin(d))
             assert float(d[k]) + 1.0 <= hw, (sl.name, float(d[k]))  # a 2 m wide car fully on the tarmac
-            assert 0.0 < sl.s < 0.2 * (lay.lap_length_m if lay else model.lap_length_m)  # just ahead of the line
+            assert 0.0 < sl.s < 0.2 * (lay.lap_length_m if lay else model.lap_length_m)  # just ahead of the timing line
             fwd = math.atan2(tangent[k, 1], tangent[k, 0])
             assert abs((sl.heading - fwd + math.pi) % (2 * math.pi) - math.pi) < math.radians(20), sl.name
         names = [c["name"] for sec in secs if sec["route"] == "main"

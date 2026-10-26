@@ -212,6 +212,13 @@ class Route:
         d = self.s_dist(self.s, s)
         return int(np.argmin(d))
 
+    def grid_span(self, slots: list[dict]) -> tuple[float, float]:
+        """Signed s (from s = 0) of the rearmost and foremost grid slot, by position: a real track's grid
+        stands behind its start line (s = 0), a drawn track's ahead of it."""
+        d = [float(self.signed_s(self.s[int(np.argmin(np.hypot(*(self.p[:, :2] - np.asarray(q["position"][:2])).T)))], 0.0))
+             for q in slots]
+        return min(d), max(d)
+
     def window(self, i0: int, half: int) -> list[int]:
         if self.closed:
             return [(i0 + k) % self.n for k in range(-half, half + 1)]
@@ -1727,7 +1734,8 @@ class TrackGeometry:
             near = np.zeros(r.n, dtype=bool)
             if r.is_main and slots:  # the grid, the start/finish and the paddock beside them (dressing.paddock)
                 d = r.signed_s(r.s, 0.0)
-                near = (d >= -70.0) & (d <= max(float(max(q["s"] for q in slots)) + 15.0, 130.0))
+                lo, hi = r.grid_span(slots)
+                near = (d >= min(-70.0, lo - 25.0)) & (d <= max(hi + 15.0, 130.0))
             for b in self.bridges:  # under a bridge the wall stays inside the pillars
                 if b.under is r:
                     reach = (b.over.width / 2.0 + C.BRIDGE_STRUCT_EXTRA) / max(math.sin(math.radians(b.angle_deg)), 0.3)

@@ -43,6 +43,7 @@
       "directionSource": "ACU news 2012 (Wirral 100 on the National Circuit): the lap starts with 'the sweeping uphill right-handed School Corner', then Rocket and Peel, the first part of the Corkscrew and two long straights split by the Hairpin; racingcircuits.info National map arrows: down the return straight, up the Tom Pryce Straight (clockwise).",
       "startFinish": { "alongWay": 108374689, "fraction": 0.62, "note": "On the return straight beside the National pit lane (OSM 'Pit Lane (National)' runs along it from 114 to 356 m)." },
       "startFinishSource": "ACU news 2012: the National Circuit uses 'the original (pre-2007) start-line and pit lane'; racingcircuits.info National map: the chequered flag on the return straight beside the National pit lane (OSM ways 1238070257/264841296 'Pit Lane (National)').",
+      "startGridNote": "The return straight behind the National line falls at 4.2-5.2 % from 70 m back (the grid rule allows 4 %), so the timing line goes 66 m back and the pole stands 26 m past the line.",
       "measuredLapLengthM": 1909,
       "publishedLapLengthM": 1931
     },
@@ -57,6 +58,7 @@
       "directionSource": "racingcircuits.info Club map: the arrow on the start straight points to Turn 1, the one past the Banking down towards Church (clockwise).",
       "startFinish": { "alongWay": 892471227, "fraction": 0.79, "note": "On the start straight 22 m after the Club Hairpin joins it, 37 % of the way from the junction to Target as on the map." },
       "startFinishSource": "racingcircuits.info Club Circuit map: the chequered flag on the start straight just after the Club Hairpin joins it. OSM's 'Start/Finish' node (the International/Coastal line) lies 34 m before that junction, which the Club lap doesn't pass, so the Club line is placed 22 m after the junction (37 % of the way to Target, as on the map).",
+      "startGridNote": "The Club Hairpin joins the start straight 12 m behind the Club line, so the grid can't stand behind it: the timing line goes 2 m back (pipeline._line_lead) and the grid runs on towards Target, pole 90 m past the line. Real Club races grid on the International straight, which the Club lap doesn't drive.",
       "measuredLapLengthM": 1276,
       "publishedLapLengthM": 1287
     }
