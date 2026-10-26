@@ -74,7 +74,7 @@
   ]
  },
  "anglesey": {
-  "defaults": {"barrier": "armco", "trapBarrier": "armco", "colour": "black",
+  "defaults": {"barrier": "armco", "trapBarrier": "armco", "colour": "black", "fence": false,
                "source": "OSM barrier=guard_rail (31 ways round the circuit); no published barrier colour or tyre-wall detail found"},
   "overrides": []
  }

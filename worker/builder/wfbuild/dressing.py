@@ -1685,6 +1685,7 @@ class Planner:
         self.shore()
         self.gorse()
         self.foliage()
+        self._dedupe()
         self.sponsor_clear_sightlines()  # after everything else is placed
         self._heights()
         if pits is not None:
@@ -1706,6 +1707,33 @@ class Planner:
                                                            + max(BRAKE_OUT_M) + 0.8]},
                              "treeThreshold": round(self.tree_thr, 4)})
         return self.sc
+
+    DEDUPE_ROWS = {"gantry", "bridges", "barriers", "pitWall", "cornerMarkers", "brakeBoards"}
+    DEDUPE_RANK = {"pitBuildings": 0, "realGrandstand": 0, "grandstand": 0, "buildings": 1, "adFence": 1}
+
+    def _dedupe(self) -> None:
+        """No two props on one footprint (footprint.overlaps: coplanar faces flicker, Chris 2026-10-25): buildings and
+        grandstands win, then ad fences, then whatever was placed first. Rows along a line and spans are exempt."""
+        from . import footprint
+        P = self.sc.placements
+        cand = [k for k, p in enumerate(P) if p.category not in self.DEDUPE_ROWS and p.category not in footprint.SKIP
+                and not sponsor.is_mesh(p.asset)]
+        cand.sort(key=lambda k: (self.DEDUPE_RANK.get(P[k].category, 2), k))
+        kept: list[tuple[np.ndarray, np.ndarray, float, float]] = []   # rect, centre, radius, area
+        drop = set()
+        for k in cand:
+            p = P[k]
+            q = footprint.ccw(footprint.rect(p.asset, p.x, p.y, p.yaw, p.scale, envs.asset_info(p.asset)))
+            c, a = q.mean(0), footprint.area(list(q))
+            rad = float(np.hypot(*(q - c).T).max())
+            if any(np.hypot(*(c - c2)) < rad + r2 and footprint.area(footprint.clip(list(q), q2)) > 0.15 * min(a, a2)
+                   for q2, c2, r2, a2 in kept):
+                drop.add(k)
+                continue
+            kept.append((q, c, rad, a))
+        if drop:
+            P[:] = [p for k, p in enumerate(P) if k not in drop]
+            self.sc.info["dedupedProps"] = len(drop)
 
     def _heights(self) -> None:
         P = self.sc.placements

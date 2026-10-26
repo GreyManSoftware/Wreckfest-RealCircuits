@@ -23,7 +23,7 @@ import math
 import numpy as np
 
 from . import config as C
-from . import envs
+from . import envs, footprint
 from .geometry import Mesh
 
 LANE_LIFT = 0.06           # the lane's surface above the terrain (the terrain's 4 m triangles stay below it)
@@ -57,6 +57,7 @@ PROPS = {
     "grandstand": [("prop_start_grandstand3g", 48.1, 14.8, 9.7, "-y"), ("prop_start_grandstand1", 25.0, 7.8, 8.1, "-y")],
 }
 SCALE_RANGE = (0.55, 1.4)
+TILE_GAP = 1.03           # building and grandstand tiles: 3 % of their length apart
 PADDOCK_ASSETS = ["vehicle_t2_cargotruck01", "vehicle_t2_crewbus01", "prop_start_tent8", "prop_trailer2",
                   "prop_hightent_03", "vehicle_t2_cargotruck01", "prop_start_tent4", "vehicle_t2_crewbus01"]
 PADDOCK_SPACING = 18.0
@@ -349,7 +350,7 @@ class Pits:
                 q = q + rng.uniform(-2, 2, 2)
                 if float(planner.field.dist(q)[0]) < planner.edge_min + rr or self._on_pits(q, rr * 1.45 + 1.0):
                     continue
-                if any(np.hypot(*(q - q2)) < (rr + r2) * 0.85 for q2, r2 in placed):
+                if any(np.hypot(*(q - q2)) < (rr + r2) * 1.05 for q2, r2 in placed):  # no shared footprints
                     continue
                 placed.append((q, rr))
                 yaw = yaw_to(ay) if rng.random() < 0.8 else yaw_to(ax)
@@ -409,7 +410,8 @@ class Pits:
 
         def tiles(back: float, along: float = 0.0) -> list[np.ndarray]:
             cl = front - ay * (back + dm * s / 2.0) + ax * along
-            return [cl + ax * ((k + 0.5) * lm * s - n * lm * s / 2.0) for k in range(n)]
+            # a small gap between tiles: abutting end walls and ad panels are coplanar and flicker
+            return [cl + ax * ((k + 0.5) * lm * s * TILE_GAP - n * lm * s * TILE_GAP / 2.0) for k in range(n)]
 
         X = np.array([math.cos(yaw), math.sin(yaw)])  # the prop's local axes as placed
         Y = np.array([-math.sin(yaw), math.cos(yaw)])
@@ -436,9 +438,23 @@ class Pits:
                 self.report["warnings"].append(f"{b.get('name') or kind}: no room off the pit lane, left out")
                 return False
             back, along = ok
+        info = envs.asset_info(asset)
+        done = getattr(self, "_rects", None)
+        if done is None:
+            done = self._rects = []
+        n_added = 0
         for q in tiles(back, along):
+            rq = footprint.ccw(footprint.rect(asset, q[0], q[1], yaw, s, info))
+            # never on another pit building's or grandstand's footprint (overlapping OSM footprints)
+            if any(footprint.area(footprint.clip(list(rq), o)) > 0.1 * min(footprint.area(list(rq)), footprint.area(list(o)))
+                   for o in done):
+                continue
+            done.append(rq)
             add(asset, cat, q, yaw, s)
-        return True
+            n_added += 1
+        if not n_added:
+            self.report["warnings"].append(f"{b.get('name') or kind}: on another building's footprint, left out")
+        return n_added > 0
 
     def _gantry(self, planner, gnt: dict, add) -> None:
         g = self.geo

@@ -135,6 +135,16 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
         check(bad <= max(2, len(sp) // 20), "scenery: standing spectators face the road (local +Y)",
               f"{bad} of {len(sp)} facing away")
     check(len(gantry) <= 1, "scenery: at most one start/finish gantry", f"{len(gantry)}")
+    # no two props on the same footprint (coplanar faces flicker; Brands Hatch's grandstand, Chris 2026-10-25); rows
+    # laid along a line (barriers, the pit wall) and structures spanning the road are exempt
+    from wfbuild import footprint
+    rows = {"gantry", "bridges", "barriers", "pitWall", "cornerMarkers", "brakeBoards"}
+    items = [(p["asset"], p["category"], footprint.rect(p["asset"], *p["position"][:2], p["yaw"], p["scale"],
+                                                        envs.asset_info(p["asset"])))
+             for p in P if p["category"] not in rows and not sponsor.is_mesh(p["asset"])]
+    ov = footprint.overlaps(items)
+    check(not ov, "scenery: no two props share a footprint (overlap over 15 % of the smaller one)",
+          f"{len(ov)}: {ov[:3]}")
     print(f"INFO scenery: {sc['total']} placements {sc['counts']}")
 
 
@@ -421,7 +431,7 @@ def check_layout_barriers(geo, obs: dict, model: dict, manifest: dict) -> None:
           f"{len(bad)}: {bad[:4]}")
 
 
-def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict) -> None:
+def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict, out: str = "") -> None:
     """Kerbs, track limits and barriers as on real circuits (Chris, 2026-10-19): kerbs only at corners (apex
     and exit), green strips only beside kerbs and flush; barriers not round the whole lap; a continuous
     collision wall between every pair of close sections; the AI route reaching over the run-off."""
@@ -534,7 +544,7 @@ def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict) -> None:
                   "chicane's legs or beside a branch)", f"{len(bad_div)} divider samples elsewhere: {bad_div[:4]}")
     # people (spectators, staff) within 40 m of a road stand behind a built barrier: the line from each to the
     # nearest road crosses a collision wall (Chris 2026-10-25: no crowds in the open at corners)
-    sc = load_json(os.path.join(OUT_DIR, "scenery.json"))
+    sc = load_json(os.path.join(out, "scenery.json"))
     people = [p for p in sc["placements"] if p["category"] in ("spectators", "staff")]
     if people:
         segs = []
@@ -967,7 +977,7 @@ def check_base(out: str, slug: str, model: dict, spec: dict, manifest: dict) -> 
         plain = [m.name for m in sp_ob.data.materials if not (m and m.node_tree and any(
             nd.type == "TEX_IMAGE" and nd.image and "_sponsor_" in nd.image.filepath for nd in m.node_tree.nodes))]
         check(not plain, "base: every sponsor board material uses its rendered texture", ", ".join(plain))
-    check_roadside(obs, model, spec, manifest)
+    check_roadside(obs, model, spec, manifest, out)
     check_runoff(out, obs, model, spec, manifest)
     check_maps(out, model, spec, manifest)
     from check_pits import check_pits_base  # an imported track's real pits (wfbuild/pits.py)

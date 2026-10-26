@@ -554,6 +554,8 @@ def zones_for(res_route: dict, side: int, D: dict) -> list[dict]:
             ovsrc[i] = o["source"]
     for v in vals:
         corroborated(v)
+        if defaults.get("fence") is False:  # no debris fences anywhere on this circuit (evidence default)
+            v["fence"] = False
     # mode filter on the categorical parts, then zones
     key = [f"{v['surface']}|{v['barrier']}|{int(v['fence'])}" for v in vals]
     key = mode_filter(key, MODE_SECTIONS, closed)
