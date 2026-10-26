@@ -259,7 +259,7 @@
       {"text": "SOFTWARE", "at": [0.214, 0.43], "size": 0.145, "maxW": 0.5, "face": "heavyitalic", "fill": "light", "shadow": [0, 0, 0]},
       {"text": "{subtext}", "at": [0.057, 0.775], "size": 0.08, "maxW": 0.62, "face": "italic", "fill": [255, 255, 255], "shadow": [0, 0, 0]}
      ]}},
-   {"id": "roadtrip", "text": "ROADTRIP PLANNER", "tagline": "Less planning. More good roads.", "taglineShort": "Find the good roads.",
+   {"id": "roadtrip", "text": "ROADTRIP PLANNER", "subtext": "roadtrip.greymansoftware.com", "tagline": "Less planning. More good roads.", "taglineShort": "Find the good roads.",
     "logo": "assets/sponsors/roadtrip/roadtrip-mark-512.png", "parts": [["ROADTRIP ", "text"], ["PLANNER", "planner"]],
     "kinds": ["billboard", "fence", "span"], "share": 1, "billboards": 1, "style": "livery",
     "colourways": {"dark": {"background": [18, 22, 28], "top": [30, 36, 46], "text": [242, 242, 240], "accent": [255, 106, 19],
@@ -276,8 +276,9 @@
      "logo": {"box": [0.04, 0.1, 0.2, 0.6]},
      "polys": [{"points": [[0, 0.76], [1, 0.76], [1, 0.775], [0, 0.775]], "colour": "accent"}],
      "texts": [
-      {"text": "ROADTRIP", "at": [0.28, 0.14], "size": 0.2, "maxW": 0.56, "face": "heavy", "fill": "text"},
-      {"text": "PLANNER", "at": [0.28, 0.42], "size": 0.2, "maxW": 0.56, "face": "heavy", "fill": "planner"},
+      {"text": "ROADTRIP", "at": [0.28, 0.1], "size": 0.2, "maxW": 0.56, "face": "heavy", "fill": "text"},
+      {"text": "PLANNER", "at": [0.28, 0.35], "size": 0.2, "maxW": 0.56, "face": "heavy", "fill": "planner"},
+      {"text": "{subtext}", "at": [0.285, 0.615], "size": 0.062, "maxW": 0.56, "face": "sans", "fill": "accent"},
       {"text": "{tagline}", "at": [0.045, 0.83], "size": 0.075, "maxW": 0.79, "face": "italic", "fill": "tagline"}
      ]}}
   ]
