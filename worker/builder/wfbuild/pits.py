@@ -365,6 +365,21 @@ class Pits:
         for _a, poly in self.paddocks:
             for q in self._cover(poly, 10.0):
                 occ.add(float(q[0]), float(q[1]), 6.0)
+        # the stock building and grandstand tiles, laid out now (place() adds them) and their real footprints
+        # occupied, 1 m grown: the stock props are bigger than the OSM outline or moved back off the pit lane, and
+        # nothing placed before place() (sponsor boards: Donington's billboard stood 58 % inside a hospitality
+        # building) may stand on one
+        self._tiles: list[tuple] = []
+        keep = lambda a, cat, q, yaw, s=1.0: self._tiles.append((a, cat, q, yaw, s))  # noqa: E731
+        for b, poly in self.buildings:
+            if self._building(planner, b, poly, keep):
+                self.report["buildings"] += 1
+        for b, poly in self.grandstands:
+            if self._building(planner, {**b, "kind": "grandstand"}, poly, keep):
+                self.report["grandstands"] += 1
+        for a, _cat, q, yaw, s in self._tiles:
+            for c in self._cover(footprint.rect(a, q[0], q[1], yaw, s, envs.asset_info(a)), 3.0):
+                occ.add(float(c[0]), float(c[1]), 3.0)
         if discs:
             xy = np.array([q for q, _ in discs])
             r = np.array([rr for _, rr in discs])
@@ -399,13 +414,10 @@ class Pits:
             poly = lane.polygon()
             for q in self._cover(poly, 8.0) if len(poly) else []:
                 planner.sc.zones.append(Zone("paved", float(q[0]), float(q[1]), 6.0))
-        # buildings and grandstands: stock props tiled along each footprint's long side, facing the road
-        for b, poly in self.buildings:
-            if self._building(planner, b, poly, add):
-                self.report["buildings"] += 1
-        for b, poly in self.grandstands:
-            if self._building(planner, {**b, "kind": "grandstand"}, poly, add):
-                self.report["grandstands"] += 1
+        # buildings and grandstands: stock props tiled along each footprint's long side, facing the road (laid out
+        # by reserve)
+        for tile in getattr(self, "_tiles", []):
+            add(*tile)
         # paddock: trucks, tents and crew buses on the real paddock
         rng = planner.rng
         for a, poly in self.paddocks:

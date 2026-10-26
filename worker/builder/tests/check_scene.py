@@ -333,6 +333,28 @@ def check_sponsor(out: str, geo, pl, sc: dict) -> None:
         far = [f"{v:.0f} m" for v in d if not (pl.edge_min - 1.0 <= v <= 60.0)]
     check(not bad, "sponsor: printed faces (local -Y) towards the road", ", ".join(bad[:3]))
     check(not far, "sponsor: billboards behind the run-off and within 60 m of the road", ", ".join(far[:3]))
+    # no board (span banners included) on a building's or grandstand's footprint (Donington: a billboard stood 58 %
+    # inside a hospitality building; sponsor meshes skip dressing._dedupe)
+    from wfbuild import footprint
+    blds = [footprint.rect(p["asset"], *p["position"][:2], p["yaw"], p["scale"], envs.asset_info(p["asset"]))
+            for p in P if p["category"] in ("pitBuildings", "realGrandstand", "buildings", "grandstand")
+            and not sponsor.is_mesh(p["asset"])]
+    on_bld = []
+    for p in [p for p in P if sponsor.is_mesh(p["asset"])]:
+        if sponsor.is_banner(p["asset"]):
+            info = {"r": 0.0, "width": sponsor.banner_width(p["asset"], p["scale"]), "depth": sponsor.SPAN_T}
+            q = footprint.rect(p["asset"], *p["position"][:2], p["yaw"], 1.0, info)
+        else:
+            q = footprint.rect(p["asset"], *p["position"][:2], p["yaw"], p["scale"], envs.asset_info(p["asset"]))
+        qc = footprint.ccw(q)
+        c = q.mean(0)
+        for b in blds:
+            if np.hypot(*(b.mean(0) - c)) < np.hypot(*(b - b.mean(0)).T).max() + np.hypot(*(q - c).T).max() \
+                    and footprint.area(footprint.clip(list(qc), footprint.ccw(b))) > 0.01:
+                on_bld.append(p["asset"])
+                break
+    check(not on_bld, "sponsor: no board or span banner on a building's or grandstand's footprint",
+          ", ".join(on_bld[:3]))
     keys = sorted({p["asset"] for p in mine})
     missing = [k for k in keys if not os.path.isfile(
         os.path.join(out, "mod", *sponsor.texture_rel(sc["slug"], k).split("/")) + ".tga")]
