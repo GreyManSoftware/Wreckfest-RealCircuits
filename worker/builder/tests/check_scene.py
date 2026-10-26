@@ -483,6 +483,17 @@ def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict, out: str 
     holes = roadside_cover.uncovered_runs(geo, meshes, lambda p: to_scene(p, manifest))
     check(not holes, "base: road edge, kerb, green strip and verge continuous along every edge (no bare terrain "
           f"beside the road over {roadside_cover.MAX_RUN_M} m)", f"{len(holes)} holes: {holes[:4]}")
+    # --- junctions (imported): no grass or bare-ground sliver between a branch and the road it leaves, where the
+    # edges are under GORE_PAVE_M apart (Oulton Park's Hislop's split, Chris 2026-10-25). Known: a 4 m sliver where
+    # two mouths share one stretch of edge (Oulton's Fosters merge beside the Hislop's links) is tolerated.
+    if geo.imported:
+        sl = geo.junction_slivers()
+        per = {}
+        for s in sl:
+            per[s.split(" (cut ")[0].split("@")[0] + s.split(" (cut ")[1].split(",")[0]] = per.get(
+                s.split(" (cut ")[0].split("@")[0] + s.split(" (cut ")[1].split(",")[0], 0) + 1
+        check(all(n <= 2 for n in per.values()), f"base: every junction's narrow gore (under {C.GORE_PAVE_M:.0f} m) is "
+              "paved: no grass or bare-ground sliver across the tarmac", f"{len(sl)} sliver samples: {sl[:4]}")
     # --- ground: no trench or hole beside a road edge (junction gores, close parallel sections)
     dips = [d for d in geo.ground_dips() if d["depthM"] > 0.1]
     check(len(dips) <= 2, f"base: ground beside the road edges no more than {C.GROUND_DIP_MAX + 0.1:.2f} m below them "
