@@ -679,15 +679,22 @@ class Planner:
         if self.measured:
             # a real circuit: behind the real barrier (or the end of the run-off), else well back on the open grass
             # beyond the reset wall; no fence line of our own (Chris 2026-10-24: Anglesey's long spectator fence)
-            a = self.runoff.side[(r.index, side)]
+            # spectators only ever stand behind a real barrier that is built (the wall plan: a measured barrier the
+            # layout rule or the pit wall didn't open), never in the open (Chris 2026-10-25)
             win = self.walk(r, i, length + 6.0, 2.0)
-            reach = np.where(np.isfinite(a["offset"]), a["offset"], self.runoff.run_off_end(r.index, side))
-            barrier = bool(np.isfinite(a["offset"][win]).all())
-            if not barrier:
-                return 0  # spectators only ever stand behind a real barrier (Chris 2026-10-25), never in the open
-            off_f = max(off_f, float(np.max(reach[win])) + 3.0)
+            p = self.geo.wall_plan().get((r.index, side))
+            if p is None or not bool(p["ok"][win].all()) or any(str(t) not in ("armco", "tyres", "concrete")
+                                                                  for t in p["type"][win]):
+                return 0
+            off_f = max(off_f, float(np.max(p["offset"][win])) + 3.0)
             if off_f > C.MEASURED_CROWD_MAX_M:
                 return 0
+        else:  # drawn tracks: the crowd barrier (wall plan "crowd") must be built in front of the whole crowd
+            win = self.walk(r, i, length + 6.0, 2.0)
+            p = self.geo.wall_plan().get((r.index, side))
+            if self.geo.walls == "none" or p is None or not bool(p["ok"][win].all()):
+                return 0
+            off_f = max(off_f, float(np.max(p["offset"][win])) + 1.0)
         for k in ([] if self.measured else self.walk(r, i, length + 6.0, fw)):
             q, tw, tg = self.side_point(r, k, side, off_f)
             self.try_place(fence, "crowdFence", q[0], q[1], self.face_yaw(fence, tw, tg), off_f - 1.0, r=fw / 2.0)

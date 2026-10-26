@@ -113,6 +113,7 @@ BARRIER_LINE_SMOOTH_M = 12.0  # visible barriers: the line (plan and height) is 
 BARRIER_Z_FOLLOW = (-0.2, 0.15)  # ...staying within this of the ground below it (sunk, raised)
 SEPARATE_PART_M = 400.0       # real circuits: a divider only beside the same lap at least this far along it
 MEASURED_CROWD_MIN_M = 20.0   # real circuits: crowds without a barrier in front stand at least this far out
+LAYOUT_BARRIER_CLEAR = 6.0   # imported multi-layout tracks: no barrier this close to another route's road edge (wall_plan)
 BARRIER_CHUNK = 100           # visible barrier meshes: at most this many line samples per object
 ARMCO_BEAMS = ((0.30, 0.62), (0.64, 0.96))   # W-beams (bottom, top above the ground), double-height Armco
 ARMCO_POST_M = 2.0            # post spacing

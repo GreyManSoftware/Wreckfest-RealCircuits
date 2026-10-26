@@ -1741,10 +1741,43 @@ class TrackGeometry:
                                          "type": np.asarray(types, dtype=object), "fence": fence & ok,
                                          "out": r.nl * side, "ok": ok, "divider": div & ok,
                                          "ai_margin": np.maximum(self._cone(r, np.ones(r.n, bool), margin, 0.5), 0.5)}
+        if self.imported and len(self.routes) > 1:
+            self._clear_other_layouts(plan)
         if self.pits is not None:  # the pit wall is the containment on its stretch (pits.Pits.wall_hook)
             self.pits.wall_hook(plan)
         self._wall_plan = plan
         return plan
+
+    def other_road_clearance(self, r: Route, pts: np.ndarray) -> np.ndarray:
+        """Per point (2D) beside route r: the distance to the nearest built road edge of every other route (another
+        layout's branch or the main road beside a branch), inf without one. Apron links don't count."""
+        out = np.full(len(pts), np.inf)
+        for rr in self.routes:
+            if rr is r or rr.index in self.apron_routes:
+                continue
+            keep = self.svalid[rr.index]
+            if not keep.any():
+                continue
+            P, hw = rr.p[keep, :2], rr.w[keep] / 2.0
+            for a in range(0, len(pts), 512):
+                q = pts[a:a + 512]
+                d = np.hypot(q[:, None, 0] - P[None, :, 0], q[:, None, 1] - P[None, :, 1]) - hw[None, :]
+                out[a:a + 512] = np.minimum(out[a:a + 512], d.min(1))
+        return out
+
+    def _clear_other_layouts(self, plan: dict) -> None:
+        """Imported tracks with several layouts share one base scene, so every layout drives past every barrier
+        near its road. A barrier (or divider) on one route's side may only stand where it makes sense for all of
+        them: never right beside (within LAYOUT_BARRIER_CLEAR of) another route's road, e.g. Donington's
+        Melbourne-loop Armco beside the National link (Chris 2026-10-25). There the run-off stays open."""
+        for (_ri, _side), p in plan.items():
+            r = p["route"]
+            if not p["ok"].any():
+                continue
+            near = self.other_road_clearance(r, p["line"][:, :2]) < C.LAYOUT_BARRIER_CLEAR
+            p["ok"] = p["ok"] & ~near
+            p["divider"] = p["divider"] & p["ok"]
+            p["fence"] = p["fence"] & p["ok"]
 
     def _on_stitch(self, pts: np.ndarray) -> np.ndarray:
         """Points (2D) inside a junction mouth's paving (``_stitch`` polygons), by ray casting."""

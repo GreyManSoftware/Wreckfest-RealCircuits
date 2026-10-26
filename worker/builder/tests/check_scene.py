@@ -386,6 +386,41 @@ def _close_gaps(geo, reach: float = 12.0, clear: float = 12.0) -> dict:
     return out
 
 
+def check_layout_barriers(geo, obs: dict, model: dict, manifest: dict) -> None:
+    """Every layout of an imported track drives past the shared base's barriers: walk each layout's sections and
+    fail where another route's collision wall (and so its visible barrier) stands within LAYOUT_BARRIER_CLEAR of
+    the road that layout drives (Donington National beside the Melbourne loop's Armco, Chris 2026-10-25)."""
+    walls = {}
+    for o in obs.values():
+        if o.type == "MESH" and o.name.startswith("walls_") and not o.name.startswith("walls_pit_"):
+            walls[o.name[len("walls_"):].rsplit("_", 1)[0]] = walls.get(o.name[len("walls_"):].rsplit("_", 1)[0], []) + [world_verts(o)[:, :2]]
+    bad = []
+    for lay in model["layouts"]:
+        for sec in lay["sections"]:
+            rr = geo.by_id[sec["route"]]
+            if rr.index in geo.apron_routes:
+                continue
+            on = geo.svalid[rr.index] & (rr.s >= float(sec["fromS"]) - 1e-3) & (rr.s <= float(sec["toS"]) + 1e-3)
+            if not on.any():
+                continue
+            road = to_scene(rr.p[on, :2], manifest)
+            hw = rr.w[on] / 2.0
+            for rid, vs in walls.items():
+                if rid == rr.id:
+                    continue
+                V = np.vstack(vs)
+                for a in range(0, len(V), 2000):
+                    q = V[a:a + 2000]
+                    d = np.hypot(q[:, None, 0] - road[None, :, 0], q[:, None, 1] - road[None, :, 1]) - hw[None, :]
+                    k = np.unravel_index(int(np.argmin(d)), d.shape)
+                    if d[k] < C.LAYOUT_BARRIER_CLEAR - 0.75:
+                        bad.append(f"{lay['name']}: {rid} wall {d[k]:.1f} m from {rr.id}@{rr.s[on][k[1]]:.0f}m")
+                        break
+    check(not bad, "base: every layout's road is clear of the other routes' barriers (each barrier makes sense for "
+          f"every layout driving past it; none within {C.LAYOUT_BARRIER_CLEAR:.0f} m of another layout's road)",
+          f"{len(bad)}: {bad[:4]}")
+
+
 def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict) -> None:
     """Kerbs, track limits and barriers as on real circuits (Chris, 2026-10-19): kerbs only at corners (apex
     and exit), green strips only beside kerbs and flush; barriers not round the whole lap; a continuous
@@ -497,6 +532,37 @@ def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict) -> None:
         if geo.runoff.active:
             check(not bad_div, "base: real circuits divide only separate parts of the lap (no wall between a "
                   "chicane's legs or beside a branch)", f"{len(bad_div)} divider samples elsewhere: {bad_div[:4]}")
+    # people (spectators, staff) within 40 m of a road stand behind a built barrier: the line from each to the
+    # nearest road crosses a collision wall (Chris 2026-10-25: no crowds in the open at corners)
+    sc = load_json(os.path.join(OUT_DIR, "scenery.json"))
+    people = [p for p in sc["placements"] if p["category"] in ("spectators", "staff")]
+    if people:
+        segs = []
+        for o in obs.values():
+            if o.type == "MESH" and o.name.startswith("walls_"):
+                V = world_verts(o)
+                for f in faces_of(o):
+                    for a, b in zip(f, f[1:] + f[:1]):
+                        segs.append((V[a][:2], V[b][:2]))
+        A = np.array([s[0] for s in segs]).reshape(-1, 2)
+        B = np.array([s[1] for s in segs]).reshape(-1, 2)
+        sel = np.concatenate([geo.svalid[r.index] for r in geo.routes])
+        rxy, rhw = geo.index.xy[sel], geo.index.hw[sel]
+        open_people = []
+        for p in people:
+            q = np.array(p["position"][:2])
+            dd = np.hypot(*(rxy - q).T) - rhw
+            j = int(np.argmin(dd))
+            if dd[j] > 40.0:
+                continue
+            tgt = rxy[j] + (q - rxy[j]) / max(float(np.hypot(*(q - rxy[j]))), 1e-9) * rhw[j]
+            p0, p1 = to_scene(np.array([q, tgt]), manifest)
+            if not len(A) or not _segments_cross(p0, p1, A, B):
+                open_people.append(f"{p['category']} {dd[j]:.0f} m from the road")
+        check(not open_people, "scenery: every spectator and staff member within 40 m of a road stands behind a "
+              "barrier", f"{len(open_people)} of {len(people)} in the open: {open_people[:3]}")
+    if geo.walls != "none" and geo.imported and model.get("layouts"):
+        check_layout_barriers(geo, obs, model, manifest)
     # the AI route covers the grass run-off (cars off the tarmac aren't reset at once)
     med = float(np.median(np.concatenate([p["ai_margin"] for p in plan.values()])))
     check(med >= 8.0, "base: the AI route reaches over the grass run-off", f"median margin {med:.1f} m beyond the edge")
