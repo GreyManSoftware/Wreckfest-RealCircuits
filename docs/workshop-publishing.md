@@ -96,7 +96,9 @@ The PASS/FAIL lines are in `.local\bundles\msvanglesey-checks.log`.
 
 After publishing, Steam subscribes you and the game shows the Workshop copy as **another** mod entry (guide, step 7).
 Keep only one copy enabled, the local `mods/msvanglesey` or the Workshop one. Both are the same tracks and would
-clash. `-ListMods` shows both.
+clash. `-ListMods` shows both. On 2026-10-26 both were on (Workshop v1 and a newer local build), and the AI drove off
+the road on every circuit whose world the newer build had moved. `Install-TrackMod.ps1 -Bundle` now switches the
+Workshop copy (`publishedId`) off when it installs the local one.
 
 ## Updating the published item
 

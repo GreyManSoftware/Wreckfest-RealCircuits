@@ -125,12 +125,14 @@ def check_on_road(scene: str, lay, xref, base_road: Road) -> None:
             # the object's origin is the road centre it spans (the plane's sides differ with the run-off margins)
             cps.append((o.name, to_world(o, [(0.0, 0.0, 0.0)])[0]))
     report("checkpoint centres", cps, 2.0)
+    # the green race strip lies inside the road, so every one of its triangles is over the road, the whole lap of
+    # every layout (catches a strip shifted, rotated or built on the wrong route against the base it references)
     ai = []
     for o in lay.objects:
         if o.name.startswith("#ai_race_") and o.tris:
-            first = to_world(o, np.array(o.tris[0]))  # a triangle of the first sector
-            ai.append((o.name + " start", first.mean(0)))
-    report("AI race route starts", ai, 1.5)
+            tri = to_world(o, np.array(o.tris).reshape(-1, 3)).reshape(-1, 3, 3)
+            ai += [(f"{o.name} triangle {k}", t.mean(0)) for k, t in enumerate(tri)]
+    report("AI race strips (every sector)", ai, 1.5)
 
 
 class Surface:
@@ -255,6 +257,15 @@ def check_start_finish(scene: str, lay, model: dict, manifest: dict, info: dict 
           f"{d:.1f} m from it ({'own line' if own else 'main line'})")
     sp = [o for o in lay.objects if o.name.startswith("#startpoint") and o.name != "#startpointcarchange"]
     first = to_world(cps[0], [(0.0, 0.0, 0.0)])[0]
+    # the AI strips start at the timing line and run the way the lap does: the main race strip's first sector
+    # just past the finish checkpoint, towards the first checkpoint
+    race = next((o for o in lay.objects if o.name == "#ai_race_main" and o.tris), None)
+    if race is not None:
+        c0 = to_world(race, np.array(race.tris[0])).mean(0)
+        dist = float(np.hypot(*(c0[:2] - fin[:2])))
+        ahead = float(np.dot((c0 - fin)[:2], (first - fin)[:2]))
+        check(dist < 25.0 and ahead > 0.0, f"{scene}: AI strips start at the timing line, in the lap direction",
+              f"first race sector {dist:.1f} m from {cps[-1].name}, {'ahead' if ahead > 0 else 'behind'}")
     bad = []
     for o in sp:
         p0, p1 = to_world(o, [(0.0, 0.0, 0.0), (0.0, 1.0, 0.0)])  # local +Y is the car's forward

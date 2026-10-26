@@ -542,8 +542,12 @@ py tools\real_tracks_data\apply_pits.py <slug> ...              # into the commi
   track-side edge, so its middle part moves sideways to `centreFromTrackM` (between the track's edge and the garage
   fronts), fading in over `taperM` from the merges. Widths are estimates from the gap between the track's edge and
   the garages (no published or measured figures). **Pit wall:** 1.5 m off the lane's edge towards the track (midway
-  where the gap is under 3 m), wherever the edges are at least 1.2 m apart: continuous from the entry merge to the
-  exit merge. OSM barriers lie within 3 m of it over 57-87 % of its length where OSM maps them.
+  where the gap is under 3 m), wherever the edges are at least 1.2 m apart, then trimmed to where the evidence puts
+  it (`trim_wall`, 2026-10-26): from the first to the last point with an OSM barrier within 3 m, continuing over
+  unmapped ends only while straight (8°); without any OSM barrier, the straight run through the middle. Untrimmed it
+  followed the lane round the corners at its ends, at Anglesey round the junction nose before the pit straight,
+  where the real wall is one straight run. Trimmed lengths: Anglesey 254 m (of 390), Navarra 652 (1,123), Bedford
+  155 (389), Oulton 283 (462), Cadwell 146 (201), Brands 368 (407); Donington and Snetterton unchanged.
 - `shortCutM` (how much shorter the lane is than the track between its ends) decides whether a lane could be
   drivable.
 
