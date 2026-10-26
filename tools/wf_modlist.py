@@ -5,6 +5,7 @@ Format notes: tools/docs/modlist-format.md. Used by tools/Install-TrackMod.ps1; 
 
   py tools/wf_modlist.py info PATH
   py tools/wf_modlist.py set PATH --slug SLUG --state enabled|disabled [--name NAME [--rename]] [--out OUT]
+  py tools/wf_modlist.py set PATH --workshop PUBLISHED_ID --state enabled|disabled [--out OUT]
   py tools/wf_modlist.py modinfo-name PATH
   py tools/wf_modlist.py roundtrip PATH
 
@@ -547,6 +548,33 @@ def find_entry(ml: ModList, slug: str) -> int | None:
     return None
 
 
+def find_workshop_entry(ml: ModList, published_id: str) -> int | None:
+    """The Steam Workshop copy of a published mod: an entry outside mods/ whose folder is the Published Id
+    (...\\workshop\\content\\228380\\<id>)."""
+    for i, e in enumerate(ml.entries):
+        path = e.path.replace('\\', '/').lower().rstrip('/')
+        if not path.startswith('mods/') and path.rsplit('/', 1)[-1] == published_id:
+            return i
+    return None
+
+
+def set_workshop_state(ml: ModList, published_id: str, enable: bool) -> dict:
+    """Enable/disable the Workshop copy of mod ``published_id`` (never adds one: Steam does when you subscribe).
+    A local install of a published bundle and its Workshop copy hold the same tracks and must not both be on."""
+    if not re.match(r'^\d+$', published_id):
+        raise BagError(f'invalid Workshop id {published_id!r} (expected digits)')
+    i = find_workshop_entry(ml, published_id)
+    if i is None:
+        return {'action': 'absent', 'changed': False, 'entry': None}
+    e = ml.entries[i]
+    want = 1 if enable else 0
+    if e.enabled == want:
+        return {'action': 'noop', 'changed': False, 'entry': e.to_json(i)}
+    before = e.enabled
+    e.enabled = want
+    return {'action': 'enabled' if enable else 'disabled', 'changed': True, 'before': before, 'entry': e.to_json(i)}
+
+
 def set_state(ml: ModList, slug: str, enable: bool, name: str | None = None, rename: bool = False) -> dict:
     """Enable/disable (or add) mods/<slug>. `name` names a new entry; with `rename` it also renames an existing one."""
     if not SLUG_RE.match(slug):
@@ -608,7 +636,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument('path')
     p = sub.add_parser('set', help='enable/disable (or add) mods/<slug>; writes --out only when something changes')
     p.add_argument('path')
-    p.add_argument('--slug', required=True)
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument('--slug')
+    g.add_argument('--workshop', help="a Workshop copy's Published Id (switch it on or off; never added)")
     p.add_argument('--state', required=True, choices=['enabled', 'disabled'])
     p.add_argument('--name', help='display name for a new entry')
     p.add_argument('--rename', action='store_true', help='also rename an existing entry to --name')
@@ -627,7 +657,10 @@ def main(argv: list[str] | None = None) -> int:
             with open(args.path, 'rb') as f:
                 data = f.read()
             ml = modlist_decode(data)
-            result = set_state(ml, args.slug, args.state == 'enabled', args.name, args.rename)
+            if args.workshop:
+                result = set_workshop_state(ml, args.workshop, args.state == 'enabled')
+            else:
+                result = set_state(ml, args.slug, args.state == 'enabled', args.name, args.rename)
             result['count'] = len(ml.entries)
             if result['changed']:
                 encoded = modlist_encode(ml)

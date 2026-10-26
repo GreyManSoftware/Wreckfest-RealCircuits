@@ -68,8 +68,9 @@ enabled state. Works in Windows PowerShell 5.1 and pwsh 7. Needs Python 3.11+ (`
 
 A bundle built by `Build-TrackBundle.ps1` (below) holds several track mods. The same track in two enabled mods
 clashes, so `-Bundle` (game closed) reads the bundle's `bundle.json`, switches every member mod off in the mod list,
-then installs and enables the bundle. `-Uninstall -Bundle` switches the bundle off, removes it and switches the
-installed members back on. Each mod-list write makes its own backup.
+and the bundle's own Workshop copy (`publishedId`, when subscribed), then installs and enables the bundle.
+`-Uninstall -Bundle` switches the bundle off, removes it and switches the installed members and the Workshop copy
+back on. (2026-10-26: with both copies of the pack enabled, the AI drove off the road on 7 of 9 circuits.) Each mod-list write makes its own backup.
 
 ```powershell
 .\tools\Install-TrackMod.ps1 -Zip E:\WreckfestMods\msvanglesey.zip -Bundle -Force   # -WhatIf to preview

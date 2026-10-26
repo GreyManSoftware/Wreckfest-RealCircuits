@@ -21,8 +21,9 @@
     explicitly and also renames an entry that is already in the list, without changing its enabled state.
 
     -Bundle installs a bundle built by tools\Build-TrackBundle.ps1 (bundle.json at its root lists the member mods): it
-    switches the member mods off in the mod list first (the same track in two enabled mods clashes), then installs
-    and enables the bundle. -Uninstall -Bundle switches the bundle off, removes it and switches the installed members
+    switches the member mods off in the mod list first (the same track in two enabled mods clashes), and the bundle's
+    own Steam Workshop copy (bundle.json publishedId) when subscribed, then installs and enables the bundle.
+    -Uninstall -Bundle switches the bundle off, removes it and switches the installed members and the Workshop copy
     back on.
 
     Works under Windows PowerShell 5.1 (powershell -File ...) and PowerShell 7 (pwsh -File ...).
@@ -186,7 +187,7 @@ function Get-FileSha([string]$Path) {
     finally { $fs.Dispose(); $sha.Dispose() }
 }
 
-function Update-ModList([string]$TargetSlug, [bool]$On, [string]$EntryName, [bool]$Rename = $false) {
+function Update-ModList([string]$TargetSlug, [bool]$On, [string]$EntryName, [bool]$Rename = $false, [string]$WorkshopId) {
     $path = Resolve-ModListPath
     $state = if ($On) { 'enabled' } else { 'disabled' }
     New-Item -ItemType Directory -Path $TempRoot -Force -WhatIf:$false | Out-Null
@@ -194,13 +195,15 @@ function Update-ModList([string]$TargetSlug, [bool]$On, [string]$EntryName, [boo
     try {
         $origHash = Get-FileSha $path
         $before = Invoke-ModListHelper @('info', $path)
-        $helperArgs = @('set', $path, '--slug', $TargetSlug, '--state', $state, '--out', $staged)
+        $helperArgs = if ($WorkshopId) { @('set', $path, '--workshop', $WorkshopId, '--state', $state, '--out', $staged) }
+                      else { @('set', $path, '--slug', $TargetSlug, '--state', $state, '--out', $staged) }
         if ($EntryName) { $helperArgs += @('--name', $EntryName) }
         if ($Rename) { $helperArgs += '--rename' }
         $plan = Invoke-ModListHelper $helperArgs
-        $label = if ($plan.entry) { "'$($plan.entry.name)' (mods/$TargetSlug)" } else { "mods/$TargetSlug" }
+        $where = if ($WorkshopId) { "Workshop $WorkshopId" } else { "mods/$TargetSlug" }
+        $label = if ($plan.entry) { "'$($plan.entry.name)' ($where)" } else { $where }
         if ($plan.action -eq 'noop') { Write-Host "Mod list: $label is already $state - nothing to do ($path)."; return }
-        if ($plan.action -eq 'absent') { Write-Host "Mod list: $label is not in the list - nothing to disable ($path)."; return }
+        if ($plan.action -eq 'absent') { Write-Host "Mod list: $label is not in the list - nothing to $(if ($On) { 'enable' } else { 'disable' }) ($path)."; return }
         $what = if ($plan.action -eq 'added') { "add $label as a new enabled entry (order $($plan.entry.order))" }
                 elseif ($plan.action -eq 'renamed') { "rename '$($plan.renamedFrom)' to $label (stays $state)" }
                 else { "set $label $state ($($plan.before) -> $($plan.entry.enabledRaw))" }
@@ -274,6 +277,13 @@ function Read-BundleMembers([string]$Json, [string]$Source) {
     $members
 }
 
+# The bundle's Steam Workshop item (bundle.json publishedId), or '' when it isn't published.
+function Read-BundlePublishedId([string]$Json) {
+    $b = $Json | ConvertFrom-Json
+    if ($b.PSObject.Properties['publishedId'] -and [string]$b.publishedId -match '^[1-9]\d*$') { return [string]$b.publishedId }
+    ''
+}
+
 function Assert-GameClosed {
     $running = @(Get-RunningGame)
     if ($running -and -not $WhatIfPreference) {
@@ -302,7 +312,9 @@ if ($Uninstall) {
     if ($Bundle) {
         $manifest = Join-Path $target 'bundle.json'
         if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { throw "$target has no bundle.json - not a bundle (drop -Bundle)." }
-        $members = Read-BundleMembers (Get-Content -LiteralPath $manifest -Raw) $manifest
+        $json = Get-Content -LiteralPath $manifest -Raw
+        $members = Read-BundleMembers $json $manifest
+        $publishedId = Read-BundlePublishedId $json
         Assert-GameClosed
         Update-ModList $Slug $false $null
         if ($PSCmdlet.ShouldProcess($target, 'Remove bundle mod')) {
@@ -314,6 +326,7 @@ if ($Uninstall) {
             if (Test-Path -LiteralPath $dir -PathType Container) { Update-ModList $m.Slug $true (Get-ModDisplayName $dir $m.Slug) }
             else { Write-Host "Member $($m.Slug) is not installed in $modsDir - not re-enabled." }
         }
+        if ($publishedId) { Update-ModList '' $true $null $false $publishedId }  # the Workshop copy, when subscribed
         return
     }
     if ($PSCmdlet.ShouldProcess($target, 'Remove track mod')) {
@@ -365,11 +378,14 @@ try {
         if ($modSlug -cnotmatch $slugPattern) { throw "Invalid mod folder name '$modSlug' (expected [a-z0-9_]+)." }
         if (-not $hasData) { throw "Zip folder '$modSlug' has no data\ folder." }
         $members = @()
+        $publishedId = ''
         if ($Bundle) {
             $entry = $archive.GetEntry("$modSlug/bundle.json")
             if (-not $entry) { throw "Zip folder '$modSlug' has no bundle.json - not a bundle (build it with tools\Build-TrackBundle.ps1, or drop -Bundle)." }
             $reader = New-Object IO.StreamReader($entry.Open())
-            try { $members = Read-BundleMembers $reader.ReadToEnd() "$modSlug/bundle.json" } finally { $reader.Dispose() }
+            try { $json = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            $members = Read-BundleMembers $json "$modSlug/bundle.json"
+            $publishedId = Read-BundlePublishedId $json
             if (@($members | Where-Object { $_.Slug -eq $modSlug }).Count) { throw "Bundle '$modSlug' lists itself as a member." }
         }
     }
@@ -394,6 +410,10 @@ try {
         # The same track in two enabled mods clashes: switch the member mods off before the bundle goes on.
         Assert-GameClosed
         foreach ($m in $members) { Update-ModList $m.Slug $false $null }
+        # ... and the bundle's own Workshop copy: the same tracks again, from an older build. With both on (2026-10-26)
+        # the AI drove off the road on the 7 circuits whose world the two builds placed differently (build_scene
+        # placement), consistent with the game taking a layout from one copy and its base scene from the other.
+        if ($publishedId) { Update-ModList '' $false $null $false $publishedId }
     }
     $entryName = if ($Enable) { Get-ModDisplayName $staged $modSlug } else { $null }
     if ($PSCmdlet.ShouldProcess($target, 'Install track mod')) {
