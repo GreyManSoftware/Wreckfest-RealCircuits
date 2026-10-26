@@ -21,9 +21,10 @@ are unchanged.
 The straight is about 21 m shorter than the chicane (OSM: the Fosters measures 2,649 m on the straight, 2,670 m
 through it), so the International and Island now sit under MSV's figures, which are through the chicane (4,307 m
 less 21 m is 4,286 m; the built line is 0.3 % longer than OSM's, as before). The trackday branch (192 m) leaves the
-main line at s 2,599 and rejoins at s 2,769; the cones (stock `prop_trafficcone01`, every 1.5 m from edge to edge)
-stand across the main road where its edge is clear of the branch, in the trackday layout's scene only
-(`altLayouts[].coneOffMain`, builder `LayoutBuilder.cone_off_main`). `expectedCornerOrder` no longer has Hislops
+main line at s 2,599 and rejoins at s 2,769. Every layout has rows of cones (stock `prop_trafficcone01`, every
+1.5 m from edge to edge) across each road it doesn't take at every junction it passes, in its own scene: the
+trackday layout cones the straight at both ends, the others the chicane, Island and Fosters links they skip
+(builder `LayoutBuilder.junction_cones`, 2026-10-26; this replaced `altLayouts[].coneOffMain`). `expectedCornerOrder` no longer has Hislops
 (the main lap has no chicane), and Hislop's kerbs get the geometric placement on the branch. Widths were
 re-measured for the new routes (`tools/real_tracks/widths/oultonpark.json`). The Hislop's sections below describe
 the state before this change.

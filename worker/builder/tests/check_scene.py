@@ -1116,6 +1116,106 @@ def strip_lines(ob) -> list[tuple[tuple, tuple]]:
     return lines
 
 
+def _seg_dist(q: np.ndarray, a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Plan distance from points q (n x 2) to the nearest segment a->b (m x 2) and that segment's index."""
+    ab = b - a
+    t = np.clip(((q[:, None] - a[None]) * ab[None]).sum(2) / np.maximum((ab * ab).sum(1), 1e-12)[None], 0.0, 1.0)
+    f = a[None] + t[..., None] * ab[None]
+    d = np.hypot(q[:, None, 0] - f[..., 0], q[:, None, 1] - f[..., 1])
+    j = np.argmin(d, axis=1)
+    return d[np.arange(len(q)), j], j
+
+
+def check_layout_cones(name: str, obs: dict, model: dict, manifest: dict, lay_def: dict, lane: tuple) -> None:
+    """Multi-layout tracks (layout.junction_cones): at every junction on this layout's road (a branch leaving or
+    rejoining the main route), every arm the layout's sections don't drive has a row of stock cones across it
+    (two or more cones on that road within CONE_REACH_M of the junction, spanning at least 75 % of its width),
+    and no cone stands on the layout's road (CONE_CLEAR_M beyond its edge) or its AI race and safe lines.
+    ``lane``: the layout's centreline (model plan coordinates) and half widths."""
+    cones = np.array([o.matrix_world.translation[:2] for o in obs.values()
+                      if o.type == "EMPTY" and o.name.startswith(f"#xref ob/{C.CONE_ASSET}")]).reshape(-1, 2)
+    P, hw = to_scene(lane[0], manifest), lane[1]
+    a, b, shw = P, np.roll(P, -1, axis=0), np.minimum(hw, np.roll(hw, -1))
+    by_id = {rt["id"]: rt for rt in model["routes"]}
+    main = by_id["main"]
+    L = float(main["lengthM"])
+
+    def driven(rid: str, s: float) -> bool:
+        return any(sec["route"] == rid and float(sec["fromS"]) - 1e-3 <= s <= float(sec["toS"]) + 1e-3
+                   for sec in lay_def["sections"])
+
+    def plan(rt):
+        xy = to_scene(np.array([[q["x"], q["y"]] for q in rt["samples"]]), manifest)
+        return (xy, np.array([q["s"] for q in rt["samples"]]), to_scene(np.array(rt["leftEdge"])[:, :2], manifest),
+                to_scene(np.array(rt["rightEdge"])[:, :2], manifest))
+
+    mxy, ms, _ml, _mr = mplan = plan(main)
+    missing, rows = [], 0
+    for br in model["routes"]:
+        if br["id"] == "main" or br.get("closed"):
+            continue
+        bplan = plan(br)
+        blen = float(br["lengthM"])
+        reach = C.CONE_REACH_M + 2.0
+        ends = (("split", br.get("startJoin"), (br["id"], bplan, min(30.0, blen / 2.0), lambda s: s <= reach)),
+                ("merge", br.get("endJoin"), (br["id"], bplan, max(blen - 30.0, blen / 2.0),
+                                              lambda s, e=blen: s >= e - reach)))
+        for kind, join, own in ends:
+            if not join or join["route"] != "main":
+                continue
+            sj = float(join["s"])
+            at = mxy[int(join["sampleIndex"])]
+            d0, j0 = _seg_dist(at[None], a, b)
+            if d0[0] > shw[j0[0]]:
+                continue  # not on this layout's road
+            arms = [("main", mplan, (sj + 30.0) % L, lambda s, sj=sj: (s - sj) % L <= reach),
+                    ("main", mplan, (sj - 30.0) % L, lambda s, sj=sj: (sj - s) % L <= reach), own]
+            for rid, (xy, ss, le, ri), probe, within in arms:
+                if driven(rid, probe):
+                    continue
+                k = np.flatnonzero(np.array([within(float(s)) for s in ss]))
+                if not len(cones) or len(k) < 2:
+                    missing.append(f"{br['id']} {kind}: {rid}")
+                    continue
+                k = k[:-1] if k[-1] == len(xy) - 1 else k
+                d, j = _seg_dist(cones, xy[k], xy[k + 1])
+                w = np.hypot(*(le[k] - ri[k]).T)
+                on = d <= w[j] / 2.0
+                if on.sum() >= 2:
+                    jj = k[j[on]]
+                    across = le[jj] - ri[jj]
+                    t = ((cones[on] - ri[jj]) * across).sum(1) / np.maximum((across * across).sum(1), 1e-9)
+                    # one row: cones within a few metres of each other along the road
+                    along = ss[jj]
+                    order = np.argsort(along)
+                    groups = np.split(order, np.flatnonzero(np.diff(along[order]) > 3.0) + 1)
+                    if any(len(g) >= 2 and float(t[g].max() - t[g].min()) >= 0.75 * 0.92 for g in groups):
+                        rows += 1
+                        continue
+                missing.append(f"{br['id']} {kind}: {rid}")
+    check(not missing, f"{name}: a row of cones across every road the layout doesn't take at every junction it passes",
+          f"{rows} rows" + (f"; none across {', '.join(missing)}" if missing else ""))
+    bad = []
+    if len(cones):
+        d, j = _seg_dist(cones, a, b)
+        clear = d - shw[j]
+        bad = [f"{float(c):.2f} m" for c in clear if c < C.CONE_CLEAR_M - 0.1]
+        for k in ("race", "safe"):
+            o = obs.get(f"#ai_{k}_main")
+            if o is None:
+                continue
+            v = world_verts(o)[:, :2]
+            for f in faces_of(o):
+                q = v[list(f)]
+                e = np.roll(q, -1, axis=0) - q
+                rel = cones[:, None, :] - q[None]
+                cr = e[None, :, 0] * rel[..., 1] - e[None, :, 1] * rel[..., 0]
+                inside = (cr >= 0).all(1) | (cr <= 0).all(1)
+                bad += [f"on #ai_{k}_main"] * int(inside.sum())
+    check(not bad, f"{name}: no cone on the layout's road or AI lines ({C.CONE_CLEAR_M:.0f} m beyond the edge)",
+          f"{len(cones)} cones" + (f"; {', '.join(bad[:5])}" if bad else ""))
+
+
 def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manifest: dict) -> None:
     name = lay["name"]
     bpy.ops.wm.open_mainfile(filepath=os.path.join(out, lay["file"]))
@@ -1169,6 +1269,12 @@ def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manife
         if lay_def is not None and lay_def["id"] != "main":
             check(abs(cr.length - float(lay_def["lapLengthM"])) < 1.0, f"{name}: layout route length matches the model",
                   f"{cr.length:.1f} vs {lay_def['lapLengthM']:.1f} m")
+            lane = (cr.p[:, :2], cr.w / 2.0)
+        else:
+            lane = (np.array([[q["x"], q["y"]] for q in rm["samples"]]),
+                    np.array([q["width"] for q in rm["samples"]]) / 2.0)
+        if lay_def is not None:
+            check_layout_cones(name, obs, model, manifest, lay_def, lane)
     for rt in model["routes"]:
         if rt["aiIndex"] == 0 or multi:
             continue

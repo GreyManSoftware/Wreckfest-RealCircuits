@@ -347,7 +347,7 @@ def main() -> None:
         for e in lay.empties:
             if not e.name.startswith("#xref"):
                 bscene.empty_object(e, sp)
-            elif not is_base_xref(e):  # this layout's own props (e.g. coneOffMain's traffic cones)
+            elif not is_base_xref(e):  # this layout's own props (the traffic cones across roads it doesn't take)
                 lp = lp or bscene.collection("props")
                 bscene.empty_object(e, lp)
         ed = bscene.collection("editing#exclude")  # Toolbox skips collections ending in #exclude
