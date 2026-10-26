@@ -483,7 +483,9 @@ class LayoutBuilder:
             is_main = d["id"] == "main"
             lay = Layout("forward" if is_main else d["id"], f"{self.slug}_race" if is_main else f"{self.slug}_{d['id']}",
                          False)
-            r = saved[0] if is_main else composite_route(self.model, d)
+            # the main layout too runs from its own timing line when it has one (a real track: behind its grid,
+            # which stands behind the real start line; pipeline._layout_grids)
+            r = saved[0] if is_main and not d.get("startFinish") else composite_route(self.model, d)
             self.main, self.alts, self.joins = r, [], []
             line_s, first_s = self.startpoints(lay, 1, d.get("grid"))
             if d.get("startFinish"):

@@ -13,6 +13,7 @@
   "directionSource": "MSV official car circuit map: the arrow beside the chequered flag points along the start straight from Barn towards Coppice (clockwise); track guides likewise start the lap at Coppice, the uphill left at the end of the start straight.",
   "startFinish": { "node": 3992308260, "note": "Where the pit garage lane rejoins the pit lane (OSM node), projected onto the start straight: 153 m from Barn." },
   "startFinishSource": "MSV official car circuit map: the chequered flag on the start straight beside the pit apron, about 35 % of the way from Barn to Coppice (~155 m); ukCircuits Cadwell Park guide: the starting lights are opposite the start of the pit exit lane (OSM: the garage lane rejoins the pit lane 153 m from Barn).",
+  "startGridNote": "The start straight behind the line narrows under 8 m (two 4 m slots) from 66 m back towards Barn (measured 7.0-7.9 m), so the timing line goes 64 m back and the pole stands 28 m past the line; the Woodlands shares it.",
   "altLayouts": [
     {
       "id": "club",
@@ -25,6 +26,7 @@
       "directionSource": "racingcircuits.info Club Circuit map and history: the Club runs the Full circuit's way round (Coppice, Charlies, Park, Chris Curve, Gooseneck, Mansfield, then the Club Hairpin back to Coppice): clockwise.",
       "startFinish": { "alongWay": 396423019, "fraction": 0.14, "note": "The Club's timing line just after Mansfield, 44 m along the run to the Mountain (grade under 3 %, so the grid stays within the 4 % grid rule)." },
       "startFinishSource": "racingcircuits.info Cadwell Park history: 'a separate timing loop was installed just after Mansfield', the Club having different start and finish locations; its Club Circuit map puts the chequered flag ('Finish') just after Mansfield, about a third of the way to the Club Hairpin. Real Club races grid on the start straight before the hairpin joins it, which isn't part of the Club lap, so in the game the grid starts at the finish line.",
+      "startGridNote": "Mansfield (radius under 50 m) ends 20 m behind the Club line, so the grid can't stand behind it: the timing line goes 16 m back and the grid runs on up the run to the Mountain, pole 76 m past the line. Real Club races grid on the start straight, which the Club lap doesn't drive.",
       "measuredLapLengthM": 2383,
       "publishedLapLengthM": 2375
     },

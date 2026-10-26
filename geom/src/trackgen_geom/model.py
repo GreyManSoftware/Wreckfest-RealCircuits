@@ -198,10 +198,12 @@ class CanvasTransform:
 class LayoutRecord:
     """A layout of an imported track with alternative layouts (``sketch.imported.altLayouts``). The main layout
     is the main route; an alternative one drives its branch route and the main route from the branch end round
-    to the branch start, listed as ``sections`` in driving order from the layout's start/finish line. A layout
-    without ``start_finish``/``grid`` shares the main line (main s = 0) and the model's grid; one with its own
-    line (``altLayouts[].startFinish``) has it at ``start_finish`` (``route``, ``s`` along that route,
-    ``position``, ``heading``) and its own ``grid`` (slot ``s`` along the layout's lap from its line)."""
+    to the branch start, listed as ``sections`` in driving order from the layout's timing line. Every layout
+    has its real start line at ``start_line`` (``route``, ``s``, ``position``, ``leadM``: its lap position; its
+    own ``altLayouts[].startFinish`` or the main one), the timing line (the finish checkpoint) at
+    ``start_finish`` (``route``, ``s`` along that route, ``position``, ``heading``) behind it, and its ``grid``
+    (slot ``s`` along the layout's lap from the timing line) between them; layouts sharing the main line share
+    the main timing line and grid where their lap allows (pipeline._layout_grids)."""
 
     id: str
     name: str
@@ -209,6 +211,7 @@ class LayoutRecord:
     sections: list[dict[str, Any]]  # [{"route", "fromS", "toS"}] in driving order from the start/finish line
     start_finish: dict[str, Any] | None = None
     grid: Grid | None = None
+    start_line: dict[str, Any] | None = None  # the real start line (route, s, position, leadM: its lap position)
 
 
 @dataclass
@@ -240,7 +243,7 @@ class TrackModel:
         if not self.layouts:
             d.pop("layouts")  # drawn tracks: unchanged format
         for lay in d.get("layouts", []):
-            for k in ("startFinish", "grid"):
+            for k in ("startFinish", "grid", "startLine"):
                 if lay.get(k) is None:
                     lay.pop(k, None)  # layouts sharing the main line and grid
         return d

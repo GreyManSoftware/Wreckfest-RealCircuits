@@ -483,8 +483,15 @@ def test_reverse_layout_keeps_only_bidirectional_jumps_in_the_road() -> None:
 # --- grid, sectors, checkpoints ----------------------------------------------------------------
 
 
+def _timing_s(model) -> float:
+    """Main s of the timing line (the finish checkpoint): an imported track's main layout starts at its own,
+    behind its grid (which stands behind the real start line); otherwise main s = 0."""
+    return next((float(lay.start_finish["s"]) for lay in model.layouts if lay.id == "main" and lay.start_finish), 0.0)
+
+
 @pytest.mark.parametrize("path", SAMPLES, ids=[p.stem for p in SAMPLES])
 def test_grid_slots_are_ahead_of_the_line(path: Path, built: dict[str, Any]) -> None:
+    """The grid ahead of the timing line (the finish checkpoint), in the first sector, on the road."""
     spec = load(path)
     model = built[path.stem].model
     grid = model.grid
@@ -507,11 +514,14 @@ def test_grid_slots_are_ahead_of_the_line(path: Path, built: dict[str, Any]) -> 
     # Every slot sits on the road surface, also across a cambered road (imported tracks).
     main = model.route("main")
     ss = np.array([q.s for q in main.samples])
+    o = _timing_s(model)
     for slot in grid.slots:
-        k = int(np.searchsorted(ss, slot.s, side="right") - 1)
-        f = (slot.s - ss[k]) / (ss[k + 1] - ss[k])
-        left = (1 - f) * np.array(main.left_edge[k]) + f * np.array(main.left_edge[k + 1])
-        right = (1 - f) * np.array(main.right_edge[k]) + f * np.array(main.right_edge[k + 1])
+        sm = (o + slot.s) % main.length_m  # the slot's main s (its s runs from the timing line)
+        k = int(np.searchsorted(ss, sm, side="right") - 1)
+        k1 = (k + 1) % len(ss)
+        f = (sm - ss[k]) / ((ss[k1] - ss[k]) % main.length_m)
+        left = (1 - f) * np.array(main.left_edge[k]) + f * np.array(main.left_edge[k1])
+        right = (1 - f) * np.array(main.right_edge[k]) + f * np.array(main.right_edge[k1])
         t = float(np.dot(np.array(slot.position[:2]) - right[:2], (left - right)[:2]) / np.sum((left - right)[:2] ** 2))
         assert slot.position[2] == pytest.approx(right[2] + t * (left[2] - right[2]), abs=0.01)
     first = built[path.stem].facts["firstSectorLengthM"]
@@ -552,14 +562,15 @@ def test_checkpoints(path: Path, built: dict[str, Any]) -> None:
     model = built[path.stem].model
     main_cps = [c for c in model.checkpoints if c.route == "main"]
     assert C.CHECKPOINT_MIN <= len(main_cps) <= C.CHECKPOINT_MAX
-    assert main_cps[-1].is_finish and main_cps[-1].s == 0.0
+    o, L = _timing_s(model), model.lap_length_m
+    assert main_cps[-1].is_finish and main_cps[-1].s == o  # on the timing line
     assert not any(c.is_finish for c in main_cps[:-1])
     rows = math.ceil(model.grid.size / 2)
     pole = C.GRID_LINE_OFFSET_M + (rows - 1) * RULE_CONSTANTS["gridRowSpacingM"]
-    assert main_cps[0].s == pytest.approx(pole + C.GRID_CHECKPOINT_MARGIN_M)
-    assert main_cps[0].s > max(s.s for s in model.grid.slots)
-    s = [c.s for c in main_cps[:-1]]
-    assert s == sorted(s) and s[-1] < model.lap_length_m
+    lap = [(c.s - o) % L for c in main_cps[:-1]]  # lap positions from the timing line
+    assert lap[0] == pytest.approx(pole + C.GRID_CHECKPOINT_MARGIN_M)
+    assert lap[0] > max(s.s for s in model.grid.slots)
+    assert lap == sorted(lap) and lap[-1] < L
     for c in model.checkpoints:  # the road's width there (real tracks: measured per point) plus the margins
         r = model.route(c.route)
         ss = np.array([q.s for q in r.samples])
@@ -637,12 +648,19 @@ def test_imported_alt_layout_shares_the_base_as_a_branch() -> None:
     assert (m.layouts[0].name, m.layouts[0].lap_length_m) == ("Long", m.lap_length_m)
     short = m.layouts[1]
     assert short.lap_length_m == pytest.approx(br.start_join.s + br.length_m + (m.lap_length_m - br.end_join.s))
-    assert [s["route"] for s in short.sections] == ["main", "short", "main"]
+    # from the timing line (the finish checkpoint), shared with the main layout, behind the grid and the line
+    assert [s["route"] for s in short.sections] == ["main", "main", "short", "main"]
     assert result.facts["altRoutes"]["short"] == {"startGapM": 0.0, "endGapM": 0.0}
     # drawn and single-layout imported tracks keep the model format without "layouts"
     assert "layouts" not in build_track_model(imported_vector()).model.to_dict()
-    assert short.grid is None and short.start_finish is None  # shares the main line and grid
-    assert "grid" not in m.to_dict()["layouts"][1]
+    # shares the main line, timing line and grid (pipeline._layout_grids)
+    assert short.start_line == m.layouts[0].start_line and short.start_line["s"] == 0.0
+    assert short.start_finish == m.layouts[0].start_finish
+    assert np.allclose([q.position for q in short.grid.slots], [q.position for q in m.grid.slots], atol=0.05)
+    lead = short.start_line["leadM"]
+    assert 0.0 <= lead - max(q.s for q in short.grid.slots) <= C.GRID_LINE_OFFSET_M + 0.5  # behind the line
+    assert short.start_finish["s"] == pytest.approx(m.lap_length_m - lead, abs=0.5)
+    assert {"startFinish", "grid", "startLine"} <= set(m.to_dict()["layouts"][1])
     # a branch that would bypass the start/finish line is left out...
     alt = spec["sketch"]["imported"]["altLayouts"][0]
     alt["centreline"] = alt["centreline"][::-1]
@@ -657,19 +675,23 @@ def test_imported_alt_layout_shares_the_base_as_a_branch() -> None:
     own = build_track_model(spec)
     assert own.valid, [v.message for v in own.rule_result.violations]
     lay = own.model.layouts[1]
-    assert [s["route"] for s in lay.sections] == ["main", "short", "main"]
-    assert lay.sections[0]["fromS"] == pytest.approx(mid.s, abs=0.5) == lay.sections[-1]["toS"]
+    assert [s["route"] for s in lay.sections] == ["main", "main", "short", "main"]
+    assert lay.start_line["route"] == "main" and lay.start_line["s"] == pytest.approx(mid.s, abs=0.5)
+    assert lay.sections[0]["fromS"] == pytest.approx(lay.start_finish["s"]) == lay.sections[-1]["toS"]
     assert lay.lap_length_m == pytest.approx((s1 - s0) + own.model.route("short").length_m, abs=0.5)
-    assert lay.start_finish["route"] == "main" and lay.start_finish["s"] == pytest.approx(mid.s, abs=0.5)
+    # the timing line goes back towards the branch end, short of the junction (JUNCTION_CLEAR_M)
+    lead = lay.start_line["leadM"]
+    assert lay.start_finish["route"] == "main"
+    assert lay.start_finish["s"] == pytest.approx(mid.s - lead, abs=0.5) and lay.start_finish["s"] >= s0 + C.JUNCTION_CLEAR_M - 0.5
     assert len(lay.grid.slots) == spec["options"]["gridSize"]
     pole = max(lay.grid.slots, key=lambda q: q.s)
-    assert 0 < pole.s < s1 - mid.s  # ahead of the line, before the branch
+    assert 0 < pole.s < s1 - lay.start_finish["s"]  # ahead of the timing line, before the branch
     assert own.model.to_dict()["layouts"][1]["grid"]["size"] == spec["options"]["gridSize"]
     # the line may lie on the branch too
     bq = own.model.route("short").samples[len(own.model.route("short").samples) // 2]
     alt["startFinish"] = {"x": bq.x, "y": bq.y}
     on_branch = build_track_model(spec).model.layouts[1]
-    assert on_branch.sections[0]["route"] == "short" and on_branch.start_finish["route"] == "short"
+    assert on_branch.start_line["route"] == "short" and on_branch.start_finish["route"] == "short"
 
 
 def test_imported_extra_roads_are_built_and_chained_into_the_layouts_that_list_them() -> None:
@@ -696,7 +718,8 @@ def test_imported_extra_roads_are_built_and_chained_into_the_layouts_that_list_t
     assert [lay.id for lay in m.layouts] == ["main", "short"]
     lay = m.layouts[1]
     br, far = m.route("short"), m.route("far")
-    assert [s["route"] for s in lay.sections] == ["main", "short", "main", "far", "main"]
+    # (sections[0]: the main road from the shared timing line to the real line, _layout_grids)
+    assert [s["route"] for s in lay.sections] == ["main", "main", "short", "main", "far", "main"]
     assert lay.lap_length_m == pytest.approx(
         m.lap_length_m - (far.end_join.s - far.start_join.s) - (br.end_join.s - br.start_join.s)
         + br.length_m + far.length_m, abs=1e-6)
@@ -706,15 +729,15 @@ def test_imported_extra_roads_are_built_and_chained_into_the_layouts_that_list_t
     imp["roads"][0]["centreline"] = chord(k_end - 2, 88)
     m2 = build_track_model(spec).model
     lay = m2.layouts[1]
-    assert [s["route"] for s in lay.sections] == ["main", "short", "far", "main"]
-    assert lay.sections[1]["toS"] < m.route("short").length_m - 5.0
+    assert [s["route"] for s in lay.sections] == ["main", "main", "short", "far", "main"]
+    assert lay.sections[2]["toS"] < m.route("short").length_m - 5.0
 
     def at(rid: str, s: float) -> np.ndarray:
         q = min(m2.route(rid).samples, key=lambda p: abs(p.s - s))
         return np.array([q.x, q.y])
 
     # the hand-over is where the two lines come closest (here no nearer than the two joins on the main line)
-    hand = float(np.hypot(*(at("short", lay.sections[1]["toS"]) - at("far", lay.sections[2]["fromS"]))))
+    hand = float(np.hypot(*(at("short", lay.sections[2]["toS"]) - at("far", lay.sections[3]["fromS"]))))
     joins = float(np.hypot(main_pts[k_end]["x"] - main_pts[k_end - 2]["x"], main_pts[k_end]["y"] - main_pts[k_end - 2]["y"]))
     assert hand <= joins + 0.5
     # an unknown road, or pieces that can't chain round one lap, leave the layout out

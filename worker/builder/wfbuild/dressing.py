@@ -462,8 +462,9 @@ class Planner:
         slots = g.model.get("grid", {}).get("slots", [])
         m = self.main
         if slots:
-            s_hi = max(float(s["s"]) for s in slots) + 15.0
-            s_lo = -25.0
+            lo, hi = m.grid_span(slots)  # behind the line on a real track (its grid behind the start line)
+            s_hi = max(hi + 15.0, 25.0)
+            s_lo = min(-25.0, lo - 15.0)
             d = m.signed_s(m.s, 0.0)
             for i in np.nonzero((d >= s_lo) & (d <= s_hi))[0][::2]:
                 add(m.p[i], m.w[i] / 2.0 + self.edge_min + 8.0, True, "grid")

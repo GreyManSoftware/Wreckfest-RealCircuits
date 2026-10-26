@@ -346,7 +346,6 @@ class _Builder:
         self.lap = float(self.options["lapLengthKm"]) * 1000.0
         self.reverse = bool(self.options["reverseLayout"])
         self.imported = self.sketch.get("imported")
-        self.own_line: dict[str, tuple[str, float]] = {}  # imported layout id -> (route, s) of its own line
         self.by_id_all: dict[str, _Route] = {}
 
     def warn(self, code: str, message: str) -> None:
@@ -486,15 +485,14 @@ class _Builder:
                     best = (float(d[i]), k, float(ss[i]))
             assert best is not None
             _, k, sl = best
-            self.own_line[alt["id"]] = (cycle[k][0], sl)
         else:
-            k = next((k for k, c in enumerate(cycle) if c[0] == "main" and c[1] == 0.0), None)
+            sl = self._main_start_s()
+            k = next((k for k, c in enumerate(cycle) if c[0] == "main" and c[1] <= sl + 1e-6 and sl < c[2]), None)
             if k is None:
                 self.warn("imported-layout-unsupported",
                           f"Layout {alt['id']} must pass the main start/finish line on the main centreline "
                           "(or have its own startFinish); it is left out.")
                 return None
-            sl = 0.0
         rid, a, b = cycle[k]
         rot = [(rid, sl, b)] + [tuple(c) for c in cycle[k + 1:] + cycle[:k]] + [(rid, a, sl)]
         return [{"route": x, "fromS": y, "toS": z} for x, y, z in rot if z - y > 1e-6]
@@ -1138,20 +1136,107 @@ class _Builder:
                 ahead.append(max(s - C.JUNCTION_CLEAR_M, 0.0))
         return min(ahead)
 
-    def _layout_grids(self) -> None:
-        """Own start/finish line and grid of each imported layout with ``startFinish`` (on its own lap)."""
-        for lay in self.layouts:
-            if lay.id not in self.own_line:
+    def _main_start_s(self) -> float:
+        """Main s of the imported track's real start line: its start lights (``pits.gantries``, kind
+        ``startLights`` on the main route; Brands Hatch's start line is 19 m past the finish), else main s = 0
+        (the recipe's start/finish line)."""
+        for g in ((self.imported or {}).get("pits") or {}).get("gantries") or []:
+            if g.get("kind") == "startLights" and g.get("route", "main") == "main":
+                return float(g["sM"]) % self.lap
+        return 0.0
+
+    def _line_lead(self, lay: LayoutRecord, r0: _Route) -> float:
+        """How far before an imported layout's real start line its timing line (the game's start/finish
+        checkpoint) goes. The game wants the grid in the first sector, between the timing line and checkpoint
+        01 (stock example layout; Workshop modders: checkpoint 01 must not move behind the pole), and a real
+        grid stands behind its start line, so the timing line goes far enough back for the pole row to sit
+        GRID_LINE_OFFSET_M behind the real line (Chris 2026-10-26: Anglesey's race started at turn 1). Less where
+        the road behind the line has a tight corner or a big turn first, or the lap changes route (a junction),
+        so the grid stays on clear road. ``r0``: the layout's lap from its real line."""
+        rows = math.ceil(int(self.options["gridSize"]) / 2)
+        want = 2.0 * C.GRID_LINE_OFFSET_M + (rows - 1) * float(self.consts["gridRowSpacingM"])
+        room = r0.length
+        line_route = lay.sections[0]["route"] if lay.sections else "main"
+        back = 0.0
+        for sec in reversed(lay.sections):  # the nearest route change behind the line
+            if sec["route"] != line_route:
+                room = back - C.JUNCTION_CLEAR_M - 1.0
+                break
+            back += float(sec["toS"]) - float(sec["fromS"])
+        radius = pl.radii(r0.pts, True, C.RADIUS_WINDOW)
+        h0 = float(r0.heading[0])
+        for i in range(len(r0.s) - 1, 0, -1):
+            d = r0.length - float(r0.s[i])
+            if d > min(room, want + C.GRID_LINE_OFFSET_M):
+                break
+            turn = abs((float(r0.heading[i]) - h0 + math.pi) % (2.0 * math.pi) - math.pi)
+            if radius[i] < C.GRID_SHARP_RADIUS_M or turn > math.radians(C.GRID_MAX_TURN_DEG):
+                room = d - 2.0
+                break
+        return max(0.0, min(want, room))
+
+    def _rotate_back(self, sections: list[dict[str, Any]], lead: float) -> list[dict[str, Any]]:
+        """``sections`` (in driving order from a line) starting ``lead`` metres earlier, the cut on the nearest
+        sample of its route (at most 1 m further back)."""
+        secs = [dict(x) for x in sections]
+        moved: list[dict[str, Any]] = []
+        rem = lead
+        while secs and rem > 1e-6:
+            x = secs[-1]
+            n = float(x["toS"]) - float(x["fromS"])
+            if n <= rem + 1e-6:
+                moved.insert(0, secs.pop())
+                rem -= n
                 continue
-            r = self._layout_route(lay)
-            fs = self._layout_first_sector(r, lay)
+            ss = self.by_id_all[x["route"]].s
+            want = float(x["toS"]) - rem
+            ok = ss[ss >= want - 1.0]  # the nearest sample, at most 1 m further back than asked
+            cut = float(ok[int(np.argmin(np.abs(ok - want)))]) if len(ok) else want
+            cut = min(max(cut, float(x["fromS"]) + 0.5), float(x["toS"]) - 0.5)
+            moved.insert(0, {"route": x["route"], "fromS": cut, "toS": x["toS"]})
+            x["toS"] = cut
+            rem = 0.0
+        return moved + secs
+
+    def _layout_grids(self) -> None:
+        """Start line, timing line and grid of each layout of an imported track with alternative layouts, on its
+        own lap. The real start line is the layout's own (``startFinish``) or the main one (the start lights,
+        _main_start_s); the lap (``sections``) then starts at the timing line _line_lead before it, where the
+        layout's ``start_finish`` (the finish checkpoint) is, with the grid ahead of that and behind the real
+        line (``start_line``, with ``leadM``). Layouts sharing the main line get the same timing line and grid
+        wherever their lap allows it."""
+        need = math.ceil(int(self.options["gridSize"]) / 2) * float(self.consts["gridRowSpacingM"])
+        for lay in self.layouts:
+            if lay.id == "main" and self._main_start_s() > 0.0:
+                s0 = self._main_start_s()
+                lay.sections = [{"route": "main", "fromS": s0, "toS": self.lap}, {"route": "main", "fromS": 0.0, "toS": s0}]
+            real = dict(lay.sections[0])
+            r0 = self._layout_route(lay)
+            lead = self._line_lead(lay, r0)
+            base = lay.sections
+            max_grade = float(self.consts.get("importedGridMaxGradePct", 100.0)) / 100.0
+            while True:  # back off where the road from the timing line isn't clear, level and wide for the whole grid
+                lay.sections = self._rotate_back(base, lead) if lead > 0.0 else base
+                r = self._layout_route(lay)
+                fs = self._layout_first_sector(r, lay)
+                wide = self.main.w is None or self._grid_width(r) >= 2.0 * float(self.consts["importedGridSlotWidthM"])
+                if (fs >= need and self._grid_max_grade(r) <= max_grade and wide) or lead <= 0.0:
+                    break
+                lead = max(0.0, lead - 2.0)
             self.layout_first_sectors[lay.id] = fs
             lay.grid = self._grid(fs, r)
-            rid, s = self.own_line[lay.id]
+            rid, s = lay.sections[0]["route"], float(lay.sections[0]["fromS"])
             src = self.by_id_all[rid]
             p = src.at(s)
             lay.start_finish = {"route": rid, "s": s, "position": [float(p[0]), float(p[1]), src.z_at(s)],
                                 "heading": src.heading_at(s)}
+            rs, srs = real["route"], float(real["fromS"])
+            q = self.by_id_all[rs].at(srs)
+            # the real line's lap position: the length of the pieces moved in front of it
+            k = next((k for k, x in enumerate(lay.sections) if x["route"] == rs and abs(float(x["fromS"]) - srs) < 1e-6), 0)
+            lap_s = sum(float(x["toS"]) - float(x["fromS"]) for x in lay.sections[:k])
+            lay.start_line = {"route": rs, "s": srs, "position": [float(q[0]), float(q[1]), self.by_id_all[rs].z_at(srs)],
+                              "leadM": round(lap_s, 2)}
             self.layout_routes[lay.id] = r
 
     def _grid(self, first_sector: float, route: _Route | None = None) -> Grid:
@@ -1195,7 +1280,8 @@ class _Builder:
         n = min(C.CHECKPOINT_MAX, max(C.CHECKPOINT_MIN, round(self.lap / C.CHECKPOINT_SPACING_M)))
         s1 = self._grid_zone_end()
         step = (self.lap - s1) / (n - 1)
-        ss = [s1 + k * step for k in range(n - 1)]
+        o = self.line_s  # main s of the timing line (imported layouts: _layout_grids), checkpoints from there
+        ss = [(o + s1 + k * step) % self.lap for k in range(n - 1)]
         # open pit lanes: every stretch of the main lap that a pit lane bypasses holds a checkpoint (spanning only
         # the track), so driving through the pits misses it and the lap doesn't count (Chris 2026-10-25)
         for lane in ((self.imported or {}).get("pits") or {}).get("pitLanes", []):
@@ -1203,13 +1289,14 @@ class _Builder:
             if a is None or b is None:
                 continue
             span = (b - a) % self.lap
-            inside = [s for s in ss + [0.0] if 10.0 < (s - a) % self.lap < span - 10.0]
+            inside = [s for s in ss + [o] if 10.0 < (s - a) % self.lap < span - 10.0]
             if span > 30.0 and not inside:
                 ss.append((a + span / 2) % self.lap)
-        ss = sorted(s for s in ss if s >= s1 - 1e-6) + sorted(s for s in ss if s < s1 - 1e-6)
+        lap_pos = [(s - o) % self.lap for s in ss]
+        ss = [s for _, s in sorted(zip(lap_pos, ss)) if _ >= s1 - 1e-6] + [s for _, s in sorted(zip(lap_pos, ss)) if _ < s1 - 1e-6]
         out = [self._checkpoint(self.main, k, s) for k, s in enumerate(ss)]
         n = len(ss) + 1
-        out.append(self._checkpoint(self.main, n - 1, 0.0, finish=True))
+        out.append(self._checkpoint(self.main, n - 1, o, finish=True))
         for r in self.routes[1:]:
             count = max(1, int(r.length // step))
             out += [self._checkpoint(r, j, r.length * (j + 1) / (count + 1)) for j in range(count)]
@@ -1229,7 +1316,12 @@ class _Builder:
         grid = self._grid(first_sector)
         self.layout_routes: dict[str, _Route] = {}
         self.layout_first_sectors: dict[str, float] = {}
+        self.line_s = 0.0
         self._layout_grids()
+        main_lay = next((lay for lay in self.layouts if lay.id == "main" and lay.grid is not None), None)
+        if main_lay is not None:  # an imported track: the main layout's timing line and grid (behind the real line)
+            self.line_s = float(main_lay.start_finish["s"]) if main_lay.start_finish["route"] == "main" else 0.0
+            grid, first_sector = main_lay.grid, self.layout_first_sectors["main"]
         checkpoints = self._checkpoints()
 
         routes: list[Route] = []
@@ -1389,9 +1481,9 @@ class _Builder:
                 }
                 for m in self.markers
             },
-            **({"gridWidthM": _round(min([self._grid_width()] + [self._grid_width(r) for r in self.layout_routes.values()]))}
+            **({"gridWidthM": _round(min(([] if "main" in self.layout_routes else [self._grid_width()]) + [self._grid_width(r) for r in self.layout_routes.values()]))}
                if self.main.w is not None else {}),
-            "gridMaxGradePct": _round(min(100.0 * max([self._grid_max_grade()] + [
+            "gridMaxGradePct": _round(min(100.0 * max(([] if "main" in self.layout_routes else [self._grid_max_grade()]) + [
                 self._grid_max_grade(r) for r in self.layout_routes.values()]), C.MAX_REPORTED_GRADE_PCT)),
             "heightRangeM": _round(float(all_z.max() - all_z.min())),
             "maxGradePct": _round(

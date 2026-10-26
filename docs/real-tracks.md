@@ -37,9 +37,12 @@ layouts; lengths from Wikipedia unless noted, to verify per circuit under the st
    direction and the real start/finish line position from official sources (the circuit's map, MSV track guides;
    racingcircuits.info maps and race reports second), not from OSM way direction alone. Some circuits use a
    different line per layout (Cadwell Park Club, Anglesey National and Club): give such a layout its own
-   `startFinish`. In the built files the line, the grid facing and the AI route direction must match: checkpoint
-   0 / the finish checkpoint on the real line, the grid ahead of it facing the driving direction, the compiled AI
-   route in checkpoint order. Record the sources in the recipe (`directionSource`, `startFinishSource`); the
+   `startFinish`. In the built files the line, the grid facing and the AI route direction must match: the grid
+   behind the real start line (the start lights; Chris 2026-10-26, Anglesey's race started at Target), pole row
+   ~4 m behind it, facing the driving direction; the finish checkpoint (the timing line) behind the grid, since
+   the game wants the grid in the first sector (stock example layout), so a lap is timed from ~96 m before the
+   real line (`pipeline._line_lead`, less where a junction, a tight corner, a grade over 4 % or a road under 8 m
+   comes first; the recipe's `startGridNote` says why); the compiled AI route in checkpoint order. Record the sources in the recipe (`directionSource`, `startFinishSource`); the
    importer and `geom/tests/test_import_real_track.py` fail a recipe without them, and `check_scene` /
    `check_export` check the line, the grid facing and the driving order in every layout.
 3. As before: correct direction (`otherway`, route vs checkpoint order), road flush with the grass, a 24-car grid
