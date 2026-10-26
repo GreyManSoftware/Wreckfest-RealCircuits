@@ -248,7 +248,7 @@
                  "spectator_woman_standing01", "spectator_woman_standing02", "spectator_woman_standing03", "spectator_woman_standing04",
                  "spectator_woman_standing05", "spectator_woman_standing06", "spectator_woman_standing07", "spectator_woman_standing08"],
   "staff": ["staff_01", "staff_02", "staff_03"],
-  "grandstand": ["prop_start_grandstand3g", "prop_start_grandstand1", "prop_derby_grandstand01"],
+  "grandstand": ["prop_start_grandstand1", "prop_derby_grandstand01"],
   "gantry": ["prop_start_startlights1"],
   "flags": ["prop_flagpole12", "prop_pennant_anim_1", "prop_pennant_anim_5a"],
   "paddock": ["prop_start_tent8", "prop_start_tent4", "prop_hightent_03", "prop_hightent_05", "prop_tent_star_01",

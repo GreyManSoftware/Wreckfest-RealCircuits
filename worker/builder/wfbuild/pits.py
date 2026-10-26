@@ -31,6 +31,8 @@ LANE_SKIRT = 0.8           # the lane's edges slope down to the terrain over thi
 LANE_CELL = 2.0
 WALL_ASSET = "prop_barrier8"   # 3.7 x 0.82 x 1.09 m plain grey concrete barrier (Chris 2026-10-25: half height, all grey)
 WALL_LEN = 3.7
+WALL_GAP = 0.04            # between the elements, as stock rows (3.74-3.78 m apart): overlapping ends share their side
+                           # and top faces, which flicker (Chris 2026-10-26: every circuit's pit wall)
 OPEN_LANES = True   # no closures across the lane ends (Chris 2026-10-25: no walls across junctions); the pit-bypassed
                     # stretch of the lap carries a checkpoint instead (trackgen_geom.pipeline._checkpoints)
 WALL_TOP = 1.1             # collision wall height above the ground
@@ -64,17 +66,20 @@ def span_parts(asset: str, centre, yaw: float, s: float, legs_only: bool = False
         xs = [GANTRY_LEG] if legs_only else [GANTRY_LEG - 1.0, GANTRY_LEG, GANTRY_LEG + 0.6]
         ys = (-1.0, 0.0, 1.0)
     return np.array([c + X * sd * x * s + Y * y * s for sd in (1, -1) for x in xs for y in ys])
-# building props per kind: (asset, length along local X, depth, height, face): tiled along the footprint
+# building props per kind: (asset, length along the row, depth, height, face): tiled along the footprint; the row
+# runs along local X when the face (towards the road) is +-y, along local Y when it is +-x
 PROPS = {
     "garages": [("prop_tarmac2_pitstop_part2", 28.4, 12.4, 10.4, "+y")],
     "control": [("prop_startbuilding_fields14", 21.8, 9.3, 10.5, "+y")],
     "media": [("prop_startbuilding_fields14", 21.8, 9.3, 10.5, "+y")],
     "hospitality": [("prop_start_building_forest11", 21.5, 14.8, 6.9, "-y"),
                     ("prop_start_building_forest09", 20.9, 8.8, 6.1, "-y")],
-    "paddock": [("prop_tarmac2_tenthall", 35.0, 15.0, 6.0, "-y")],
+    "paddock": [("prop_tarmac2_tenthall", 35.0, 15.2, 6.0, "+x")],   # its long side is local Y (15.2 x 35 m)
     "other": [("prop_start_building_forest09", 20.9, 8.8, 6.1, "-y")],
     "small": [("prop_commentatorbuilding_forest09", 6.9, 6.3, 5.6, "-y")],
-    "grandstand": [("prop_start_grandstand3g", 48.1, 14.8, 9.7, "-y"), ("prop_start_grandstand1", 25.0, 7.8, 8.1, "-y")],
+    # not prop_start_grandstand3g: its front row of ad boards is two strips of adverts 13 mm apart over 38 m (and the
+    # wood boards 14 mm behind), which flicker against each other (Chris 2026-10-26: Brands' start grandstand)
+    "grandstand": [("prop_start_grandstand1", 25.0, 7.8, 8.1, "-y")],
 }
 SCALE_RANGE = (0.55, 1.4)
 TILE_GAP = 1.03           # building and grandstand tiles: 3 % of their length apart
@@ -342,8 +347,10 @@ class Pits:
         for lane in self.lanes:
             lines = ([lane.wall] if lane.wall is not None else []) + lane.closures()
             for line in lines:
-                for q, t in self._row(line, WALL_LEN * 0.985):
-                    add(WALL_ASSET, "pitWall", q, math.atan2(-t[0], t[1]) + math.pi / 2)
+                for q, t, s in self._row(line, WALL_LEN, WALL_GAP):
+                    # the element's mesh runs from x = -1.83 to 1.87 m: centre that span on the slot
+                    off = sum(footprint.EXTENTS[WALL_ASSET][:2]) / 2.0 * s
+                    add(WALL_ASSET, "pitWall", q - t * off, math.atan2(-t[0], t[1]) + math.pi / 2, s)
             poly = lane.polygon()
             for q in self._cover(poly, 8.0) if len(poly) else []:
                 planner.sc.zones.append(Zone("paved", float(q[0]), float(q[1]), 6.0))
@@ -382,17 +389,21 @@ class Pits:
         for gnt in self.gantries:
             self._gantry(planner, gnt, add)
 
-    def _row(self, line: np.ndarray, step: float):
+    @staticmethod
+    def _row(line: np.ndarray, length: float, gap: float):
+        """Elements ``length`` long end to end along the line, ``gap`` apart, never overlapping: equal slots, each
+        element on its slot's chord and scaled up (uniformly, at most 1 + 1/n) to fill it less the gap. Yields
+        (centre, unit direction, scale)."""
         seg = np.hypot(*np.diff(line, axis=0).T)
         s = np.concatenate([[0.0], np.cumsum(seg)])
         L = float(s[-1])
-        n = max(1, int(math.ceil(L / step)))
+        n = max(1, int(math.floor(L / (length + gap))))
         for k in range(n):
             a, b = k * L / n, (k + 1) * L / n
             p0 = np.array([np.interp(a, s, line[:, 0]), np.interp(a, s, line[:, 1])])
             p1 = np.array([np.interp(b, s, line[:, 0]), np.interp(b, s, line[:, 1])])
-            t = (p1 - p0) / max(float(np.hypot(*(p1 - p0))), 1e-9)
-            yield (p0 + p1) / 2.0, t
+            chord = max(float(np.hypot(*(p1 - p0))), 1e-9)
+            yield (p0 + p1) / 2.0, (p1 - p0) / chord, max(chord - gap, 0.1) / length
 
     def _on_pits(self, q: np.ndarray, r: float) -> bool:
         for lane in self.lanes:
@@ -424,7 +435,8 @@ class Pits:
         _, asset, lm, dm, hm, fside, n, s = best
         # the front of the props on the footprint's front edge (towards the road), tiles along the long axis
         front = c + ay * (D / 2.0)
-        yaw = yaw_to(ay) if fside == "+y" else yaw_to(-ay)
+        toward = ay if fside[0] == "+" else -ay
+        yaw = yaw_to(toward) if fside[1] == "y" else math.atan2(float(toward[1]), float(toward[0]))
         cat = "realGrandstand" if kind == "grandstand" else "pitBuildings"
         lanes = [ln.polygon() for ln in self.lanes if ln.b1 > ln.b0]
 
@@ -433,14 +445,12 @@ class Pits:
             # a small gap between tiles: abutting end walls and ad panels are coplanar and flicker
             return [cl + ax * ((k + 0.5) * lm * s * TILE_GAP - n * lm * s * TILE_GAP / 2.0) for k in range(n)]
 
-        X = np.array([math.cos(yaw), math.sin(yaw)])  # the prop's local axes as placed
-        Y = np.array([-math.sin(yaw), math.cos(yaw)])
-        hw, hd = lm * s / 2.0 + 0.5, dm * s / 2.0 + 0.5
+        hw, hd = lm * s / 2.0 + 0.5, dm * s / 2.0 + 0.5   # along the row, towards the road
 
         def hits(back: float, along: float = 0.0) -> bool:
             # every tile's corners, edge midpoints and centre, grown 0.5 m, off the pit lane (OSM footprints often
             # reach it)
-            pts = np.array([q + X * u + Y * v for q in tiles(back, along) for u in (-hw, 0.0, hw) for v in (-hd, 0.0, hd)])
+            pts = np.array([q + ax * u + ay * v for q in tiles(back, along) for u in (-hw, 0.0, hw) for v in (-hd, 0.0, hd)])
             if any(point_in_poly(pts, lp).any() for lp in lanes) or bool((planner.field.dist(pts) < 1.5).any()):
                 return True
             # measured run-off (runoff.py): not in a gravel trap, on an apron or between a road and its barrier

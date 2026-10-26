@@ -711,14 +711,57 @@ class Planner:
                 a = self.pick(self.common["spectators"])
                 self.try_place(a, "spectators", q[0], q[1], yaw_to(tw) + float(self.rng.normal(0, 0.25)),
                                off_f + 0.5, r=0.55)
-        if self.rng.random() < 0.35:
-            q, tw, tg = self.side_point(r, i, side, off_f + 7.5)
-            a = self.pick(self.common["cameras"])
-            self.try_place(a, "cameras", q[0], q[1], self.face_yaw(a, tw, tg), off_f)
         q, _, _ = self.side_point(r, i, side, off_f + 3.0)
         if len(self.sc.placements) > n0:
             self.sc.zones.append(Zone("crowd", float(q[0]), float(q[1]), length / 2.0 + 4.0))
         return len(self.sc.placements) - n0
+
+    CAMERA_ASSET = "prop_cameratower"
+    CAMERA_SHARE = 0.35      # of the crowd spots (corners, viewing spots) get a tower, as when it came with the crowd
+    CAMERA_BACK = 8.0        # beyond the reset wall (or the barrier, the run-off) on that stretch
+    CAMERA_APART = 120.0
+    CAMERA_ALONG = (30.0, 45.0, 15.0, 0.0, 60.0)   # the corner's exit first (Chris 2026-10-26: Anglesey)
+
+    def camera_towers(self) -> None:
+        """TV camera towers on open grass at the crowd spots (``crowd_spots``: corners and viewing spots), with or
+        without spectators (Chris 2026-10-26: they had vanished with the crowds that need a built barrier): a
+        CAMERA_SHARE of the spots, by their own seeded draw; each on the outside, past the corner exit first,
+        CAMERA_BACK behind the furthest of the barrier line, the AI route's reach plus the reset wall gap and the
+        measured run-off over 20 m of road, so neither the AI nor a car running wide reaches it."""
+        from . import footprint
+        from .bounds import RESET_GAP
+        a = self.CAMERA_ASSET
+        if a not in self.allowed:
+            return
+        rng = np.random.default_rng(seed_for(self.slug, "cameras"))
+        half = max(abs(v) for v in footprint.EXTENTS[a])  # the tower's platform, 5.8 x 7 m
+        plan = self.geo.wall_plan()
+        placed: list[np.ndarray] = []
+        for r, i, side, _length in self.geo.crowd_spots():
+            if rng.random() >= self.CAMERA_SHARE:
+                continue
+            p = plan.get((r.index, side))
+            for along in self.CAMERA_ALONG:
+                s = (r.s[i] + along) % r.length if r.closed else min(max(r.s[i] + along, 0.0), r.length)
+                j = r.index_at(s)
+                win = self.walk(r, j, 20.0, 0.0)
+                clear = self.edge_min + 2.0
+                if p is not None:
+                    clear = max(clear, float(np.max(np.where(p["ok"][win], p["offset"][win], 0.0))),
+                                float(np.max(p["ai_margin"][win])) + RESET_GAP)
+                off = clear + self.CAMERA_BACK + half
+                q, tw, tg = self.side_point(r, j, side, off)
+                if any(float(np.hypot(*(q - o))) < self.CAMERA_APART for o in placed):
+                    break
+                if self.measured and bool(self.in_runoff(q[None, :], half + self.CAMERA_BACK)[0]):
+                    continue
+                ring = q + half * np.array([[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]], dtype=np.float64)
+                if float(self.wood_cover(ring).max()) > 0.3:
+                    continue  # open grass, not in a wood
+                if self.try_place(a, "cameras", q[0], q[1], self.face_yaw(a, tw, tg), off - half - 1.0):
+                    placed.append(q)
+                    break
+        self.sc.info["cameraTowers"] = len(placed)
 
     def viewing_spots(self, corners) -> None:
         """Crowds at the geometry's crowd spots (jump landings, beside bridges, named viewing spots, the outside of
@@ -730,17 +773,56 @@ class Planner:
         self.sc.info["viewingSpots"] = done
 
     # ------------------------------------------------------------------------------- road-side props
+    PANEL_GAP = 0.04    # ad fence panels end to end this far apart: overlapping panels flicker (Chris 2026-10-26)
+    BOARD_CLEAR = 8.0   # no ad fence panels this near a grandstand or building: they carry their own boards
+
+    def _boarded(self) -> list[np.ndarray]:
+        """Plan outlines of the grandstands and buildings placed so far, and of an imported track's real pit
+        buildings and grandstands (reserved, placed later): ad panels keep BOARD_CLEAR from them."""
+        from . import footprint
+        out = [footprint.rect(p.asset, p.x, p.y, p.yaw, p.scale, envs.asset_info(p.asset))
+               for p in self.sc.placements if p.category in ("grandstand", "realGrandstand", "pitBuildings", "buildings")]
+        pits = getattr(self.geo, "pits", None)
+        if pits is not None:
+            out += [poly for _b, poly in pits.buildings + pits.grandstands if len(poly) >= 3]
+        return out
+
+    def _panel_line(self, r, i: int, side: int, run: float, off: float, width: float):
+        """Ad fence panels (``width`` wide) end to end along the line ``off`` beyond the road edge, over ``run`` m
+        of road centred on sample i: each on the chord between two points ``width`` apart along the line (so
+        neighbours never overlap, on curves too), PANEL_GAP between them. Yields (centre, towards the road,
+        tangent)."""
+        js = self.walk(r, i, run, 0.0)
+        if len(js) < 2:
+            return
+        pts = np.array([self.side_point(r, j, side, off)[0] for j in js])
+        u = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(pts, axis=0).T))])
+        step = width + self.PANEL_GAP
+        for a in np.arange(0.0, u[-1] - width + 1e-6, step):
+            p0 = np.array([np.interp(a, u, pts[:, 0]), np.interp(a, u, pts[:, 1])])
+            p1 = np.array([np.interp(a + width, u, pts[:, 0]), np.interp(a + width, u, pts[:, 1])])
+            tg = (p1 - p0) / max(float(np.hypot(*(p1 - p0))), 1e-9)
+            tw = np.array([-tg[1], tg[0]])
+            j = js[int(np.clip(np.searchsorted(u, a + width / 2.0), 0, len(js) - 1))]
+            if float(tw @ self.side_point(r, j, side, off)[1]) < 0:
+                tw = -tw
+            yield (p0 + p1) / 2.0, tw, tg
+
     def ad_fences(self, straights) -> None:
+        from . import footprint
         r = self.main
         n = 0
         share = float(sponsor.config().get("fenceShare", 0.0)) if sponsor.with_kind("fence") else 0.0
         pick = self.sponsor_picker()
         blocks: dict[int, str | None] = {}
+        boarded = self._boarded()
+        width = float(envs.asset_info(self.common["adFence"][0])["width"])
         for k, (i, length) in enumerate(straights[:6]):
             side = 1 if k % 2 == 0 else -1
             run = min(length - 10.0, 80.0)
-            for j in self.walk(r, i, run, 3.84):
-                q, tw, tg = self.side_point(r, j, side, self.edge_min + 1.0)
+            for q, tw, tg in self._panel_line(r, i, side, run, self.edge_min + 1.0, width):
+                if any(footprint.dist_to_poly(q, b) < self.BOARD_CLEAR for b in boarded):
+                    continue  # a grandstand's or building's own boards are there
                 block = n // 6
                 # a share of the 6-panel blocks are our own sponsor panels (evenly spread: Bresenham on the share),
                 # each block one sponsor and design (sponsor.Picker: the fence sponsors by share, designs rotating)
@@ -1240,6 +1322,8 @@ class Planner:
                 zones_out.append(rec)
         self.sc.info["brakeBoards"] = {"zones": zones_out, "placed": len(placed), "dropped": dropped}
 
+    ROW_GAP = 0.04   # between barrier props on a straight run (stock rows: 3.74-3.78 m apart for 3.7 m blocks)
+
     def barriers(self) -> None:
         """The visible containment: a row of the environment's stock barrier props (concrete blocks, muddy
         barriers, tyre walls; environments.json "barriers") along the wall line of the geometry's wall plan. Each
@@ -1276,7 +1360,12 @@ class Planner:
                 c = at(min(pos + w / 2.0, L)) + out * (dep / 2.0 - half)
                 self.sc.placements.append(Placement(a, "barriers", float(c[0]), float(c[1]), 0.0, yaw_to(out)))
                 self.occ.add(float(c[0]), float(c[1]), max(dep, 1.0) / 2.0)
-                pos += w * 0.985  # abut, with a little overlap on the outside of bends
+                # end to end with a small gap where the line runs straight (overlapping ends there share their side
+                # faces, which flicker: Chris 2026-10-26); a little overlap on bends closes the outside corner
+                t2 = at(min(pos + 2.0 * w, L)) - p1
+                t2 = t2 / max(float(np.linalg.norm(t2)), 1e-9)
+                bend = abs(float(t[0] * t2[1] - t[1] * t2[0])) > math.sin(math.radians(1.0))
+                pos += w * 0.985 if bend else w + self.ROW_GAP
 
     # --------------------------------------------------------------------------------------- foliage
     def _grid(self, spacing: float) -> np.ndarray:
@@ -1677,6 +1766,7 @@ class Planner:
         self.ad_fences(straights)
         if pits is not None:
             pits.place(self)
+        self.camera_towers()  # after the real pits (reserved, but their props take the room first)
         # after the real pits (kept by the sight-line clearing, so they must be seen past) and the ad fences
         self.sponsor_guarantee()
         self.sponsor_lap_guarantee()
@@ -1712,11 +1802,12 @@ class Planner:
         return self.sc
 
     DEDUPE_ROWS = {"gantry", "bridges", "barriers", "pitWall", "cornerMarkers", "brakeBoards"}
-    DEDUPE_RANK = {"pitBuildings": 0, "realGrandstand": 0, "grandstand": 0, "buildings": 1, "adFence": 1}
+    DEDUPE_RANK = {"pitBuildings": 0, "realGrandstand": 0, "grandstand": 0, "cameras": 0, "buildings": 1, "adFence": 1}
 
     def _dedupe(self) -> None:
-        """No two props on one footprint (footprint.overlaps: coplanar faces flicker, Chris 2026-10-25): buildings and
-        grandstands win, then ad fences, then whatever was placed first. Rows along a line and spans are exempt."""
+        """No two props on one footprint (footprint.overlaps: coplanar faces flicker, Chris 2026-10-25): buildings,
+        grandstands and camera towers win, then ad fences, then whatever was placed first. Rows along a line and
+        spans are exempt (they are placed end to end; check_scene's footprint.coplanar covers them)."""
         from . import footprint
         P = self.sc.placements
         cand = [k for k, p in enumerate(P) if p.category not in self.DEDUPE_ROWS and p.category not in footprint.SKIP
