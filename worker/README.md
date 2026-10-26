@@ -201,24 +201,31 @@ bgeometry logs `Surface Settings does not exists: decal ()` and `... noshadow ()
   of metres. Until 2026-10-24 ours had no reset and the ground collision ended at the terrain edge (48 m past the
   blue route at the nearest), so a car that drove on fell through the world. Now, all invisible
   (`vis = false | col = true`, stock ghost texture):
-  - `bounds_reset` per layout (`bounds_reset#resetplayer`): on the 4 m terrain grid, the cells within 4 m
-    (`RESET_GAP`) of the layout's `#ai_route_*` strips (and of any base mesh of kind `pit`, `ALLOWED_KINDS`) are
-    allowed; round the outside of them (the cells reachable from the terrain edge; the infield isn't reset, as
-    stock fields05) a wall from 4 m under to 2 m over the terrain, facing the track, and a 16 m lid 2 m above the
-    terrain. Roads of other layouts beyond it are reset (stock forest11_2); imported extra roads
-    (`imported.roads`, e.g. Oulton Park's Hislop's straight) are allowed on every layout, and so is the run-off
-    beside a driven road out to its barrier or the end of a measured gravel trap / apron (beyond the blue route's
-    12 m). ~3-7k faces per layout. A pit lane
-    or any other drivable area off the AI routes must be a base mesh of kind `pit` (or an AI route) or it is
-    walled off.
+  - `bounds_reset` per layout (`bounds_reset#resetplayer`, the same mesh on every layout): on the 4 m terrain
+    grid, the cells within 4 m (`RESET_GAP`) of any layout's `#ai_route_*` strips, of any base mesh of kind `pit`
+    (`ALLOWED_KINDS`), of imported extra roads (`imported.roads`) and of the run-off beside a road out to its
+    barrier or the end of a measured gravel trap / apron are allowed, so no reset touches any layout's road,
+    run-off or AI route. Beyond that (2026-10-26, Chris: the first walls were "too extreme") the allowed area
+    reaches out from every road edge to twice the first walls' distance (`RESET_FACTOR` x the blue route's margin
+    or the run-off reach, whichever is further, plus `RESET_GAP`) or 48 m (`RESET_MIN_M`), whichever is further,
+    but stays 8 m (`RESET_EDGE_KEEP`) inside the terrain's edge. Round the outside (the cells reachable from the
+    terrain edge; the infield isn't reset, as stock fields05) a wall from 4 m under to 2 m over the terrain,
+    facing the track, and a 16 m lid 2 m above the terrain (narrower by the terrain's edge). ~5-11k faces.
+    A pit lane or any other drivable area off the AI routes must be a base mesh of kind `pit` (or an AI route).
+  - `bounds_crowd` (`#resetplayer`): the game can't detect a car hitting a person, so every spectator crowd (the
+    dressing's `spectators`) is boxed in: walls 1.5 m (`CROWD_PAD`) round the people on a 0.5 m raster, from 1 m
+    under the ground to a lid 3 m over it, kept 0.5 m (`PROTECT_PAD`) off every layout's road, run-off and blue
+    route. A car that gets past the barrier into the crowd is reset.
   - `bounds_far_ground` (`#offroadfoliage`): collision on the backdrop's far ground, from under the terrain
     edge to ~230 m beyond it (`FAR_COLLISION_T`), the heights the far ground draws.
   - `bounds_water` (`#resetplayer`): flat sheets 0.3 m under an imported lake's level (within the lake planes'
-    reach) or the sea, over terrain cells below that; shallow edges stay drivable, deeper water resets.
+    reach) or the sea, over terrain cells below that and off every layout's road, run-off and blue route;
+    shallow edges stay drivable, deeper water resets. (Water in the data: `imported.lakes` with `levelM`, and
+    `imported.seaLevelM` on coastal tracks; drawn tracks have none.)
   - `bounds_kill_floor` (`#resetplayer`): one plane 25 m below the lowest collision, 600 m beyond the terrain
     (within ±2 km after the placement), so anything that still falls is reset.
-  The manifest has `bounds` (kill floor z, water cells, far-collision reach) and per layout `bounds` (allowed
-  area, lid cells, faces).
+  The manifest has `bounds` (kill floor z, water cells, crowd cells, far-collision reach, the reset distances)
+  and per layout `bounds` (allowed area, lid cells, faces).
 - **Imported multi-layout tracks:** the TrackModel's `layouts` (e.g. Anglesey International and Coastal) each become a layout scene (`<slug>_race` for the main one, `<slug>_<id>`) sharing the base: the main one drives the main route only, an alternative one a closed route made of its TrackModel `sections` (branch and main, from its start/finish line: `layout.composite_route`), with its own evenly spaced checkpoints. Every layout (the main one too) gets its start points from its own `grid` and runs from its own timing line (`startFinish`, the finish checkpoint), with the grid between that and the real start line (`startLine`); layouts sharing the main line get the same timing line and grid. The events are titled with the track and layout names ("Cadwell Park Club"). `check_scene` and `check_export` check per layout that the finish checkpoint sits on the layout's line and the start points sit ahead of it facing the first checkpoint.
 - **Imported U-turn links (aprons):** a branch that turns back between two adjacent sections of road a few metres apart (Cadwell Park's Club Hairpin from the run to the Mountain onto the start straight, the Woodlands hairpin at the Coppice end) has no cross-section clear of the other road, so no junction mouth. The builder paves the gap between the two sections where the turn crosses it instead (`TrackGeometry._apron`: one polygon of the two facing edges' vertices, shared with their road quads, listed under `junctions` with `kind: apron`); the branch keeps its AI route and checkpoints but no road, kerbs or walls of its own, and the dividers stop there. On imported tracks a branch still merging into its road within 60 m of its junction (`DIVIDER_MERGE_M`) needs no divider either, and two junctions on the same edge never share an edge segment (Anglesey's Bus Stop, where the Coastal joins one node before the National leaves).
 - **Real pits (imported tracks, `wfbuild/pits.py`, 2026-10-24):** with `sketch.imported.pits` the base gets the real
@@ -285,7 +292,10 @@ bgeometry logs `Surface Settings does not exists: decal ()` and `... noshadow ()
 - **`check_export.py`** reads the `.bgo3` back with `bgo_read`. It checks that every mesh and empty was exported with its CustomData, that the xref paths are right (`data/track/<slug>/<slug>_base.scn` and `data/art/objects/*.scn`), that the start points are dummies and the AI routes are meshes, that the materials keep their `data/…` texture paths, that **every texture resolves** (a stock `.bmap` under `/wreckfest/data` or a texture in the mod, otherwise it would render pink), that the exported UVs are within ±16 (UV2 within 0..1), that the `#blend` materials keep the 12-slot layout with albedos on UV1 and maps on UV2, that the generated maps are in the mod as `.bmap`, that `#static_cube_map` uses the invisible `ghost` material, that **every start point, checkpoint centre and AI race-route start lies on the exported base road** as the layout's base reference places it, that **every layout has its minimap track data** (`<scene>.tcat` beside the `.scne`, v20, non-zero zoom, one entry per compiled AI route, none hidden from the minimap) and that the compiled main AI route the minimap draws matches the layout (bounds within 15 m of its centreline, same direction of travel, lap length within 5 %), and that the **built base `.scne` stays within the stock scene limits** (`scne_read.LIMITS`: largest draw batch, scene vertices, vertices with every prop instance, subscenes, unresolved subscenes and textures, clutter at full density and its 400 m maximum).
 - **Out of bounds** (`tests/check_bounds.py`, run by both `check_scene.py` on the `.blend` files and
   `check_export.py` on the built `.scne` files, including `--track-data` and the bundle builder): every layout
-  has its `#resetplayer` reset, at least 4 m outside the blue route; flooding a 2 m grid from the layout's road
+  has its `#resetplayer` reset, at least 8 m outside every layout's blue route (none on any layout's road), and
+  (scene check) every reset vertex at least twice as far from the road as the first walls stood and at least
+  48 m (except by the terrain's edge); every spectator under the crowd reset's lid, no crowd or water reset over
+  a layout's blue route; flooding a 2 m grid from the layout's road
   through every cell not under a reset face never reaches the edge of the collision ground (a car can't leave
   without being reset) and finds ground collision under every reached cell (no holes; finer cracks are the
   junction checks' job); the kill floor is 5+ m below every other collision face and under all of the ground;

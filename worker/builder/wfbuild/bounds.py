@@ -16,17 +16,25 @@ no collision (902 of 1,044 stock #lofi/#noshadow models), though some stock oute
 (fields11, wrecker01) and ``crm_water_reset`` are variants; there is no .tcat or .envi field for it (the .tcat's
 per-route special zones only switch resets *off*).
 
-Ours, generated per layout from that layout's blue AI route strips:
+Ours (Chris 2026-10-26: the first walls, RESET_GAP beyond the blue route, were "too extreme"; cars may stray at
+least twice as far, but are reset at once if they fall through the map, enter water or get into a crowd):
 
-- ``bounds_reset`` (layout scene): a reset wall RESET_GAP beyond the blue route (on the 4 m terrain grid), top
-  RESET_HEIGHT above the terrain and foot RESET_SINK below it, plus a lid RESET_BAND wide at the wall's top
-  height; only round the outside of the layout (the infield isn't reset, as stock fields05). Other layouts'
-  roads beyond it are reset, as stock forest11_2 does; imported extra roads (``imported.roads``, shared tarmac
-  that is no layout's own branch) are inside it on every layout.
+- ``bounds_reset`` (layout scene): a reset wall on the 4 m terrain grid, top RESET_HEIGHT above the terrain and
+  foot RESET_SINK below it, plus a lid RESET_BAND wide at the wall's top height; only round the outside (the
+  infield isn't reset, as stock fields05). It stands at least RESET_FACTOR times as far from the road edge as the
+  first walls did (RESET_GAP beyond the blue AI route or the run-off reach, whichever is further out) and at least
+  RESET_MIN_M from it, except where the terrain ends sooner: it stays RESET_EDGE_KEEP inside the terrain's edge.
+  Every layout's roads, run-off and blue AI routes (and imported extra roads, ``imported.roads``) are inside it on
+  every layout, so the same mesh serves each layout and no reset touches any layout's road.
 - ``bounds_kill_floor`` (base): a ``#resetplayer`` plane KILL_DEPTH below the lowest collision, under the terrain,
-  the far ground and beyond, so anything that still falls is reset.
+  the far ground and beyond, so anything that falls through the map is reset.
 - ``bounds_water`` (base): ``#resetplayer`` sheets WATER_SINK under imported lakes and the sea, where the terrain
-  is below the water (stock crm water resets); shallow edges stay drivable.
+  is below the water (stock crm water resets); shallow edges stay drivable, and no sheet reaches any layout's
+  road, run-off or blue AI route (``protected``).
+- ``bounds_crowd`` (base): the game can't tell a car hit a spectator, so every crowd (the dressing's spectators)
+  is boxed in by ``#resetplayer`` walls CROWD_PAD round the people, from CROWD_SINK below the ground up to a lid
+  CROWD_LID above it: a car that gets past the barrier into the crowd is reset. The box never reaches a road,
+  run-off or blue AI route.
 - ``bounds_far_ground`` (base): invisible collision on the far ground (``#offroadfoliage``) from under the
   terrain edge out to FAR_COLLISION_T of the way to the horizon (~230 m), the same surface the backdrop draws.
 
@@ -41,7 +49,10 @@ import numpy as np
 from . import config as C
 from .geometry import Mesh
 
-RESET_GAP = 4.0        # the reset wall stands at least this far outside the blue AI route
+RESET_GAP = 4.0        # the first reset walls stood this far outside the blue AI route (and the run-off)...
+RESET_FACTOR = 2.0     # ...the reset now stands at least this many times as far from the road edge...
+RESET_MIN_M = 48.0     # ...and at least this far from it...
+RESET_EDGE_KEEP = 8.0  # ...where the terrain allows: it stays this far inside the terrain's edge
 RESET_HEIGHT = 2.0     # wall top and lid above the terrain (stock 1-4 m)
 RESET_SINK = 4.0       # wall foot below the terrain (stock 4-9 m)
 RESET_BAND = 16.0      # lid width beyond the wall (stock 10-50 m)
@@ -49,6 +60,12 @@ KILL_DEPTH = 25.0      # kill floor below the lowest collision
 KILL_REACH = 600.0     # kill floor reaches this far beyond the terrain (clamped to the +-2 km limit)
 WATER_SINK = 0.3       # water reset sheets this far under the water level
 FAR_COLLISION_T = 0.26  # the far ground has collision out to this fraction of the way to the horizon
+CROWD_PAD = 1.5        # crowd resets: walls this far round the spectators...
+CROWD_SINK = 1.0       # ...from this far below the ground...
+CROWD_LID = 3.0        # ...up to a lid this far above it (over the spectators' heads)
+CROWD_CELL = 0.5       # ...on a raster this fine
+PROTECT_PAD = 0.5      # water and crowd resets stay this far off any layout's road, run-off and blue AI route
+CROWD_CATEGORIES = ("spectators",)  # dressing placements that are people standing in the open
 RESET_CUSTOM_DATA = "vis = false | col = true"
 # base mesh kinds a car may also drive on outside the AI routes (none yet; e.g. a pit lane that isn't an AI route)
 ALLOWED_KINDS: tuple[str, ...] = ("pit",)
@@ -101,7 +118,7 @@ def _poly_dist(px: np.ndarray, py: np.ndarray, poly: np.ndarray) -> np.ndarray:
 class Bounds:
     """Built after the base (needs ``geo.terrain_grid``, the 4 m collision grid of the terrain tiles)."""
 
-    def __init__(self, geo, base_meshes: list[Mesh] | None = None):
+    def __init__(self, geo, base_meshes: list[Mesh] | None = None, layouts: list | None = None):
         self.geo = geo
         xs, ys, z = geo.terrain_grid
         self.xs, self.ys, self.z = np.asarray(xs), np.asarray(ys), np.asarray(z)
@@ -112,6 +129,9 @@ class Bounds:
         self.extra = [np.array([m.verts[i][:2] for i in f]) for m in (base_meshes or []) if m.kind in ALLOWED_KINDS
                       for f in m.faces]
         self.extra += self._shared_road_quads()
+        self.layouts = list(layouts or [])
+        self._allowed: np.ndarray | None = None
+        self._protected: list[np.ndarray] | None = None
         self.info: dict = {}
 
     def _shared_road_quads(self) -> list[np.ndarray]:
@@ -143,47 +163,77 @@ class Bounds:
         px, py = np.meshgrid(self.cx[i0:i1], self.cy[j0:j1], indexing="ij")
         mask[i0:i1, j0:j1] |= _poly_dist(px, py, poly) <= reach
 
-    def allowed(self, layout) -> np.ndarray:
-        """Cells (nx x ny) a car of this layout may be on: within RESET_GAP (plus the cell's half diagonal, so no
-        point of a disallowed cell is nearer than RESET_GAP) of the layout's blue AI route strips, of an
-        ALLOWED_KINDS base mesh or of an imported extra road (_shared_road_quads), and the run-off out to the barrier
-        or the end of a measured trap beside the road it drives (_behind_route)."""
-        reach = RESET_GAP + self.cell * math.sqrt(0.5)
-        mask = np.zeros((self.nx, self.ny), dtype=bool)
-        for m in layout.meshes:
-            if m.kind == "ai" and m.name.startswith("#ai_route_"):
-                for f in m.faces:
-                    self._stamp(mask, np.array([m.verts[i][:2] for i in f]), reach)
-        driven = mask.copy()
-        for poly in self.extra:
-            self._stamp(mask, poly, reach)
-        for poly in self._behind_route(driven):
-            self._stamp(mask, poly, reach)
-        return mask
+    def _blue_quads(self, layouts) -> list[np.ndarray]:
+        return [np.array([m.verts[i][:2] for i in f]) for lay in layouts for m in lay.meshes
+                if m.kind == "ai" and m.name.startswith("#ai_route_") for f in m.faces]
 
-    def _behind_route(self, driven: np.ndarray) -> list[np.ndarray]:
-        """Plan quads from the road edge out to the barrier (wall plan) and to the end of the measured run-off
-        (gravel trap or apron), along the route sides this layout drives (edge inside ``driven``): the blue route
-        stops at AI_ROUTE_MARGIN, but a car in a deep trap or on the grass in front of a barrier further out is
-        still on legitimate run-off, so the reset stands beyond those."""
+    def _side_reach(self):
+        """Per (route, side) of the wall plan: (plan dict, built samples, run-off reach beyond the edge: out to the
+        barrier or the end of the measured trap or apron)."""
         geo = self.geo
         ro = getattr(geo, "runoff", None)
-        out = []
         for (ri, side), p in geo.wall_plan().items():
             r = p["route"]
             reach = np.where(p["ok"], np.nan_to_num(p["offset"]), 0.0)
             if ro is not None and ro.active:
                 reach = np.maximum(reach, ro.run_off_end(ri, side))
-            edge = r.left if side > 0 else r.right
-            i = np.clip(np.searchsorted(self.xs, edge[:, 0]) - 1, 0, self.nx - 1)
-            j = np.clip(np.searchsorted(self.ys, edge[:, 1]) - 1, 0, self.ny - 1)
-            use = driven[i, j] & geo.svalid[r.index] & (reach > C.AI_ROUTE_MARGIN["walls"])
-            far = edge[:, :2] + p["out"] * reach[:, None]
-            for a in range(r.segs):
-                b = (a + 1) % r.n
-                if use[a] and use[b]:
-                    out.append(np.array([edge[a, :2], edge[b, :2], far[b], far[a]]))
+            yield p, geo.svalid[r.index] | (r.index in geo.apron_routes), reach
+
+    @staticmethod
+    def _out_quads(p: dict, use: np.ndarray, dist: np.ndarray) -> list[np.ndarray]:
+        """Plan quads from a route side's edge out ``dist`` per sample, over consecutive ``use`` samples."""
+        r = p["route"]
+        edge = r.left if p["side"] > 0 else r.right
+        far = edge[:, :2] + p["out"] * dist[:, None]
+        return [np.array([edge[a, :2], edge[(a + 1) % r.n, :2], far[(a + 1) % r.n], far[a]])
+                for a in range(r.segs) if use[a] and use[(a + 1) % r.n]]
+
+    def protected(self) -> list[np.ndarray]:
+        """Plan polygons no reset may touch: every layout's blue AI route strips (which hold its road and AI lines),
+        every built road, its run-off out to the barrier or the end of the measured run-off, ALLOWED_KINDS base
+        meshes (the pit lane) and imported extra roads."""
+        if self._protected is not None:
+            return self._protected
+        out = self._blue_quads(self.layouts) + list(self.extra)
+        for p, built, reach in self._side_reach():
+            out += self._out_quads(p, built, np.maximum(reach, 0.0))
+        self._protected = out
         return out
+
+    def allowed(self, layout=None) -> np.ndarray:
+        """Cells (nx x ny) a car may be on, the same for every layout (Bounds.layouts, else ``layout``): within
+        RESET_GAP (plus the cell's half diagonal, so no point of a disallowed cell is nearer) of any layout's blue
+        AI route strips, of an ALLOWED_KINDS base mesh or of an imported extra road (_shared_road_quads), and of the
+        run-off out to the barrier or the end of a measured trap; and beyond those, out from each built road edge to
+        RESET_FACTOR times the first walls' distance (the blue route's margin or the run-off reach, whichever is
+        further, plus RESET_GAP) or RESET_MIN_M, whichever is further, but not within RESET_EDGE_KEEP of the
+        terrain's edge (the reset wall and lid stand on the terrain's collision ground)."""
+        if self._allowed is not None:
+            return self._allowed
+        layouts = self.layouts or ([layout] if layout is not None else [])
+        hd = self.cell * math.sqrt(0.5)
+        core = np.zeros((self.nx, self.ny), dtype=bool)
+        for poly in self._blue_quads(layouts) + self.extra:
+            self._stamp(core, poly, RESET_GAP + hd)
+        far = np.zeros_like(core)
+        worst = []
+        for p, built, reach in self._side_reach():
+            run = np.where(reach > C.AI_ROUTE_MARGIN["walls"], reach, 0.0)
+            first = np.maximum(p["ai_margin"], run) + RESET_GAP  # where the first walls stood
+            for poly in self._out_quads(p, built, run):
+                self._stamp(core, poly, RESET_GAP + hd)
+            for poly in self._out_quads(p, built, np.maximum(RESET_FACTOR * first, RESET_MIN_M)):
+                self._stamp(far, poly, hd)
+            if built.any():
+                worst.append(float(first[built].max()))
+        edge = RESET_EDGE_KEEP + hd
+        inner = ((self.cx[:, None] - self.xs[0] >= edge) & (self.xs[-1] - self.cx[:, None] >= edge)
+                 & (self.cy[None, :] - self.ys[0] >= edge) & (self.ys[-1] - self.cy[None, :] >= edge))
+        self._allowed = core | (far & inner)
+        self.info["reset"] = {"firstGapM": RESET_GAP, "factor": RESET_FACTOR, "minM": RESET_MIN_M,
+                              "edgeKeepM": RESET_EDGE_KEEP, "firstMaxM": round(max(worst or [0.0]), 1),
+                              "edgeClippedHa": round(float((far & ~inner & ~core).sum()) * self.cell ** 2 / 1e4, 2)}
+        return self._allowed
 
     def regions(self, layout) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """(allowed, outside, band): the allowed cells, the cells reachable from the terrain edge without
@@ -227,15 +277,28 @@ class Bounds:
         if m.empty:
             return None
         layout.info["bounds"] = {
-            "resetGapM": RESET_GAP, "resetHeightM": RESET_HEIGHT, "resetBandM": RESET_BAND,
+            **self.info["reset"], "resetHeightM": RESET_HEIGHT, "resetBandM": RESET_BAND,
             "allowedHa": round(float(allowed.sum()) * self.cell ** 2 / 1e4, 2),
             "lidCells": int(band.sum()), "wallFaces": walls, "faces": len(m.faces)}
         return m
 
     # ----------------------------------------------------------------------------------------- base
+    def protected_cells(self) -> np.ndarray:
+        """Terrain cells (nx x ny) that any part of lies within PROTECT_PAD of a protected polygon."""
+        if getattr(self, "_protected_cells", None) is None:
+            mask = np.zeros((self.nx, self.ny), dtype=bool)
+            for poly in self.protected():
+                self._stamp(mask, poly, PROTECT_PAD + self.cell * math.sqrt(0.5))
+            self._protected_cells = mask
+        return self._protected_cells
+
     def water_cells(self) -> list[tuple[float, np.ndarray]]:
         """[(level, cell mask)]: terrain cells with a corner under an imported lake (within LAKE_REACH_M of its
-        outline, as the lake planes) or the sea."""
+        outline, as the lake planes) or the sea, off every layout's road, run-off and blue AI route
+        (protected_cells)."""
+        return [(lvl, wet & ~self.protected_cells()) for lvl, wet in self._wet_cells()]
+
+    def _wet_cells(self) -> list[tuple[float, np.ndarray]]:
         from .backdrop import _in_polygon, _ring_distance
         imp = getattr(self.geo, "imported", None) or {}
         from . import envs
@@ -326,13 +389,116 @@ class Bounds:
         self.info["killFloorZ"] = round(z, 2)
         return m
 
-    def base_meshes(self, bd, base_meshes: list[Mesh], rot: int, shift: float) -> list[Mesh]:
-        """Far-ground collision, water resets and the kill floor for the base scene (after the backdrop)."""
+    def ground(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+        """Terrain height (bilinear on the terrain grid) at plan points."""
+        x, y = np.asarray(x, dtype=np.float64), np.asarray(y, dtype=np.float64)
+        i = np.clip(np.searchsorted(self.xs, x) - 1, 0, self.nx - 1)
+        j = np.clip(np.searchsorted(self.ys, y) - 1, 0, self.ny - 1)
+        u = np.clip((x - self.xs[i]) / (self.xs[i + 1] - self.xs[i]), 0.0, 1.0)
+        v = np.clip((y - self.ys[j]) / (self.ys[j + 1] - self.ys[j]), 0.0, 1.0)
+        z = self.z
+        return ((1 - u) * (1 - v) * z[i, j] + u * (1 - v) * z[i + 1, j] + (1 - u) * v * z[i, j + 1]
+                + u * v * z[i + 1, j + 1])
+
+    def crowd_mask(self, placements) -> tuple[np.ndarray, np.ndarray, int]:
+        """(mask, origin, spectators): CROWD_CELL cells within CROWD_PAD of a spectator (CROWD_CATEGORIES
+        placements), less those within PROTECT_PAD of a protected polygon (any layout's road, run-off, blue AI
+        route, pit lane), over a raster from ``origin``."""
+        pts = np.array([(p.x, p.y) for p in placements if p.category in CROWD_CATEGORIES],
+                       dtype=np.float64).reshape(-1, 2)
+        if not len(pts):
+            return np.zeros((0, 0), dtype=bool), np.zeros(2), 0
+        cell = CROWD_CELL
+        lo = pts.min(0) - CROWD_PAD - 4 * cell
+        nx, ny = (int(v) for v in np.ceil((pts.max(0) + CROWD_PAD + 4 * cell - lo) / cell))
+        mask = np.zeros((nx, ny), dtype=bool)
+        k = int(math.ceil(CROWD_PAD / cell))
+        ij = np.floor((pts - lo) / cell).astype(np.int64)
+        for di in range(-k, k + 1):
+            for dj in range(-k, k + 1):
+                i, j = ij[:, 0] + di, ij[:, 1] + dj
+                c = lo + (np.stack([i, j], axis=1) + 0.5) * cell
+                ok = np.hypot(*(c - pts).T) <= CROWD_PAD
+                mask[i[ok], j[ok]] = True
+        # the protected polygons near the crowds, rasterised (cell centres inside), grown by the pad
+        coarse = {(int(a), int(b)) for a, b in np.floor(pts / 20.0)}
+        tris = []
+        for poly in self.protected():
+            a0, b0 = np.floor((poly.min(0) - 10.0) / 20.0).astype(int)
+            a1, b1 = np.floor((poly.max(0) + 10.0) / 20.0).astype(int)
+            if (a1 - a0 + 1) * (b1 - b0 + 1) > 400 or any((a, b) in coarse for a in range(a0, a1 + 1)
+                                                         for b in range(b0, b1 + 1)):
+                tris += [poly[[0, q, q + 1]] for q in range(1, len(poly) - 1)]
+        prot = raster_tris(np.array(tris).reshape(-1, 3, 2), lo[0], lo[1], cell, nx, ny)
+        for _ in range(int(math.ceil((PROTECT_PAD + cell * math.sqrt(0.5)) / cell))):
+            prot = _dilate(prot)
+        return mask & ~prot, lo, len(pts)
+
+    def crowd(self, placements) -> Mesh | None:
+        """``bounds_crowd``: #resetplayer walls round every crowd (crowd_mask), CROWD_SINK below the ground to
+        CROWD_LID above it, and a lid at that height over it; runs of cell edges and cells merged into quads."""
+        mask, lo, n_people = self.crowd_mask(placements)
+        self.info["crowd"] = {"spectators": n_people, "cells": int(mask.sum()), "cellM": CROWD_CELL,
+                              "padM": CROWD_PAD, "lidM": CROWD_LID}
+        if not mask.any():
+            return None
+        cell = CROWD_CELL
+        m = Mesh("bounds_crowd", RESET_CUSTOM_DATA, kind="bounds")
+        nx, ny = mask.shape
+        X = lo[0] + np.arange(nx + 1) * cell
+        Y = lo[1] + np.arange(ny + 1) * cell
+        uv = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+
+        def runs(row: np.ndarray):
+            d = np.diff(np.concatenate([[0], row.astype(np.int8), [0]]))
+            return zip(np.flatnonzero(d == 1), np.flatnonzero(d == -1))
+
+        def zs(px: np.ndarray, py: np.ndarray) -> tuple[float, float]:
+            g = self.ground(px, py)
+            return float(g.min()) - CROWD_SINK, float(g.max()) + CROWD_LID
+
+        up = np.array([0.0, 0.0, 1.0])
+        walls = 0
+        for j in range(ny):  # lid: one quad per run of cells along x, flat at the highest ground + CROWD_LID
+            for a, b in runs(mask[:, j]):
+                px = np.repeat(X[a:b + 1], 2)
+                _, top = zs(px, np.tile([Y[j], Y[j + 1]], b - a + 1))
+                corners = ((X[a], Y[j]), (X[b], Y[j]), (X[b], Y[j + 1]), (X[a], Y[j + 1]))
+                ids = tuple(m.vert((x, y, top)) for x, y in corners)
+                m.oriented_face(ids, "bounds_reset", up, uv)
+        pad = np.pad(mask, 1)
+        for j in range(ny + 1):  # walls along x between rows j-1 and j, facing out of the crowd
+            for side, edge in ((-1.0, pad[1:-1, j + 1] & ~pad[1:-1, j]), (1.0, pad[1:-1, j] & ~pad[1:-1, j + 1])):
+                for a, b in runs(edge):
+                    px = np.linspace(X[a], X[b], max(2, b - a + 1))
+                    bot, top = zs(px, np.full(len(px), Y[j]))
+                    ids = (m.vert((X[a], Y[j], bot)), m.vert((X[b], Y[j], bot)), m.vert((X[b], Y[j], top)),
+                           m.vert((X[a], Y[j], top)))
+                    m.oriented_face(ids, "bounds_reset", np.array([0.0, side, 0.0]), uv)
+                    walls += 1
+        for i in range(nx + 1):  # walls along y between columns i-1 and i
+            for side, edge in ((-1.0, pad[i + 1, 1:-1] & ~pad[i, 1:-1]), (1.0, pad[i, 1:-1] & ~pad[i + 1, 1:-1])):
+                for a, b in runs(edge):
+                    py = np.linspace(Y[a], Y[b], max(2, b - a + 1))
+                    bot, top = zs(np.full(len(py), X[i]), py)
+                    ids = (m.vert((X[i], Y[a], bot)), m.vert((X[i], Y[b], bot)), m.vert((X[i], Y[b], top)),
+                           m.vert((X[i], Y[a], top)))
+                    m.oriented_face(ids, "bounds_reset", np.array([side, 0.0, 0.0]), uv)
+                    walls += 1
+        self.info["crowd"].update({"faces": len(m.faces), "wallFaces": walls})
+        return m
+
+    def base_meshes(self, bd, base_meshes: list[Mesh], rot: int, shift: float, placements=()) -> list[Mesh]:
+        """Far-ground collision, water and crowd resets and the kill floor for the base scene (after the
+        backdrop and the dressing: ``placements``)."""
         far = self.far_ground(bd)
         out = [far]
         w = self.water()
         if w is not None:
             out.append(w)
+        cr = self.crowd(placements)
+        if cr is not None:
+            out.append(cr)
         zs = [float(np.min(np.array(mm.verts)[:, 2])) for mm in base_meshes + [far]
               if mm.verts and "col = true" in mm.custom_data and mm.kind != "bounds"]
         zs.append(float(np.min(np.array(far.verts)[:, 2])))

@@ -235,14 +235,14 @@ def main() -> None:
         if m.kind in C.BLEND_KINDS:
             m.set_map_uv(fr)
     base_meshes += backdrop_meshes
-    # out of bounds as stock: a #resetplayer wall + lid round each layout, collidable far ground, water resets and
-    # a kill floor (wfbuild/bounds.py)
-    bnd = bounds_mod.Bounds(geo, base_meshes)
+    # out of bounds as stock: a #resetplayer wall + lid round each layout, collidable far ground, water and crowd
+    # resets and a kill floor (wfbuild/bounds.py)
+    bnd = bounds_mod.Bounds(geo, base_meshes, layouts)
     for lay in layouts:
         reset = bnd.layout_reset(lay)
         if reset is not None:
             lay.meshes.append(reset)
-    base_meshes += bnd.base_meshes(bd, base_meshes, rot, shift)
+    base_meshes += bnd.base_meshes(bd, base_meshes, rot, shift, scenery.placements)
     generated = bd.textures(mod_root)
     specs = materials.build(geo.options.get("environment"), slug, map_info, bd.n_textures, generated)
     # our own sponsor boards: one mesh with our rendered textures (wfbuild/sponsor.py); the rest are stock props
