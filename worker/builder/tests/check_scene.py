@@ -96,6 +96,8 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
              # real pits (wfbuild/pits.py; check_pits.py checks them): the pit wall beside the track, bridges over it
              "pitWall": (-0.5, np.inf), "bridges": (-np.inf, np.inf), "pitBuildings": (1.0, np.inf),
              "pitPaddock": (1.0, np.inf), "realGrandstand": (1.0, np.inf),
+             # camera towers: behind the barrier, the AI route and the reset wall, CAMERA_BACK further
+             "cameras": (pl.edge_min + Planner.CAMERA_BACK, np.inf),
              "brakeBoards": (D.BRAKE_GAP + D.BRAKE_HALF - 0.8,
                              D.BRAKE_GAP + D.BRAKE_HALF + C.KERB_W + C.GREEN_W + max(D.BRAKE_OUT_M) + 0.8)}
     on_road = [f"{p['asset']} {d[k]:.1f} m" for k, p in enumerate(P)
@@ -145,6 +147,16 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
     ov = footprint.overlaps(items)
     check(not ov, "scenery: no two props share a footprint (overlap over 15 % of the smaller one)",
           f"{len(ov)}: {ov[:3]}")
+    # no two coplanar faces overlapping at all (Chris 2026-10-26: the pit wall's overlapping elements, ad fence and
+    # sponsor panels, grandstand boards): every boxed prop, rows and sponsor panels included
+    boxed = footprint.boxed_items(((p["asset"], p["category"], *p["position"][:2], p["yaw"], p["scale"]) for p in P),
+                                  envs.asset_info)
+    cp = footprint.coplanar(boxed)
+    check(not cp, f"scenery: no two props share a face (parallel within 0.5 deg, under {footprint.COPLANAR_OFF} m "
+          f"apart, overlapping over {footprint.COPLANAR_MIN} m; {len(boxed)} boxed props)", f"{len(cp)}: {cp[:3]}")
+    # TV camera towers stand on open grass well back (dressing.camera_towers), never dropped (rank with buildings)
+    cams = [p for p in P if p["asset"] == Planner.CAMERA_ASSET]
+    print(f"INFO scenery: {len(cams)} camera towers")
     print(f"INFO scenery: {sc['total']} placements {sc['counts']}")
 
 
