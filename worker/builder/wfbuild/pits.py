@@ -29,7 +29,10 @@ from .geometry import Mesh
 LANE_LIFT = 0.06           # the lane's surface above the terrain (the terrain's 4 m triangles stay below it)
 LANE_SKIRT = 0.8           # the lane's edges slope down to the terrain over this
 LANE_CELL = 2.0
-WALL_ASSET = "prop_concrete_element3"   # 6.0 x 1.41 x 2.54 m stock concrete element (static, collision)
+WALL_ASSET = "prop_barrier8"   # 3.7 x 0.82 x 1.09 m plain grey concrete barrier (Chris 2026-10-25: half height, all grey)
+WALL_LEN = 3.7
+OPEN_LANES = True   # no closures across the lane ends (Chris 2026-10-25: no walls across junctions); the pit-bypassed
+                    # stretch of the lap carries a checkpoint instead (trackgen_geom.pipeline._checkpoints)
 WALL_TOP = 1.1             # collision wall height above the ground
 WALL_HALF = 0.35
 CLOSURE_BEYOND = 1.5       # the closure runs this far past the lane's outer edge
@@ -163,7 +166,7 @@ class Lane:
 
     def closures(self) -> list[np.ndarray]:
         """The two closure lines (closed lanes): from the wall's end across the lane, past its outer edge."""
-        if self.mode != "closed" or self.wall is None or self.b1 < self.b0:
+        if self.mode != "closed" or self.wall is None or self.b1 < self.b0 or OPEN_LANES:
             return []
         out = []
         for k, wall_pt in ((self.b0, self.wall[0]), (self.b1, self.wall[-1])):
@@ -318,7 +321,7 @@ class Pits:
         for lane in self.lanes:
             lines = ([lane.wall] if lane.wall is not None else []) + lane.closures()
             for line in lines:
-                for q, t in self._row(line, 6.0 * 0.985):
+                for q, t in self._row(line, WALL_LEN * 0.985):
                     add(WALL_ASSET, "pitWall", q, math.atan2(-t[0], t[1]) + math.pi / 2)
             poly = lane.polygon()
             for q in self._cover(poly, 8.0) if len(poly) else []:

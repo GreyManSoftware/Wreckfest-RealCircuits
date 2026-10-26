@@ -677,8 +677,8 @@ class Planner:
         fw = float(envs.asset_info(fence).get("width", 4.0))
         off_f = self.edge_min + 5.0
         if self.measured:
-            # a real circuit: behind the real barrier (or the end of the run-off), else well back on the open grass
-            # beyond the reset wall; no fence line of our own (Chris 2026-10-24: Anglesey's long spectator fence)
+            # a real circuit: behind the real barrier, no fence line of our own (Chris 2026-10-24: Anglesey's long
+            # spectator fence);
             # spectators only ever stand behind a real barrier that is built (the wall plan: a measured barrier the
             # layout rule or the pit wall didn't open), never in the open (Chris 2026-10-25)
             win = self.walk(r, i, length + 6.0, 2.0)

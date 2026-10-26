@@ -1195,7 +1195,20 @@ class _Builder:
         n = min(C.CHECKPOINT_MAX, max(C.CHECKPOINT_MIN, round(self.lap / C.CHECKPOINT_SPACING_M)))
         s1 = self._grid_zone_end()
         step = (self.lap - s1) / (n - 1)
-        out = [self._checkpoint(self.main, k, s1 + k * step) for k in range(n - 1)]
+        ss = [s1 + k * step for k in range(n - 1)]
+        # open pit lanes: every stretch of the main lap that a pit lane bypasses holds a checkpoint (spanning only
+        # the track), so driving through the pits misses it and the lap doesn't count (Chris 2026-10-25)
+        for lane in ((self.imported or {}).get("pits") or {}).get("pitLanes", []):
+            a, b = lane.get("entrySM"), lane.get("exitSM")
+            if a is None or b is None:
+                continue
+            span = (b - a) % self.lap
+            inside = [s for s in ss + [0.0] if 10.0 < (s - a) % self.lap < span - 10.0]
+            if span > 30.0 and not inside:
+                ss.append((a + span / 2) % self.lap)
+        ss = sorted(s for s in ss if s >= s1 - 1e-6) + sorted(s for s in ss if s < s1 - 1e-6)
+        out = [self._checkpoint(self.main, k, s) for k, s in enumerate(ss)]
+        n = len(ss) + 1
         out.append(self._checkpoint(self.main, n - 1, 0.0, finish=True))
         for r in self.routes[1:]:
             count = max(1, int(r.length // step))
