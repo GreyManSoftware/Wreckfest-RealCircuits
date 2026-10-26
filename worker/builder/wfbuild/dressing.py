@@ -631,7 +631,7 @@ class Planner:
                 q, tw, tg = self.side_point(r, i, side, self.edge_min + 1.5)
                 a = self.common["flags"][0] if abs(along) < 15 else self.pick(self.common["flags"])
                 self.try_place(a, "flags", q[0], q[1], self.face_yaw(a, tw, tg), self.edge_min, exempt=True)
-        for k in range(0 if self.measured else 4):  # no trackside staff in the open on real circuits
+        for k in range(0):  # no trackside staff: they would stand in the open (Chris 2026-10-25: no people without a barrier)
             i = r.index_at((r.s[i0] - 8.0 + 5.0 * k) % r.length)
             q, tw, tg = self.side_point(r, i, -g_side, self.edge_min + 1.2 + 0.8 * (k % 2))
             a = self.pick(self.common["staff"])
