@@ -546,6 +546,8 @@ class Cut:
 
 
 class TrackGeometry:
+    LOCAL_MOUTH = True    # imported: a mouth chain ends where the edge enters the target's local width
+    KEEP_CHAIN = True     # imported: a long mouth chain that meets a third road keeps its own edge
     def __init__(self, model: dict, spec: dict):
         self.model = model
         self.spec = spec
@@ -851,14 +853,14 @@ class TrackGeometry:
                     # on the target road: within its local half width (imported tracks' widths vary; the window's
                     # widest stopped the chain short and left a sliver of grass beside the target, Oulton's Hislop's)
                     jq = int(np.argmin(np.hypot(*(wpts - q).T)))
-                    hw_q = float(t.w[win[jq]]) / 2.0 if self.imported else hw_t
+                    hw_q = float(np.max(t.w[win[max(jq - 3, 0):jq + 4]])) / 2.0 + 0.1 if self.imported and self.LOCAL_MOUTH else hw_t
                     if float(np.min(dist_to_polyline(q[None, :], wpts))) <= hw_q:
                         break
                     # on a third road (another junction right beside this one, Anglesey's Bus Stop): that one's
                     # mouth paves it, so this side keeps the plain chord
                     mask = self.index.ri != t.index
                     if self.index.near_other(ecol[k:k + 1], np.array([r.index]), r.s[k:k + 1], 0.0, mask=mask)[0]:
-                        if not (self.imported and len(chains[n_c]) >= 4):  # a long chain keeps its own edge (Hislop's)
+                        if not (self.imported and self.KEEP_CHAIN and len(chains[n_c]) >= 4):  # a long chain keeps its own edge (Hislop's)
                             chains[n_c] = []
                         break
                     chains[n_c].append(k)

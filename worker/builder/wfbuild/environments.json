@@ -259,7 +259,7 @@
   "lights": ["prop_stadium_light_02"],
   "cameras": ["prop_cameratower", "prop_camerastand01"],
   "pits": ["prop_tarmac2_pitstop_part2", "prop_startbuilding_fields14", "prop_start_building_forest11", "prop_start_building_forest09",
-           "prop_commentatorbuilding_forest09", "prop_tarmac2_tenthall", "prop_concrete_element3", "prop_bridge03_green", "prop_start_archway01",
+           "prop_commentatorbuilding_forest09", "prop_tarmac2_tenthall", "prop_concrete_element3", "prop_bridge03_green", "prop_start_archway01", "prop_barrier8",
            "prop_forest5_startlight01"],
   "brakeBoards": ["gameplay_distanceboard150", "gameplay_distanceboard100", "gameplay_distanceboard50"]
  },
