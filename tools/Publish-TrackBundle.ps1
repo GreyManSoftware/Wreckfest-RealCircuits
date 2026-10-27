@@ -12,15 +12,23 @@
   Publishing is public: without -Publish the script only checks and prints what it would do.
   Chris must approve every publish.
 
+  The uploader always uploads the content too, so every publish is a new version that subscribers
+  download (a small one when the files are unchanged). For a text-only change use -DescriptionOnly:
+  it writes the installed bundle's title and description to .local\bundles\<slug>-description.txt,
+  copies the description to the clipboard and opens the Workshop page, to paste in via "Edit title &
+  description" there; nothing is uploaded and subscribers download nothing.
+
 .EXAMPLE
-  .\tools\Publish-TrackBundle.ps1 -Config tools\bundles\msvanglesey.json            # dry run
-  .\tools\Publish-TrackBundle.ps1 -Config tools\bundles\msvanglesey.json -Publish   # upload
+  .\tools\Publish-TrackBundle.ps1 -Config tools\bundles\msvanglesey.json                    # dry run
+  .\tools\Publish-TrackBundle.ps1 -Config tools\bundles\msvanglesey.json -Publish           # upload
+  .\tools\Publish-TrackBundle.ps1 -Config tools\bundles\msvanglesey.json -DescriptionOnly   # text only, no upload
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Config,
     [string]$GameDir = 'D:\SteamLibrary\steamapps\common\Wreckfest',
     [switch]$Publish,
+    [switch]$DescriptionOnly,
     [int]$TimeoutMinutes = 30
 )
 $ErrorActionPreference = 'Stop'
@@ -39,7 +47,24 @@ function Read-ModInfo {
     (& $py -I -c $code) | ConvertFrom-Json
 }
 
+if ($Publish -and $DescriptionOnly) { throw '-Publish and -DescriptionOnly are exclusive: -DescriptionOnly never uploads.' }
 foreach ($p in $uploader, $modDir, $modinfo) { if (-not (Test-Path $p)) { throw "Missing: $p (install the bundle with Install-TrackMod.ps1 -Bundle first)" } }
+
+if ($DescriptionOnly) {
+    $info = Read-ModInfo
+    $id = [uint64]$info.publishedId
+    if ($id -eq 0) { throw 'Not published yet: there is no Workshop page to edit (publish once with -Publish).' }
+    $outDir = Join-Path $repo '.local\bundles'
+    New-Item -ItemType Directory -Force $outDir | Out-Null
+    $out = Join-Path $outDir "$($cfg.slug)-description.txt"
+    [IO.File]::WriteAllText($out, "TITLE:`r`n$($info.title)`r`n`r`nDESCRIPTION:`r`n$($info.description)")
+    Set-Clipboard -Value $info.description
+    Write-Host "Title       : $($info.title)"
+    Write-Host "Description : copied to the clipboard; title and description also in $out"
+    Write-Host 'Paste it on the Workshop page (signed in as the owner: "Edit title & description"). Nothing is uploaded.'
+    Start-Process "https://steamcommunity.com/sharedfiles/filedetails/?id=$id"
+    return
+}
 if (-not (Get-Process steam -ErrorAction SilentlyContinue)) { throw 'Steam is not running: start Steam and log in first.' }
 if (Get-Process Wreckfest*, Wreckfest_x64 -ErrorAction SilentlyContinue) { throw 'Wreckfest is running: close it first.' }
 
