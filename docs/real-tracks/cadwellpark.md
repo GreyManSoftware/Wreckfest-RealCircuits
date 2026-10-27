@@ -105,3 +105,12 @@ Evidence per corner (main lap; the zone that holds the corner label; offsets fro
 | Barn (3231) | right | grass | armco at 7 m | LIDAR, circuit default |
 
 Uncertain: Cadwell's barrier details (Armco vs tyre walls at the Hairpin and Barn) aren't published; the 2019 flight predates nothing major.
+
+**Hall Bends to the Hairpin, left (2026-10-26, issue 9).** Chris: after Hall Bends the Armco only starts at the next
+right-hander, the Hairpin. As built, the left side had an earth bank from s 2969 to 3052, no barrier by the Hairpin's
+gravel trap (s 3052-3072), and Armco only from s 3072. The EA 2019 LIDAR has a sparse line of barrier-height returns
+(0.3-1.2 m) 6.5-7.5 m off the left edge from s 2981 to 3017, at the foot of the bank under the trees, and a 0.9-1.2 m
+line 9-11 m out behind the trap from s 3065. The corroboration rule had dropped them as a lone LIDAR line. Two
+evidence overrides (`runoff_evidence.json`, The Hairpin, left) now put the Armco at 7 m from s 2969 and behind the
+trap, continuous to s 3160. The right side has a similar sparse line 8.5-11 m out (s 2989-3025); it stays open
+until Chris confirms. Diagram: `.local\renders\cadwell-hall-hairpin-armco.svg`.
