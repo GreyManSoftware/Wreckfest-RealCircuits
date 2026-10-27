@@ -969,8 +969,49 @@ def _style_wide(img, sp, cw, face, fence):
         y += m.height + g
 
 
+def _style_logo(img, sp, cw, face, fence):
+    """A supplied full-art logo on the board's own ``background`` (Chris's approved new-sponsors preview,
+    2026-10-26): without a ``url`` the logo centred as large as fits the whole face (TEAMYAG, Trackstormers: the
+    art carries everything); with one, on a wide panel (span banner, fence panel) the logo at the left, 76 % of
+    the height, and the URL right-aligned, and on a board the logo centred in the upper part and the URL under
+    it (SeriouslyLotus). ``url`` colour: ``url``, else ``text``."""
+    from PIL import Image
+
+    W, H = img.size
+    url = sp.get("url")
+    lg = _logo(sp["logo"]) if sp.get("logo") else None
+    if lg is not None:
+        bb = lg.getchannel("A").getbbox()
+        lg = lg.crop(bb) if bb else lg
+
+    def put(box):
+        if lg is None:
+            return
+        x0, y0, w, h = box
+        s = min(w / lg.width, h / lg.height)
+        im = lg.resize((max(1, int(lg.width * s)), max(1, int(lg.height * s))), Image.LANCZOS)
+        img.paste(im, (int(x0 + (w - im.width) / 2), int(y0 + (h - im.height) / 2)), im)
+
+    colour = cw.get("url", cw.get("text", (0, 0, 0)))
+    if not url:
+        put((0.0, 0.0, W, H))
+    elif W / H >= 3.0:
+        m = _fit(url, "sans", W * 0.5, H * 0.22)
+        _paste(img, m, W * 0.97 - m.width, (H - m.height) / 2, colour)
+        lw = W * 0.94 - m.width - H * 0.3
+        hh = H * 0.76
+        if lg is not None:  # left-aligned: the box as wide as the logo at that height
+            lw = min(lw, hh * lg.width / lg.height)
+        put((W * 0.03, (H - hh) / 2, lw, hh))
+    else:
+        put((W * 0.25, H * 0.06, W * 0.5, H * 0.7))
+        m = _fit(url, "sans", W * 0.9, H * 0.13)
+        _paste(img, m, (W - m.width) / 2, H * 0.93 - m.height, colour)
+
+
 STYLES = {"slant": _style_slant, "stripes": _style_stripes, "badge": _style_badge, "split": _style_split,
-          "wordmark": _style_wordmark, "logoband": _style_logoband, "banner": _style_banner, "wide": _style_wide}
+          "wordmark": _style_wordmark, "logoband": _style_logoband, "banner": _style_banner, "wide": _style_wide,
+          "logo": _style_logo}
 
 
 def render_front(sp: dict, design: dict, tex: str, size: tuple[int, int]):
