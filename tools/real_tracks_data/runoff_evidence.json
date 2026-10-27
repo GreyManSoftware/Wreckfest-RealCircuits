@@ -55,7 +55,9 @@
                "source": "visordown 2008 (Armco at Coppice and from the chicane to Mountain Bottom); classicbikehub/autosport 2020 (Hall Bends Armco reprofiled); motorbikestoday (narrow, run-off small or non-existent in places)"},
   "overrides": [
    {"corner": "Hall Bends", "side": "left", "barrier": "armco", "source": "classicbikehub.uk; autosport.com 2020 (Hall Bends Armco reprofiled)"},
-   {"corner": "Hall Bends", "side": "right", "barrier": "armco", "source": "classicbikehub.uk; autosport.com 2020 (Hall Bends Armco reprofiled)"}
+   {"corner": "Hall Bends", "side": "right", "barrier": "armco", "source": "classicbikehub.uk; autosport.com 2020 (Hall Bends Armco reprofiled)"},
+   {"corner": "The Hairpin", "side": "left", "barrier": "armco", "offsetM": 7.0, "fromM": -100, "toM": -27, "source": "Chris in game 2026-10-26 (issue 9: after Hall Bends the Armco only starts at the Hairpin); EA 2019 LIDAR: barrier-height returns (0.3-1.2 m) 6.5-7.5 m off the left edge from s 2981 to 3017, sparse under the trees, at the foot of the bank"},
+   {"corner": "The Hairpin", "side": "left", "barrier": "armco", "offsetM": 8.5, "fromM": -27, "toM": -7, "source": "EA 2019 LIDAR: a 0.9-1.2 m line 9-11 m off the left edge behind the Hairpin's gravel trap from s 3065; continues the Armco from the run from Hall Bends (issue 9)"}
   ]
  },
  "bedfordautodrome": {

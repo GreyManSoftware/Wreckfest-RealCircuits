@@ -414,6 +414,50 @@ def test_imported_sample_drives_the_recipes_corner_order_in_every_layout(recipe_
         assert irt.corner_order_problem(names, expected) is None, (secs, names)
 
 
+def test_aim_fit_flags_a_wrong_road_and_passes_a_coarse_outline() -> None:
+    """irt.aim_fit: an outline a few metres off (a datum shift, 20 m chords, noise) passes; one that takes another
+    road for a stretch (40 m off, as Bedford's Turn 7 was 78 m) fails."""
+    t = np.linspace(0.0, 2 * math.pi, 1500, endpoint=False)
+    lap = np.column_stack([300 * np.cos(t), 200 * np.sin(t)])
+    k = np.arange(0, 1500, 12)  # a point every ~25 m, as AiM's
+    rng = np.random.default_rng(1)
+    aim = lap[k] + [3.0, -2.0] + rng.normal(0.0, 1.0, (len(k), 2))
+    fit = irt.aim_fit(lap, aim)
+    assert irt.aim_problems(fit) == [] and math.hypot(*fit["shiftM"]) == pytest.approx(math.hypot(3, 2), abs=0.6)
+    bent = aim.copy()
+    bent[10:16] *= 1.0 + 40.0 / 300.0  # six points (150 m) on a road 40 m outside
+    assert any("off" in p for p in irt.aim_problems(irt.aim_fit(lap, bent)))
+
+
+@pytest.mark.parametrize("recipe_path", _RECIPES, ids=[p.stem for p in _RECIPES])
+def test_imported_sample_follows_its_aim_outlines(recipe_path: Path) -> None:
+    """Every layout with an AiM outline (tools/real_tracks/aim/<slug>.json, Chris's AiM track database) lies within
+    irt.AIM_TOLERANCE_M of it both ways, after the outline's best shift (at most irt.AIM_MAX_SHIFT_M): a check of
+    the route independent of OSM (2026-10-26: Bedford's Turn 7 was on the West way's old bow, 78 m off). Layouts
+    without an outline share the main lap's road there; outlines of a layout we don't build need a note."""
+    from trackgen_geom import build_track_model
+
+    recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+    slug = irt.recipe_slug(recipe)
+    aim = irt.load_aim(slug)
+    if aim is None:
+        pytest.skip(f"no AiM outline for {slug}")
+    spec = json.loads((_ROOT / "geom" / "tests" / "samples" / f"{slug}.json").read_text(encoding="utf-8"))
+    model = build_track_model(spec).model
+    layouts = {lay.id: lay for lay in model.layouts}
+    irt.set_projection(recipe)
+    try:
+        for o in aim["outlines"]:
+            if o["layout"] is None:
+                assert len(o.get("note", "")) >= 40, (o["name"], "an outline of no built layout needs a note")
+                continue
+            lay = layouts[o["layout"]]
+            fit = irt.aim_fit(_lap(model, lay.sections), irt.aim_local(o, aim["frame"]))
+            assert irt.aim_problems(fit) == [], (o["name"], lay.id, fit)
+    finally:
+        irt.set_projection({})
+
+
 # Profile artefact limits for every committed real-track sample (2026-10-24 accuracy audit). The worst real values
 # when they were set: grade ripple RMS 0.31 % (Cadwell Park's hilly straights), wobble 0.34 m (Brands Hatch),
 # camber rate 0.27 deg/m (Cadwell Park), tightest crest/dip 93 m (Navarra Short's ramp onto the T7-T8 road).

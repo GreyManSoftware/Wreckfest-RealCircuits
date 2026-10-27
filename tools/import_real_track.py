@@ -1461,6 +1461,117 @@ def profile_artefacts(xy: np.ndarray, z: np.ndarray, bank: np.ndarray, closed: b
     }
 
 
+# ------------------------------------------------------------------------------------------------ AiM outlines
+# tools/real_tracks/aim/<slug>.json (tools/real_tracks_data/aim_outline.py): the circuit's track outlines from
+# Chris's AiM RaceStudio track database (.ztracks), a point every 20-25 m (lat, lon, height in whole metres), each
+# tagged with the layout it traces (null: a layout we don't build, e.g. Navarra before 2024). An independent check
+# of the route: the outlines are coarse (straight chords between points, the racing line in places, the
+# WGS84 -> grid step a few metres out), so they catch a wrong road (tens of metres), not a few metres.
+AIM_DIR = Path(__file__).resolve().parent / "real_tracks" / "aim"
+AIM_MAX_SHIFT_M = 6.0    # the outline's best translation onto our lap (GPS datum and Helmert error, a few metres)
+AIM_TOLERANCE_M = 12.0   # after it, our lap and the outline stay this close both ways (a road width)
+
+
+def load_aim(slug: str) -> dict | None:
+    p = AIM_DIR / f"{slug}.json"
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+
+
+def aim_local(outline: dict, frame: dict) -> np.ndarray:
+    """An outline's points in the sample's local frame (set_projection(recipe) first)."""
+    g = np.array([to_grid(lat, lon) for lat, lon, _ in outline["points"]])
+    return (g - [frame["centreE"], frame["centreN"]]) / frame["scale"]
+
+
+def refresh_aim_frame(slug: str, frame: dict) -> bool:
+    """Keep the AiM file's frame the committed sample's (the importer calls this when it writes the sample)."""
+    p = AIM_DIR / f"{slug}.json"
+    if not p.exists():
+        return False
+    text = p.read_text(encoding="utf-8")
+    d = json.loads(text)
+    if d.get("frame") == frame:
+        return False
+    d["frame"] = frame
+    p.write_text(aim_json(d), encoding="utf-8", newline="\n")
+    return True
+
+
+def aim_json(d: dict) -> str:
+    """The AiM file's text: one outline point per line."""
+    head = {k: v for k, v in d.items() if k != "outlines"}
+    out = json.dumps(head, indent=1)[:-2] + ',\n "outlines": [\n'
+    items = []
+    for o in d["outlines"]:
+        meta = json.dumps({k: v for k, v in o.items() if k != "points"})[:-1]
+        pts = ",\n   ".join(json.dumps(q) for q in o["points"])
+        items.append(f'  {meta}, "points": [\n   {pts}\n  ]}}')
+    return out + ",\n".join(items) + "\n ]\n}\n"
+
+
+def _catmull_closed(p: np.ndarray, per: int = 10) -> np.ndarray:
+    """A closed Catmull-Rom spline through p, per points per span (the outline's corners, not its chords)."""
+    t = np.linspace(0.0, 1.0, per, endpoint=False)[:, None]
+    p0, p1, p2, p3 = np.roll(p, 1, 0), p, np.roll(p, -1, 0), np.roll(p, -2, 0)
+    segs = [0.5 * (2 * a + (-z + b) * t + (2 * z - 5 * a + 4 * b - c) * t ** 2 + (-z + 3 * a - 3 * b + c) * t ** 3)
+            for z, a, b, c in zip(p0, p1, p2, p3)]
+    return np.vstack(segs)
+
+
+def _nearest_on_polyline(q: np.ndarray, poly: np.ndarray, closed: bool) -> tuple[np.ndarray, np.ndarray]:
+    """Distance from each q to the polyline and the nearest point on it."""
+    a = poly
+    b = np.roll(poly, -1, 0) if closed else np.vstack([poly[1:], poly[-1:]])
+    ab = b - a
+    l2 = (ab ** 2).sum(1) + 1e-12
+    d = np.empty(len(q))
+    c = np.empty_like(q)
+    for i0 in range(0, len(q), 256):
+        qq = q[i0:i0 + 256]
+        t = np.clip(((qq[:, None, :] - a[None]) * ab[None]).sum(-1) / l2[None], 0.0, 1.0)
+        pts = a[None] + ab[None] * t[..., None]
+        dd = np.hypot(*(pts - qq[:, None, :]).transpose(2, 0, 1))
+        k = dd.argmin(1)
+        d[i0:i0 + 256] = dd[np.arange(len(qq)), k]
+        c[i0:i0 + 256] = pts[np.arange(len(qq)), k]
+    return d, c
+
+
+def aim_fit(lap: np.ndarray, aim: np.ndarray) -> dict:
+    """How well a layout's lap (points in driving order) follows an AiM outline: the outline's best translation
+    onto the lap, then the largest distance from the lap to the outline (a spline through its points) and from the
+    outline's points to the lap, and where along the lap the worst is."""
+    shift = np.zeros(2)
+    for _ in range(10):
+        d, c = _nearest_on_polyline(aim + shift, lap, closed=True)
+        ok = d < 15.0
+        if not ok.any():
+            break
+        step = (c[ok] - (aim + shift)[ok]).mean(0)
+        shift += step
+        if np.hypot(*step) < 0.01:
+            break
+    dense = _catmull_closed(aim + shift)
+    d_ours, _ = _nearest_on_polyline(lap, dense, closed=True)
+    d_aim, _ = _nearest_on_polyline(aim + shift, lap, closed=True)
+    s = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(lap, axis=0).T))])
+    return {"shiftM": [round(float(v), 2) for v in shift], "oursToAimMeanM": round(float(d_ours.mean()), 2),
+            "oursToAimMaxM": round(float(d_ours.max()), 2), "worstAtLapM": round(float(s[int(d_ours.argmax())]), 1),
+            "aimToOursMaxM": round(float(d_aim.max()), 2),
+            "aimLengthM": round(float(np.hypot(*np.diff(np.vstack([dense, dense[:1]]), axis=0).T).sum()), 1)}
+
+
+def aim_problems(fit: dict) -> list[str]:
+    out = []
+    if math.hypot(*fit["shiftM"]) > AIM_MAX_SHIFT_M:
+        out.append(f"outline shifted {math.hypot(*fit['shiftM']):.1f} m onto the lap (over {AIM_MAX_SHIFT_M} m)")
+    if fit["oursToAimMaxM"] > AIM_TOLERANCE_M:
+        out.append(f"lap {fit['oursToAimMaxM']} m off the outline at lap {fit['worstAtLapM']} m")
+    if fit["aimToOursMaxM"] > AIM_TOLERANCE_M:
+        out.append(f"outline {fit['aimToOursMaxM']} m off the lap")
+    return out
+
+
 # ------------------------------------------------------------------------------------------------ widths
 # Measured widths (recipe "widths": "measured"): tools/real_tracks/widths/<slug>.json from
 # tools/real_tracks_data/measure_width.py, sections every 5 m in the recipe's grid with the tarmac's left and
@@ -2085,6 +2196,17 @@ def verify(spec: dict, report: dict, recipe: dict, cache: Path) -> dict:
                         "ownStartFinish": lay.start_finish is not None, "gridSlots": len(g.slots),
                         "sections": [{k: (round(v, 1) if isinstance(v, float) else v) for k, v in sec.items()}
                                      for sec in lay.sections]})
+    aim = load_aim(recipe_slug(recipe))
+    if aim:
+        for o in aim["outlines"]:
+            lay = next((x for x in result.model.layouts if x.id == o["layout"]), None)
+            if lay is None:
+                continue
+            lap = np.array([[q.x, q.y] for sec in lay.sections for q in result.model.route(sec["route"]).samples
+                            if sec["fromS"] - 1e-6 <= q.s <= sec["toS"] + 1e-6])
+            fit = aim_fit(lap, aim_local(o, fr))
+            fit["problems"] = aim_problems(fit)
+            next(x for x in layouts if x["id"] == lay.id).setdefault("aim", {})[o["name"]] = fit
     main = per_route["main"]
     return {
         "built": True, "valid": result.valid,
@@ -2115,7 +2237,13 @@ def main(argv: list[str] | None = None) -> int:
     spec, report = build(recipe, cache, log=lambda m: print(m, file=sys.stderr))
     if args.verify:
         report["verify"] = verify(spec, report, recipe, cache)
-    Path(args.out).write_text(json.dumps(spec, separators=(",", ":")) + "\n", encoding="utf-8", newline="\n")
+    out = Path(args.out)
+    out.write_text(json.dumps(spec, separators=(",", ":")) + "\n", encoding="utf-8", newline="\n")
+    slug = recipe_slug(recipe)
+    if out.resolve() == (Path(__file__).resolve().parents[1] / "geom" / "tests" / "samples" / f"{slug}.json"):
+        # the committed sample's frame moves with its line: the AiM outlines are checked in it
+        if refresh_aim_frame(slug, report["frame"]):
+            print(f"updated the frame in {AIM_DIR / (slug + '.json')}", file=sys.stderr)
     text = json.dumps(report, indent=1)
     if args.report:
         Path(args.report).write_text(text + "\n", encoding="utf-8", newline="\n")
