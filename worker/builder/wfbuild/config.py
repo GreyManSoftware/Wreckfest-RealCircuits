@@ -84,7 +84,11 @@ BRIDGE_PILLAR = 1.2
 BRIDGE_PILLAR_STEP = 10.0
 BRIDGE_MIN_CLEARANCE = 4.5    # checked by the tests
 JUMP_LIFT = 0.02              # layout-only jump surfaces sit just above the shared road
-AI_SECTOR_SAMPLES = 8         # ~16 m AI sectors (Toolbox's route generator uses 15 m)
+AI_SECTOR_SAMPLES = 8         # ~16 m AI sectors at most (Toolbox's route generator uses 15 m)
+AI_SECTOR_MIN_SAMPLES = 2     # ~4 m: shortest AI sector in tight corners (stock: 4-6 m)
+AI_CHORD_TOL = 0.4            # m: a race/safe edge (a straight chord between two sector lines) stays this
+                              # close to where it should be at every road sample between them
+AI_SECTOR_MAX_TURN = 30.0     # deg per sector at most (stock: mostly under 30, rarely 40-50)
 AI_ROUTE_MARGIN = {"walls": 12.0, "none": 12.0}  # blue route over the grass run-off (less at walls, other roads)
 AI_SAFE_INSET = 0.5           # red safe line inside the road edge
 AI_RACE_INSET = 1.5           # green race line inside the road edge (Bugbear's generator: 1 m inside safe)

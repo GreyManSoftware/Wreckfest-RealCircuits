@@ -325,10 +325,12 @@ def read(path: str, geometry: str | None = None) -> Scene:
 class CompiledLayout:
     """What bgeometry compiled into a layout scene: per AI route the sector lines (left, right) as stored,
     Blender axes (x, y, z up); the start points (name, x, y, z); the checkpoints (number, split, route index,
-    centre x, y)."""
+    centre x, y); per route and sector line the safe and race strips' edges as fractions from the left end to
+    the right end (safe left, safe right, race left, race right)."""
     routes: list[list[tuple[tuple[float, float, float], tuple[float, float, float]]]]
     startpoints: list[tuple[str, float, float, float]]
     checkpoints: list[tuple[int, bool, int, float, float]]
+    fracs: list[list[tuple[float, float, float, float]]] = field(default_factory=list)
 
     def main_otherway(self) -> bool:
         """Toolbox Mz's importer rule for a compiled main route: stored the other way when the first sector's
@@ -370,20 +372,27 @@ def read_layout(path: str) -> CompiledLayout:
         return (x, z, up)  # Bugbear Y-up -> Blender Z-up
 
     wf2 = r.i() > 0
-    routes = []
+    routes, fracs = [], []
     for _ in range(r.i()):
         r.header("aisc")
         r.i()
-        lines = []
+        lines, fr = [], []
         for _s in range(r.i()):
             left, right = v3(), v3()
-            r.p += 4 * (8 if wf2 else 4) + (4 if wf2 else 0)  # safe and race positions (fractions)
+            q4 = []
+            for _k in range(4):  # safe left, safe right, race left, race right (fractions; WF2 adds one each)
+                q4.append(f())
+                if wf2:
+                    r.p += 4
+            r.p += 4 if wf2 else 0
             lines.append((left, right))
+            fr.append(tuple(q4))
         r.i(), r.i()  # main-route start / end sector of an alternative route
         r.text()
         if wf2:
             r.p += 4 * 11
         routes.append(lines)
+        fracs.append(fr)
     q = r.find("trsp")
     r.p = q + 8
     sps = []
@@ -402,7 +411,7 @@ def read_layout(path: str) -> CompiledLayout:
         cx, _cy, cz = f(), f(), f()
         r.p += 24 + (4 if ver >= 5 else 0)
         cps.append((k + 1, split > 0, ri, cx, cz))
-    return CompiledLayout(routes, sps, cps)
+    return CompiledLayout(routes, sps, cps, fracs)
 
 
 # Collision surfaces by id, as bgeometry numbers them (Toolbox Mz's importer; the names are the stock
