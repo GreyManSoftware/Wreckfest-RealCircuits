@@ -122,6 +122,11 @@ JUMP_PROFILE_STEP_M = 1.0
 
 # --- Grid, sectors and checkpoints -----------------------------------------------------------
 GRID_LINE_OFFSET_M = 4.0  # back row distance ahead of the start line (the grid is ahead of the line)
+# imported tracks: the back row this much further ahead of the timing line (the finish checkpoint). Stock race layouts
+# have 13-200 m (median ~90 m) between their finish checkpoint and back row, with the compiled AI route starting in
+# between; ours had 4 m, the back row on the route's first sector line (2026-10-26, first-lap gaps blank; a guess
+# to verify in game, the static data shows no other difference from stock)
+IMPORTED_TIMING_CLEAR_M = 20.0
 GRID_CHECKPOINT_MARGIN_M = 10.0  # first checkpoint this far beyond the front (pole) row
 GRID_SHARP_RADIUS_M = 50.0  # a corner tighter than this ends the first sector
 GRID_MAX_TURN_DEG = 45.0  # ...as does turning further than this from the start heading

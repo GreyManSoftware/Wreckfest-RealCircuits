@@ -500,10 +500,16 @@ def test_grid_slots_are_ahead_of_the_line(path: Path, built: dict[str, Any]) -> 
     spacing = RULE_CONSTANTS["gridRowSpacingM"]
     assert len(grid.slots) == n
     assert [s.name for s in grid.slots] == [f"#startpoint{i:02d}" for i in range(1, n + 1)]
+    # the back row GRID_LINE_OFFSET_M past the line; an imported track keeps it up to IMPORTED_TIMING_CLEAR_M
+    # further clear of its timing line where the road behind the real line allows (stock layouts: 13-200 m
+    # between the finish checkpoint and the back row)
+    back = min(s.s for s in grid.slots)
+    clear = C.IMPORTED_TIMING_CLEAR_M if spec["sketch"].get("imported") else 0.0
+    assert C.GRID_LINE_OFFSET_M - 1e-6 <= back <= C.GRID_LINE_OFFSET_M + clear + 1e-6
     for row in range(rows):
         pair = [s for s in grid.slots if s.row == row]
         assert len(pair) == (2 if 2 * row + 1 < n else 1)
-        assert pair[0].s == pytest.approx(C.GRID_LINE_OFFSET_M + (rows - 1 - row) * spacing)
+        assert pair[0].s == pytest.approx(back + (rows - 1 - row) * spacing)
         if len(pair) == 2:
             a, b = pair
             assert {a.side, b.side} == {"left", "right"}
@@ -565,8 +571,7 @@ def test_checkpoints(path: Path, built: dict[str, Any]) -> None:
     o, L = _timing_s(model), model.lap_length_m
     assert main_cps[-1].is_finish and main_cps[-1].s == o  # on the timing line
     assert not any(c.is_finish for c in main_cps[:-1])
-    rows = math.ceil(model.grid.size / 2)
-    pole = C.GRID_LINE_OFFSET_M + (rows - 1) * RULE_CONSTANTS["gridRowSpacingM"]
+    pole = max(s.s for s in model.grid.slots)
     lap = [(c.s - o) % L for c in main_cps[:-1]]  # lap positions from the timing line
     assert lap[0] == pytest.approx(pole + C.GRID_CHECKPOINT_MARGIN_M)
     assert lap[0] > max(s.s for s in model.grid.slots)

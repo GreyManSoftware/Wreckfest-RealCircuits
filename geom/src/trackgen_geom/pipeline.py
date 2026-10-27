@@ -346,6 +346,8 @@ class _Builder:
         self.lap = float(self.options["lapLengthKm"]) * 1000.0
         self.reverse = bool(self.options["reverseLayout"])
         self.imported = self.sketch.get("imported")
+        # imported tracks: how far the main layout's back row stands clear of its timing line (_layout_grids)
+        self.timing_clear = C.IMPORTED_TIMING_CLEAR_M if self.imported else 0.0
         self.by_id_all: dict[str, _Route] = {}
 
     def warn(self, code: str, message: str) -> None:
@@ -966,10 +968,15 @@ class _Builder:
             obs.append(_Obstacle(r.id, r.length - C.JUNCTION_CLEAR_M, r.length + 1.0, "junction", "end"))
         return obs
 
+    def _back_row_s(self) -> float:
+        """How far the back row stands ahead of the line the lap starts at: GRID_LINE_OFFSET_M, plus on an
+        imported track (whose lap starts at its timing line, behind the grid) up to IMPORTED_TIMING_CLEAR_M."""
+        return C.GRID_LINE_OFFSET_M + self.timing_clear
+
     def _grid_zone_end(self) -> float:
         """Arc length of the first checkpoint: the front (pole) row plus a margin."""
         rows = math.ceil(int(self.options["gridSize"]) / 2)
-        pole = C.GRID_LINE_OFFSET_M + (rows - 1) * float(self.consts["gridRowSpacingM"])
+        pole = self._back_row_s() + (rows - 1) * float(self.consts["gridRowSpacingM"])
         return pole + C.GRID_CHECKPOINT_MARGIN_M
 
     def _bridges(self) -> None:
@@ -1150,11 +1157,12 @@ class _Builder:
         checkpoint) goes. The game wants the grid in the first sector, between the timing line and checkpoint
         01 (stock example layout; Workshop modders: checkpoint 01 must not move behind the pole), and a real
         grid stands behind its start line, so the timing line goes far enough back for the pole row to sit
-        GRID_LINE_OFFSET_M behind the real line (Chris 2026-10-26: Anglesey's race started at turn 1). Less where
+        GRID_LINE_OFFSET_M behind the real line (Chris 2026-10-26: Anglesey's race started at turn 1) and the back
+        row _back_row_s clear of the timing line, as stock layouts keep theirs. Less where
         the road behind the line has a tight corner or a big turn first, or the lap changes route (a junction),
         so the grid stays on clear road. ``r0``: the layout's lap from its real line."""
         rows = math.ceil(int(self.options["gridSize"]) / 2)
-        want = 2.0 * C.GRID_LINE_OFFSET_M + (rows - 1) * float(self.consts["gridRowSpacingM"])
+        want = self._back_row_s() + C.GRID_LINE_OFFSET_M + (rows - 1) * float(self.consts["gridRowSpacingM"])
         room = r0.length
         line_route = lay.sections[0]["route"] if lay.sections else "main"
         back = 0.0
@@ -1224,7 +1232,14 @@ class _Builder:
                     break
                 lead = max(0.0, lead - 2.0)
             self.layout_first_sectors[lay.id] = fs
-            lay.grid = self._grid(fs, r)
+            # the back row clear of the timing line where the road behind the real line allows it: the clearance
+            # gives way first, before the grid moves past the real line
+            rows = math.ceil(int(self.options["gridSize"]) / 2)
+            base_want = 2.0 * C.GRID_LINE_OFFSET_M + (rows - 1) * float(self.consts["gridRowSpacingM"])
+            clear = min(C.IMPORTED_TIMING_CLEAR_M, max(0.0, lead - base_want))
+            lay.grid = self._grid(fs, r, C.GRID_LINE_OFFSET_M + clear)
+            if lay.id == "main":
+                self.timing_clear = clear  # the main lap's checkpoint 01 past its pole (_checkpoints)
             rid, s = lay.sections[0]["route"], float(lay.sections[0]["fromS"])
             src = self.by_id_all[rid]
             p = src.at(s)
@@ -1239,10 +1254,10 @@ class _Builder:
                               "leadM": round(lap_s, 2)}
             self.layout_routes[lay.id] = r
 
-    def _grid(self, first_sector: float, route: _Route | None = None) -> Grid:
-        """Grid slots ahead of the start line (to verify in game): the back row GRID_LINE_OFFSET_M past the
+    def _grid(self, first_sector: float, route: _Route | None = None, back: float | None = None) -> Grid:
+        """Grid slots ahead of the start line (to verify in game): the back row _back_row_s past the
         line, the pole row furthest ahead, in pairs gridSlotWidthM apart. ``route``: an imported layout's own
-        lap (from its own line) instead of the main loop."""
+        lap (from its own line) instead of the main loop; ``back``: its back row's s (default _back_row_s)."""
         m = route or self.main
         n = int(self.options["gridSize"])
         rows = math.ceil(n / 2)
@@ -1255,7 +1270,7 @@ class _Builder:
         for i in range(n):
             row = i // 2
             left = pole_left if i % 2 == 0 else not pole_left
-            s = C.GRID_LINE_OFFSET_M + (rows - 1 - row) * spacing
+            s = (self._back_row_s() if back is None else back) + (rows - 1 - row) * spacing
             h = m.heading_at(s)
             offset = (slot_w / 2.0) * (1.0 if left else -1.0)
             p = m.at(s) + np.array([-math.sin(h), math.cos(h)]) * offset
