@@ -75,6 +75,11 @@ def check_scenery(out: str, model: dict, spec: dict, manifest: dict, n_props: in
     pl = Planner(geo)
     bad_env = sorted({p["asset"] for p in P} - pl.allowed)
     check(not bad_env, f"scenery: only assets allowed for {pl.env_name}", ", ".join(bad_env))
+    # the game draws #xref props at their own size: scale 1, but for a little variety on the D.XREF_SCALE_JITTER list
+    scaled = [f"{p['category']} {p['asset']} {p['scale']}" for p in P if not sponsor.is_mesh(p["asset"])
+              and abs(p["scale"] - 1.0) > D.XREF_SCALE_JITTER.get(p["category"], 0.0) + 1e-3]
+    check(not scaled, "scenery: every #xref prop at scale 1 (the game ignores it), but for variety on "
+          + ", ".join(sorted(D.XREF_SCALE_JITTER)), f"{len(scaled)}: {scaled[:3]}")
     if not P:
         return
     xy = np.array([p["position"][:2] for p in P])
