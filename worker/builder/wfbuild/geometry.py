@@ -120,6 +120,45 @@ class TriIndex:
         e = tol * np.sqrt(np.abs(cross(a, b, c)) + 1e-12)
         return bool(np.any(((d1 < e) & (d2 < e) & (d3 < e)) | ((d1 > -e) & (d2 > -e) & (d3 > -e))))
 
+    def covered_many(self, pts: np.ndarray, tol: float = 0.02) -> np.ndarray:
+        """``covered`` for many 2D points at once (grouped by grid cell)."""
+        pts = np.asarray(pts, dtype=np.float64).reshape(-1, 2)
+        out = np.zeros(len(pts), dtype=bool)
+        cells: dict[tuple[int, int], list[int]] = {}
+        for k, (gx, gy) in enumerate(np.floor(pts / self.cell).astype(np.int64)):
+            cells.setdefault((int(gx), int(gy)), []).append(k)
+        for cell, ks in cells.items():
+            tri = self.grid.get(cell)
+            if not tri:
+                continue
+            t = self.t[tri]
+            a, b, c = t[:, 0][None], t[:, 1][None], t[:, 2][None]
+            p = pts[ks][:, None, :]
+
+            def cross(o, u, v):
+                return (u[..., 0] - o[..., 0]) * (v[..., 1] - o[..., 1]) - (u[..., 1] - o[..., 1]) * (v[..., 0] - o[..., 0])
+
+            d1, d2, d3 = cross(a, b, p), cross(b, c, p), cross(c, a, p)
+            e = tol * np.sqrt(np.abs(cross(a, b, c)) + 1e-12)
+            hit = ((d1 < e) & (d2 < e) & (d3 < e)) | ((d1 > -e) & (d2 > -e) & (d3 > -e))
+            out[ks] = hit.any(axis=1)
+        return out
+
+
+def _face_z(V: np.ndarray, f, p) -> float | None:
+    """Height of polygon face ``f`` (vertex ids into V, fan-triangulated) at the 2D point p, None off it."""
+    for k in range(1, len(f) - 1):
+        a, b, c = V[f[0]], V[f[k]], V[f[k + 1]]
+        v0, v1, w2 = b[:2] - a[:2], c[:2] - a[:2], np.asarray(p) - a[:2]
+        den = v0[0] * v1[1] - v1[0] * v0[1]
+        if abs(den) < 1e-12:
+            continue
+        u = (w2[0] * v1[1] - v1[0] * w2[1]) / den
+        w = (v0[0] * w2[1] - w2[0] * v0[1]) / den
+        if u >= -1e-6 and w >= -1e-6 and u + w <= 1 + 1e-6:
+            return float(a[2] + u * (b[2] - a[2]) + w * (c[2] - a[2]))
+    return None
+
 
 def _newell(pts: np.ndarray) -> np.ndarray:
     n = np.zeros(3)
@@ -147,21 +186,9 @@ class Route:
         self.length = float(d["lengthM"])
         self.width = float(d["widthM"])
         self.nl = np.stack([-np.sin(self.h), np.cos(self.h)], axis=1)
-        # camber: rise of the surface per metre towards the left edge (imported tracks; 0 for drawn ones)
-        self.slope = (self.left[:, 2] - self.right[:, 2]) / np.maximum(self.w, 1e-6)
         self.tangent = np.stack([np.cos(self.h), np.sin(self.h)], axis=1)
         self.segs = self.n if self.closed else self.n - 1
-        # longitudinal grade (rise per metre along s), central differences
-        if self.n > 2:
-            if self.closed:
-                dzs = np.roll(self.p[:, 2], -1) - np.roll(self.p[:, 2], 1)
-                dss = (np.roll(self.s, -1) - np.roll(self.s, 1)) % max(self.length, 1e-9)
-            else:
-                dzs = np.gradient(self.p[:, 2])
-                dss = np.gradient(self.s)
-            self.grade = dzs / np.maximum(dss, 1e-6)
-        else:
-            self.grade = np.zeros(self.n)
+        self.derive_heights()
         self.m = max(1, round(float(np.median(self.w)) / C.ROAD_CELL_M))
         self.start_join = d.get("startJoin")
         self.end_join = d.get("endJoin")
@@ -176,6 +203,22 @@ class Route:
         else:
             k = np.convolve(np.pad(k, 2, mode="edge"), kern, mode="valid")
         self.curvature = k  # signed, 1/m, positive = turning left
+
+    def derive_heights(self) -> None:
+        """Camber and grade from the heights of the centre and edges (again after they change)."""
+        # camber: rise of the surface per metre towards the left edge (imported tracks; 0 for drawn ones)
+        self.slope = (self.left[:, 2] - self.right[:, 2]) / np.maximum(self.w, 1e-6)
+        # longitudinal grade (rise per metre along s), central differences
+        if self.n > 2:
+            if self.closed:
+                dzs = np.roll(self.p[:, 2], -1) - np.roll(self.p[:, 2], 1)
+                dss = (np.roll(self.s, -1) - np.roll(self.s, 1)) % max(self.length, 1e-9)
+            else:
+                dzs = np.gradient(self.p[:, 2])
+                dss = np.gradient(self.s)
+            self.grade = dzs / np.maximum(dss, 1e-6)
+        else:
+            self.grade = np.zeros(self.n)
 
     @property
     def is_main(self) -> bool:
@@ -265,10 +308,22 @@ def _ray_polyline(p0: np.ndarray, d: np.ndarray, poly: np.ndarray, max_len: floa
 
 
 def ear_clip(xy: np.ndarray) -> list[tuple[int, int, int]]:
-    """Triangulate a simple polygon (any winding). Returns CCW triangles as index triples."""
+    """Triangulate a simple polygon (any winding). Returns CCW triangles as index triples.
+
+    Of the ears available it always clips the one with the shortest new diagonal, so a long thin polygon (a
+    junction mouth where a branch merges alongside its road, a paved gore) becomes a strip of short triangles
+    across it. Clipping the first ear found fanned such a polygon from one corner: triangles tens of metres long
+    across it, whose flat faces cut through the road's rise or fall (a 10-15 cm hump and near-vertical faces
+    with up to 1.6 m between their corners; Anglesey's National, Oulton Park's Trackday rejoin, Chris
+    2026-10-26)."""
     n = len(xy)
     area = 0.5 * float(np.sum(xy[:, 0] * np.roll(xy[:, 1], -1) - np.roll(xy[:, 0], -1) * xy[:, 1]))
-    idx = list(range(n)) if area > 0 else list(range(n))[::-1]
+    order = list(range(n)) if area > 0 else list(range(n))[::-1]
+    if n < 3:
+        return []
+    nxt = {order[k]: order[(k + 1) % n] for k in range(n)}
+    prv = {order[k]: order[k - 1] for k in range(n)}
+    alive = set(order)
 
     def cross(o, a, b):
         return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
@@ -276,26 +331,36 @@ def ear_clip(xy: np.ndarray) -> list[tuple[int, int, int]]:
     def inside(p, a, b, c):
         return cross(a, b, p) >= -1e-12 and cross(b, c, p) >= -1e-12 and cross(c, a, p) >= -1e-12
 
+    def ear(b: int) -> float | None:
+        """The squared length of the diagonal clipping vertex b leaves, or None when b is no ear."""
+        a, c = prv[b], nxt[b]
+        if cross(xy[a], xy[b], xy[c]) <= 1e-9:
+            return None
+        if any(inside(xy[o], xy[a], xy[b], xy[c]) for o in alive if o not in (a, b, c)):
+            return None
+        return float((xy[c][0] - xy[a][0]) ** 2 + (xy[c][1] - xy[a][1]) ** 2)
+
+    ears = {b: ear(b) for b in order}
     tris: list[tuple[int, int, int]] = []
-    guard = 0
-    while len(idx) > 3 and guard < 10 * n:
-        guard += 1
-        for k in range(len(idx)):
-            a, b, c = idx[k - 1], idx[k], idx[(k + 1) % len(idx)]
-            if cross(xy[a], xy[b], xy[c]) <= 1e-9:
-                continue
-            if any(inside(xy[o], xy[a], xy[b], xy[c]) for o in idx if o not in (a, b, c)):
-                continue
-            tris.append((a, b, c))
-            idx.pop(k)
-            break
-        else:
+    while len(alive) > 3:
+        cand = [(d, b) for b, d in ears.items() if d is not None and b in alive]
+        if not cand:
             # Degenerate remainder: fan it.
-            for k in range(1, len(idx) - 1):
-                tris.append((idx[0], idx[k], idx[k + 1]))
+            rest = [order[0] if order[0] in alive else next(iter(alive))]
+            while len(rest) < len(alive):
+                rest.append(nxt[rest[-1]])
+            for k in range(1, len(rest) - 1):
+                tris.append((rest[0], rest[k], rest[k + 1]))
             return tris
-    if len(idx) == 3:
-        tris.append(tuple(idx))
+        _, b = min(cand)
+        a, c = prv[b], nxt[b]
+        tris.append((a, b, c))
+        alive.discard(b)
+        ears.pop(b, None)
+        nxt[a], prv[c] = c, a
+        ears[a], ears[c] = ear(a), ear(c)
+    b = next(iter(alive))
+    tris.append((prv[b], b, nxt[b]))
     return tris
 
 
@@ -555,6 +620,7 @@ class Cut:
 class TrackGeometry:
     LOCAL_MOUTH = True    # imported: a mouth chain ends where the edge enters the target's local width
     KEEP_CHAIN = True     # imported: a long mouth chain that meets a third road keeps its own edge
+    MATCH_MOUTHS = True   # a cut road's heights ramp onto the surface of the road it meets (_match_mouth_heights)
     def __init__(self, model: dict, spec: dict):
         self.model = model
         self.spec = spec
@@ -580,6 +646,8 @@ class TrackGeometry:
         self.apron_routes: set[int] = set()
         self._junctions()
         self._crossings()
+        if self.MATCH_MOUTHS and self._match_mouth_heights():
+            self.index = SampleIndex(self.routes)
         self._jumps()
         b = model["bounds"]
         margin = b["terrainMarginM"]
@@ -656,6 +724,69 @@ class TrackGeometry:
             sv = self.svalid[alt.index]
             sv[:] = False
             sv[k0:k1 + 1] = True
+
+    def _match_mouth_heights(self) -> bool:
+        """Bring each cut road's cross-section at the cut (a branch at its junction mouth, a flat crossing's hole
+        edge) onto the surface of the road it meets (flat past that road's edges): the height each of its edges
+        is off there is added in full at the cut, fading out along the built road over MOUTH_RAMP_M per metre of
+        mismatch (MOUTH_RAMP_MIN_M..MOUTH_RAMP_MAX_M) and, along a mouth's removed part, linearly to nothing at
+        the branch's end on the other road's centre line (where its heights already match). The branch's
+        heights met the centre of the road it joins, not its cambered edge, so the mouth stitched a 0.2-0.45 m
+        step between the branch's cross-section and that edge (Cadwell Park's Woodlands, Navarra; Chris
+        2026-10-26: no step or hump at a junction). Returns whether any height changed."""
+        changed = False
+        for cut in self.cuts:
+            r, t = cut.route, cut.target
+            half = int((4 * max(r.width, t.width) + 40) / 2)
+            win = np.array(t.window(cut.target_sample, half))
+            k0 = cut.sample
+            if cut.kind == "mouth":
+                toward = -1 if k0 < r.n // 2 else 1  # as _stitch: a mouth near the start lies before it
+            else:  # a crossing's hole starts after its first cut (segment removed) and ends before its second
+                toward = 1 if not self.qkeep[r.index][k0 % r.segs] else -1
+            # only an edge close to the other road's edge: one further off meets it along its own edge (the mouth's
+            # side follows it), at its own heights (a fork's outer edge on its bank: Brands Hatch's Indy)
+            off = self._edge_mismatch(t, win, np.array([r.left[k0], r.right[k0]]))
+            miss = float(np.max(np.abs(off)))
+            if miss < 0.01:
+                continue
+            ramp = float(np.clip(miss * C.MOUTH_RAMP_M, C.MOUTH_RAMP_MIN_M, C.MOUTH_RAMP_MAX_M))
+            ds = r.s - r.s[k0]
+            if r.closed:
+                ds = (ds + r.length / 2.0) % r.length - r.length / 2.0
+            ahead = ds * toward  # > 0: towards the junction (removed); <= 0: the built road from the cut on
+            removed = ~self.svalid[r.index]
+            if cut.kind == "mouth":
+                reach = max(float(np.max(np.where(removed & (ahead > 0.0), ahead, 0.0))), 1e-6)
+                fade = np.clip(1.0 - ahead / reach, 0.0, 1.0)
+            else:  # a hole inside the kept road: no surface of its own
+                fade = np.zeros(r.n)
+            # (on the built side the built road only: another cut's removed part keeps its own heights)
+            wgt = np.where(ahead > 0.0, np.where(removed, fade, 0.0),
+                           np.where(removed, 0.0, 1.0 - smoothstep(np.maximum(-ahead, 0.0) / ramp)))
+            r.left[:, 2] += wgt * off[0]
+            r.right[:, 2] += wgt * off[1]
+            r.p[:, 2] += wgt * (off[0] + off[1]) / 2.0
+            r.derive_heights()
+            changed = True
+        return changed
+
+    @staticmethod
+    def _surface_near(t: Route, win: np.ndarray, pts: np.ndarray) -> np.ndarray:
+        """Height of road t's surface at points near it (its nearest window sample's plane, flat past its edges)."""
+        d = np.hypot(pts[:, None, 0] - t.p[win][None, :, 0], pts[:, None, 1] - t.p[win][None, :, 1])
+        j = win[np.argmin(d, axis=1)]
+        rel = pts[:, :2] - t.p[j, :2]
+        along = np.clip(np.sum(rel * t.tangent[j], axis=1), -2.5, 2.5)
+        lat = np.clip(np.sum(rel * t.nl[j], axis=1), -t.w[j] / 2.0, t.w[j] / 2.0)
+        return t.p[j, 2] + along * t.grade[j] + lat * t.slope[j]
+
+    def _edge_mismatch(self, t: Route, win: np.ndarray, pts: np.ndarray) -> np.ndarray:
+        """How far road t's surface is above edge points ``pts`` (n x 3), in full within MOUTH_CLEAR of its edge,
+        fading to nothing MOUTH_MATCH_REACH_M further out."""
+        gap = np.array([float(np.min(np.hypot(*(t.p[win, :2] - e[:2]).T) - t.w[win] / 2.0)) for e in pts])
+        near = np.clip(1.0 - (gap - C.MOUTH_CLEAR) / C.MOUTH_MATCH_REACH_M, 0.0, 1.0)
+        return (self._surface_near(t, win, pts[:, :2]) - pts[:, 2]) * near
 
     def _apron(self, alt: Route) -> bool:
         """Pave an imported U-turn link that lies across two adjacent sections of road (Cadwell Park's Club
@@ -800,9 +931,98 @@ class TrackGeometry:
             self._stitch(mesh, vid, cut)
         for alt, chains in self.aprons:
             self._pave_apron(mesh, vid, alt, chains)
+        self._zip_wedges(mesh, vids)
         self.road_vids = vids
         self._road_mesh = mesh
         return mesh
+
+    def _zip_wedges(self, mesh: Mesh, vids: dict) -> None:
+        """Pave the narrow wedges of ground left between road edges at the junctions: wherever the mesh's outline
+        turns back on itself by more than 180 - WEDGE_ZIP_DEG degrees at a vertex, the two outline edges from it
+        are zipped together with short triangles while they stay under GORE_PAVE_M apart over bare ground. Two
+        mouths on one stretch of edge (Oulton Park's Fosters rejoin beside the Trackday split), a mouth's side
+        meeting the edge at a shallow angle, or a gore whose paving stopped short left such slivers: grass in
+        the road, with dark gaps at its sides (Chris 2026-10-26). Only existing outline vertices are used, so no
+        crack or T-junction."""
+        count: dict[tuple[int, int], int] = {}
+        owner: dict[tuple[int, int], int] = {}
+        for fi, f in enumerate(mesh.faces):
+            for a, b in zip(f, f[1:] + f[:1]):
+                key = (min(a, b), max(a, b))
+                count[key] = count.get(key, 0) + 1
+                owner[(a, b)] = fi
+        out_: dict[int, list[int]] = {}
+        in_: dict[int, list[int]] = {}
+        for (a, b) in owner:
+            if count[(min(a, b), max(a, b))] == 1:
+                out_.setdefault(a, []).append(b)
+                in_.setdefault(b, []).append(a)
+        V = np.array(mesh.verts, dtype=np.float64).reshape(-1, 3)
+        road = TriIndex.of(mesh)
+        new: list[np.ndarray] = []  # triangles added here (xy), so two zips never overlap
+        where = {v: k for k, v in vids.items()}  # vertex -> (route index, sample, column)
+        tile = C.TEX_TILE["road"]
+        cos_max = math.cos(math.radians(C.WEDGE_ZIP_DEG))
+
+        def one(d: dict, v: int) -> int | None:
+            got = d.get(v, ())
+            return got[0] if len(got) == 1 else None
+
+        def cross(o, p, q) -> float:
+            return float((p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0]))
+
+        def bare(ids) -> bool:
+            """A proper triangle over ground no road face (nor an earlier zip) covers."""
+            p = V[list(ids), :2]
+            if abs(cross(p[0], p[1], p[2])) < 1e-4:
+                return False
+            c = p.mean(0)
+            for q in [c] + [(c + (p[k] + p[(k + 1) % 3]) / 2.0 * 2.0) / 3.0 for k in range(3)]:
+                if road.covered(q, tol=-0.02):
+                    return False
+                for t in new:
+                    if cross(t[0], t[1], q) > 1e-9 and cross(t[1], t[2], q) > 1e-9 and cross(t[2], t[0], q) > 1e-9:
+                        return False
+            return True
+
+        for v in sorted(out_):
+            a, b = one(in_, v), one(out_, v)
+            if a is None or b is None:
+                continue
+            da, db = V[a, :2] - V[v, :2], V[b, :2] - V[v, :2]
+            la, lb = float(np.hypot(*da)), float(np.hypot(*db))
+            if la < 1e-6 or lb < 1e-6 or float(np.dot(da, db)) / (la * lb) < cos_max:
+                continue
+            if float(np.hypot(*(V[a, :2] - V[b, :2]))) > C.GORE_PAVE_M or not bare((a, v, b)):
+                continue
+            mat = mesh.mats[owner[(v, b)]]
+            tris = [(a, v, b)]
+            for _ in range(60):
+                na, nb = one(in_, a), one(out_, b)
+                cand = []
+                if na is not None and na not in (b, v):
+                    cand.append((float(np.hypot(*(V[na, :2] - V[b, :2]))), (na, a, b), na, b))
+                if nb is not None and nb not in (a, v):
+                    cand.append((float(np.hypot(*(V[a, :2] - V[nb, :2]))), (a, b, nb), a, nb))
+                cand = [c_ for c_ in sorted(cand) if c_[0] <= C.GORE_PAVE_M and bare(c_[1])]
+                if not cand:
+                    break
+                _, tri, a, b = cand[0]
+                tris.append(tri)
+            for t in tris:
+                p = V[list(t), :2]
+                if cross(p[0], p[1], p[2]) < 0:
+                    t = (t[0], t[2], t[1])
+                    p = V[list(t), :2]
+                mesh.face(t, mat, [(V[i][0] / tile, V[i][1] / tile) for i in t])
+                new.append(p)
+                self.__dict__.setdefault("stitch_polys", []).append(p)
+                for i in t:  # no kerb, verge or edge decal along an edge the zip paved over
+                    w = where.get(i)
+                    if w is not None and w[2] in (0, self.routes[w[0]].m):
+                        self.mouth_samples.setdefault((w[0], 1 if w[2] == 0 else -1), set()).add(w[1])
+            self.__dict__.setdefault("wedges_zipped", []).append(
+                {"at": [round(float(x), 1) for x in V[v, :2]], "triangles": len(tris)})
 
     def _pave_apron(self, mesh: Mesh, vid, alt: Route, chains) -> None:
         """The apron of a U-turn link (_apron): one polygon from the first section's facing edge vertices (along
@@ -822,6 +1042,7 @@ class TrackGeometry:
         for a, b, c in tris:
             f = (ids[a], ids[b], ids[c])
             mesh.face(f, mat, [(mesh.verts[i][0] / tile, mesh.verts[i][1] / tile) for i in f])
+        self.__dict__.setdefault("stitch_polys", []).append(xy)  # paved too (fields.DistanceField, ground_dips)
         self.stitched = getattr(self, "stitched", [])
         for t, side, run in chains:  # one entry per joined section, as a stitched junction has
             self.stitched.append({"route": alt.id, "sample": 0, "target": t.id, "kind": "apron",
@@ -1039,6 +1260,147 @@ class TrackGeometry:
                             if not tri.covered(m):
                                 out.append(f"{r.id}@{r.s[k]:.0f}m (cut {cut.sample}, k {k})->{t.id} gap {gap:.1f} m")
                                 break
+        return out
+
+    def junction_faults(self, step_max: float = C.JUNCTION_STEP_M, gap_max: float = C.JUNCTION_STEP_M) -> dict:
+        """What a driver would see wrong at the junctions (Chris 2026-10-26: a hump and missing terrain at
+        Anglesey's National, grass in the road and gaps at Oulton Park's Trackday rejoin, a gap in the terrain at
+        Donington's National turn), over every face paving a junction (mouths, gores, zipped wedges, aprons):
+
+        - ``steps``: the paving more than ``step_max`` off the surface of the road it stands in for (the branch's
+          own surface under its mouth, the target's under the target): a hump, dip or step;
+        - ``holes``: bare ground enclosed by road (an uncovered point with road on 11 of 12 sides within 4 m);
+        - ``gaps``: the ground (verge, kerb or terrain) 0.1 m outside the paving's outline more than ``gap_max``
+          below its edge: a dark gap along the mouth's sides;
+        - ``grass``: verge or decal faces on top of the paving, or the generated maps taking it for the verge
+          (distance field above -1 m 2 m inside the road: worn grassy edge texture and clutter on the tarmac).
+
+        Each is a list of short descriptions (empty when the junctions are clean)."""
+        from .fields import DistanceField
+        mesh = self.build_road()
+        kerbs, shoulders, limits = self.build_roadside()
+        road = TriIndex.of(mesh)
+        V = np.array(mesh.verts, dtype=np.float64).reshape(-1, 3)
+        paving = mesh.faces[self.road_quads:]
+        out: dict[str, list[str]] = {"steps": [], "holes": [], "gaps": [], "grass": []}
+        if not paving:
+            return out
+        tf = self.terrain
+        where = lambda p: f"({p[0]:.1f}, {p[1]:.1f})"  # noqa: E731
+        # --- steps: inset points of every paving triangle against the roads' own surfaces there. A removed sample
+        # of a mouth whose cross-section near the other road is off its surface (the data's own step; Cadwell
+        # Park's Woodlands, Brands Hatch's Indy) is no reference: the paving rightly meets the other road's edge.
+        # (nor is a U-turn link paved as an apron: only its two sections are road there)
+        trust = {r.index: np.full(r.n, r.index not in self.apron_routes) for r in self.routes}
+        for cut in self.cuts:
+            if cut.kind != "mouth":
+                continue
+            r, t = cut.route, cut.target
+            win = np.array(t.window(cut.target_sample, int((4 * max(r.width, t.width) + 40) / 2)))
+            for k in np.nonzero(~self.svalid[r.index])[0]:
+                miss = self._edge_mismatch(t, win, r.cross_section(k))
+                if float(np.max(np.abs(miss))) > step_max:
+                    trust[r.index][k] = False
+        trusted = np.concatenate([trust[r.index] for r in self.routes])[
+            ~np.concatenate([self.structure[r.index] for r in self.routes])]
+        for f in paving:
+            for k in range(1, len(f) - 1):
+                tri = V[[f[0], f[k], f[k + 1]]]
+                c = tri.mean(0)
+                for q in [c] + [c + (v - c) * 0.6 for v in tri]:
+                    d = np.hypot(tf.xy[:, 0] - q[0], tf.xy[:, 1] - q[1])
+                    near = np.nonzero(d < tf.hw + 2.5)[0]
+                    if not len(near):
+                        continue
+                    rel = q[:2] - tf.xy[near]
+                    lat = np.abs(rel[:, 0] * tf.nl[near, 0] + rel[:, 1] * tf.nl[near, 1])
+                    along = np.abs(rel[:, 0] * tf.tangent[near, 0] + rel[:, 1] * tf.tangent[near, 1])
+                    near = near[(lat <= tf.hw[near] + 0.05) & (along <= 1.25) & trusted[near]]
+                    if not len(near):
+                        continue  # a gore or wedge outside every road: bounded by their edges
+                    z = tf.road_height(np.repeat(q[None], len(near), axis=0), near)
+                    dz = float(np.min(np.abs(q[2] - z)))
+                    if dz > step_max:
+                        out["steps"].append(f"{where(q)} {dz:.2f} m off the road surface")
+        # the outline of the paving: its edges no other face shares (outwards: the right of each, CCW faces)
+        count: dict[tuple[int, int], int] = {}
+        for f in mesh.faces:
+            for a, b in zip(f, f[1:] + f[:1]):
+                count[(min(a, b), max(a, b))] = count.get((min(a, b), max(a, b)), 0) + 1
+        outline = [(a, b) for f in paving for a, b in zip(f, f[1:] + f[:1]) if count[(min(a, b), max(a, b))] == 1]
+        # --- gaps beside the paving
+        side = [m for m in (shoulders, kerbs, limits) if m.faces]
+        side_tris = np.concatenate([np.array([np.array(m.verts)[[g[0], g[j], g[j + 1]]] for g in m.faces
+                                              for j in range(1, len(g) - 1)]) for m in side]) if side else np.zeros((0, 3, 3))
+        for a, b in outline:
+            m = (V[a] + V[b]) / 2.0
+            d = V[b, :2] - V[a, :2]
+            ln = float(np.hypot(*d))
+            if ln < 0.2:
+                continue
+            q = m[:2] + np.array([d[1], -d[0]]) / ln * 0.1
+            if road.covered(q):
+                continue
+            top = float(tf(np.array([[q[0], q[1], 0.0]]))[0])
+            box = side_tris[(np.abs(side_tris[:, :, 0].mean(1) - q[0]) < 6) & (np.abs(side_tris[:, :, 1].mean(1) - q[1]) < 6)]
+            for t in box:
+                v0, v1 = t[1, :2] - t[0, :2], t[2, :2] - t[0, :2]
+                den = v0[0] * v1[1] - v1[0] * v0[1]
+                if abs(den) < 1e-12:
+                    continue
+                w2 = q - t[0, :2]
+                u = (w2[0] * v1[1] - v1[0] * w2[1]) / den
+                w = (v0[0] * w2[1] - w2[0] * v0[1]) / den
+                if u >= -1e-6 and w >= -1e-6 and u + w <= 1 + 1e-6:
+                    top = max(top, float(t[0, 2] + u * (t[1, 2] - t[0, 2]) + w * (t[2, 2] - t[0, 2])))
+            if m[2] - top > gap_max:
+                out["gaps"].append(f"{where(q)} ground {m[2] - top:.2f} m below the paving's edge")
+        # --- holes: bare ground enclosed by road round every junction
+        centres = [c_.route.cross_section(c_.sample)[:, :2].mean(0) for c_ in self.cuts]
+        centres += [V[list(f), :2].mean(0) for f in paving[::25]]
+        done: set[tuple[int, int]] = set()
+        for c0 in centres:
+            gx = np.arange(np.floor(c0[0] - 30.0), c0[0] + 30.0, 0.5)
+            gy = np.arange(np.floor(c0[1] - 30.0), c0[1] + 30.0, 0.5)
+            P = np.stack(np.meshgrid(gx, gy), axis=-1).reshape(-1, 2)
+            keep = np.array([(int(round(x * 2)), int(round(y * 2))) not in done for x, y in P], dtype=bool)
+            P = P[keep]
+            done.update((int(round(x * 2)), int(round(y * 2))) for x, y in P)
+            P = P[~road.covered_many(P)]
+            if not len(P):
+                continue
+            hits = np.zeros(len(P), dtype=int)
+            for ang in np.linspace(0.0, 2.0 * np.pi, 12, endpoint=False):
+                dv = np.array([math.cos(ang), math.sin(ang)])
+                got = np.zeros(len(P), dtype=bool)
+                for t in np.arange(0.5, 4.01, 0.5):
+                    todo = ~got
+                    got[todo] = road.covered_many(P[todo] + dv * t)
+                hits += got
+            for q in P[hits >= 11]:
+                out["holes"].append(f"{where(q)} bare ground enclosed by road")
+        # --- grass on the paving: roadside faces on top of it, or the maps taking it for the verge
+        for name, m in (("verge", shoulders), ("kerb", kerbs), ("limits", limits), ("edge decal", self.build_edge_decals())):
+            if not m.faces:
+                continue
+            mv = np.array(m.verts, dtype=np.float64).reshape(-1, 3)
+            for g in m.faces:
+                c = mv[list(g)].mean(0)
+                ring = c[:2] + 0.75 * np.stack([np.cos(np.linspace(0, 2 * np.pi, 8, endpoint=False)),
+                                                np.sin(np.linspace(0, 2 * np.pi, 8, endpoint=False))], axis=1)
+                if not road.covered(c[:2]) or not road.covered_many(ring).all():
+                    continue
+                # deep inside the road: on the paving only if not below its surface
+                zs = [z for z in (_face_z(V, f, c[:2]) for f in paving) if z is not None]
+                if zs and c[2] >= max(zs) - 0.02:
+                    out["grass"].append(f"{where(c)} {name} face on the paving")
+        field = DistanceField(self)
+        for f in paving:
+            c = V[list(f), :2].mean(0)
+            ring = c + 2.0 * np.stack([np.cos(np.linspace(0, 2 * np.pi, 12, endpoint=False)),
+                                       np.sin(np.linspace(0, 2 * np.pi, 12, endpoint=False))], axis=1)
+            if road.covered(c) and road.covered_many(ring).all() and float(field.dist(c)[0]) > -1.0:
+                out["grass"].append(f"{where(c)} maps take the paving for the verge (field {float(field.dist(c)[0]):+.1f} m)")
         return out
 
     # ------------------------------------------------------------------------ kerbs and shoulders
@@ -1336,11 +1698,65 @@ class TrackGeometry:
                             sv[k] = (g, shoulders.vert(outer[k]) if width[k] > 0 else g)
                     ids = (sv[i][0], sv[i2][0], sv[i2][1], sv[i][1])
                     shoulders.oriented_face(ids, smats[i] if smats is not None else smat, up)  # world-space UV1
+        self._paving_verges(shoulders, road, sw, drop, smat)
         if self.options.get("kerbs", False):
             for alt, chains in self.aprons:
                 self._apron_kerb(alt, chains, kerbs, limits)
         self._roadside = (kerbs, shoulders, limits)
         return self._roadside
+
+    def _paving_verges(self, shoulders: Mesh, road: "TriIndex", sw: float, drop: float, mat: str) -> None:
+        """A verge along the outline of the junction paving (mouths, gores, zipped wedges, aprons), as along the
+        plain road edges. Without one the terrain, sunk TERRAIN_SINK below any road edge as it is everywhere
+        else under the verge, showed as a dark gap 10-15 cm deep along every mouth's sides (Donington's National
+        turn, Oulton Park's Trackday rejoin, Anglesey's National; Chris 2026-10-26). Where another road is near,
+        the verge reaches half way to it."""
+        mesh = self.build_road()
+        count: dict[tuple[int, int], int] = {}
+        for f in mesh.faces:
+            for a, b in zip(f, f[1:] + f[:1]):
+                key = (min(a, b), max(a, b))
+                count[key] = count.get(key, 0) + 1
+        edges = [(a, b) for f in mesh.faces[self.road_quads:] for a, b in zip(f, f[1:] + f[:1])
+                 if count[(min(a, b), max(a, b))] == 1]
+        if not edges:
+            return
+        V = np.array(mesh.verts, dtype=np.float64).reshape(-1, 3)
+        normal: dict[int, np.ndarray] = {}
+        for a, b in edges:  # the paving lies left of its outline (counter-clockwise faces): outwards is right
+            d = V[b, :2] - V[a, :2]
+            n = np.array([d[1], -d[0]]) / max(float(np.hypot(*d)), 1e-9)
+            normal[a] = normal.get(a, np.zeros(2)) + n
+            normal[b] = normal.get(b, np.zeros(2)) + n
+        ids = sorted(normal)
+        out = np.array([normal[i] / max(float(np.hypot(*normal[i])), 1e-9) for i in ids])
+        base = V[ids]
+        # how far out the ground is clear of any road face (half way to it where one is near)
+        width = np.full(len(ids), sw)
+        for k in range(len(ids)):
+            clear = False  # a road face met before leaving the road (a corner on another road's edge) doesn't count
+            for t in np.arange(0.25, 2.0 * sw + 0.01, 0.25):
+                on = road.covered(base[k, :2] + out[k] * t)
+                if on and clear:
+                    width[k] = min(sw, t / 2.0 - 0.05)
+                    break
+                clear |= not on
+        width[width < 0.3] = 0.0
+        o = base.copy()
+        o[:, :2] += out * width[:, None]
+        o[:, 2] = np.minimum(base[:, 2] - drop * width / sw, self.terrain(o) - 0.3)
+        vid = {}
+        up = np.array([0.0, 0.0, 1.0])
+        at = {i: k for k, i in enumerate(ids)}
+        for a, b in edges:
+            ka, kb = at[a], at[b]
+            if width[ka] <= 0 and width[kb] <= 0:
+                continue
+            for i, k in ((a, ka), (b, kb)):
+                if i not in vid:
+                    e = shoulders.vert(base[k])
+                    vid[i] = (e, shoulders.vert(o[k]) if width[k] > 0 else e)
+            shoulders.oriented_face((vid[a][0], vid[b][0], vid[b][1], vid[a][1]), mat, up)
 
     def _apron_kerb(self, alt: Route, chains, kerbs: Mesh, limits: Mesh) -> None:
         """Apex kerb and green strip of an apron U-turn (_apron): along the apron's inside edge, from the first
