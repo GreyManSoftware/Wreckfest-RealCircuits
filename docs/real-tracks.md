@@ -804,13 +804,13 @@ corner over an airfield service road (OSM 449592525, paved between the mapped gr
 | | GT | SW | West | SEN |
 |---|---|---|---|---|
 | Source of the layout | MSV GT map (3.8 mi / 6.11 km, 10 left + 8 right corners); racingcircuits.info GT map T1–T18 | MSV SW map (2.8 mi / 4.50 km); racingcircuits.info South West map | MSV West map (1.87 mi / 3 km); OSM's West circuit way, matching the maps turn for turn | MSV SEN map (2.3 mi / 3.70 km); racingcircuits.info SEN map |
-| Lap (built) / published | 5,880.8 / 6,110 m (−3.8 %) | 4,585.3 / 4,500 m (+1.9 %) | 2,798.4 / 3,000 m (−6.7 %) | 3,595.3 / 3,700 m (−2.8 %; junctions filleted 2026-10-24) |
-| OSM polyline | 5,899 m | 4,592 m | 2,806 m | 3,592 m |
+| Lap (built) / published | 5,908.9 / 6,110 m (−3.3 %) | 4,617.6 / 4,500 m (+2.6 %) | 2,827.0 / 3,000 m (−5.8 %) | 3,595.3 / 3,700 m (−2.8 %; junctions filleted 2026-10-24) |
+| OSM polyline | 5,924 m | 4,623 m | 2,835 m | 3,592 m |
 | Direction | anticlockwise (racingcircuits.info turn numbering; evo.co.uk: the Hangar Hairpin first) | anticlockwise | anticlockwise (lapmeta: counter-clockwise) | anticlockwise |
 | Start/finish | inner (pit) straight before T1, OSM node 305063847, 159 m before the pit lane merges (racingcircuits.info flag, mapped by an affine fit of the West loop) | shares the GT line | shares the GT line | own: the south straight where the South pit lane rejoins, after the small west loop (racingcircuits.info SEN flag) |
 
 **Length gaps.** The OSM routes follow the maps corner for corner (the GT has exactly MSV's 10 left and 8 right
-corners) on the mapped tarmac. The SW, built from the same ways, is 1.9 % over MSV's figure, so OSM isn't
+corners) on the mapped tarmac; Turn 7 takes OSM 1558089016, not the West Circuit way's old bow across the grass (2026-10-26, from the AiM outline and the LIDAR: `real-tracks/bedfordautodrome.md`). The SW, built from the same ways, is 1.9 % over MSV's figure, so OSM isn't
 uniformly short: MSV rounds to 0.1 mi (±80 m), and its West figure (3.0 km) looks like an older layout's
 (racingcircuits.info: 2.98–3.14 km before 2015; lapmeta 2.89 km). The recipe allows 4 % (GT) and 7 % (West) with
 `lapLengthNote`s.

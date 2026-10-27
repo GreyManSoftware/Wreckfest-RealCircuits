@@ -3,6 +3,22 @@
 GT, SW, West and SEN. Build, sources and layouts: `docs/real-tracks.md`, "Bedford Autodrome". Recipe
 `tools/real_tracks/bedfordautodrome.json`, sample `geom/tests/samples/bedfordautodrome.json`.
 
+## Turn 7 re-routed (2026-10-26, AiM check)
+
+The AiM "Bedford GT" outline left our GT by up to 78 m between Turns 6 and 8. OSM maps two lines there: the West
+Circuit way (27782784), which bows west, and way 1558089016, a right-left kink east of it. The EA 2023 LIDAR
+intensity shows tarmac only along the kink: the west bow runs across grass. The width survey found no edges along
+it, and the "9.2 m by Turn 7" read below was that grass. racingcircuits.info's GT and West maps draw T7 as a kink
+between two diagonals. The GT, SW and West now take 1558089016 there (recipe `t7Note`). Turn 7's label is the kink's
+apex node.
+
+- **Laps:** GT 5,908.9 m (+28 m), SW 4,617.6 m and West 2,827.0 m. The OSM polylines are 5,924, 4,623 and 2,835 m.
+- **Widths:** the new stretch was measured on the new line and spliced into the 2026-10-24 profile. The ramp keeps
+  the width step within 0.4 m and the offset step within 0.1 m per 5 m. The rest of the profile is unchanged.
+- **Run-off:** re-measured.
+
+Fit to AiM after the fix: mean 2.3 m, max 7.3 m.
+
 ## Audit 2026-10-24
 
 Plots: `.local\audit\bedfordautodrome\bedfordautodrome-{gt,sw,west,sen}.png`; hillshade of the EA DTM with the
