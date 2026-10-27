@@ -216,7 +216,7 @@ class LayoutBuilder:
                     nxt -= 1
                 if nxt != stop and stop - nxt < 3:
                     # don't leave a sliver before the stop: end there if it's close, else leave room
-                    nxt = stop if stop - k <= C.AI_SECTOR_SAMPLES + 2 else stop - 3
+                    nxt = stop if stop - 3 <= k or (stop - k <= C.AI_SECTOR_SAMPLES and ok(k, stop)) else stop - 3
                 out.append(nxt)
                 k = nxt
         return out
@@ -229,7 +229,16 @@ class LayoutBuilder:
         n = r.n
         ov = round(C.AI_END_OVERLAP / 2.0) + extra
         forced = sorted({((j - i0) * direction) % n for j in self.joins} - {0})
-        ks = self._adaptive(r, forced + [n + ov], lambda k: (i0 + direction * k) % n, direction < 0)
+        # Past the line the strip overlaps its own start. A line there must not repeat a start line (bgeometry
+        # asserts "AI sector data is non continuous" on repeated vertices): the lap runs to one sample past the
+        # line, the overlap's lines sit one sample past the start lines, and the strip ends at least 2 samples
+        # from one.
+        ks = self._adaptive(r, forced + [n + 1], lambda k: (i0 + direction * k) % n, direction < 0)
+        lap = [k for k in ks if k < n]
+        end = ov
+        while any(end == q or abs(end - q - 1) < 2 for q in lap):
+            end += 1
+        ks += [n + q + 1 for q in lap if 0 < q and q + 1 < end - 1] + [n + end]
         return [(i0 + direction * k) % n for k in ks]
 
     def alt_sequence(self, r: Route) -> list[int]:
