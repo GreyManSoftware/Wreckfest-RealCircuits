@@ -8,7 +8,9 @@
 - the start lights, bridges and gantries stand at their real sM (within GANTRY_S_TOL) with at least
   MIN_CLEARANCE between the road and their lowest part, every pillar off the roads (nearer than PART_CLEAR: reported,
   the real spans are approved);
-- span banners on every driven face, within the span's footprint and MIN_CLEARANCE over the road, the welcome banner
+- pit buildings, grandstands and spans unscaled (pits.XREF_SCALE: the game doesn't scale subscenes);
+- span banners on every driven face, flush on it (touching the face plane and an edge of the face), within the
+  span's footprint and MIN_CLEARANCE over the road, the welcome banner
   on the span nearest each layout's start (check_banners);
 - the start camera isn't inside or looking through a pit building.
 """
@@ -108,6 +110,13 @@ def check_pits_base(check, geo, sc: dict, obs: dict, manifest: dict, to_scene, w
     check(not sel or worst >= 1.0, "pits: buildings, grandstands and paddock props stand off every road",
           f"{len(sel)} props, nearest {worst:.1f} m from a road edge")
     check(not on_lane, "pits: nothing stands on the pit lane", ", ".join(on_lane[:3]))
+    # the game draws subscenes at their own size (pits.XREF_SCALE): pit buildings, grandstands and spans laid out at
+    # another scale overlap (Brands' grandstands, flickering ad boards) or leave their banners floating
+    scaled = [f"{p['asset']} {p['scale']:.2f}" for p in P
+              if p["category"] in ("pitBuildings", "realGrandstand", "grandstand", "bridges")
+              and not p["asset"].startswith("sponsor_") and abs(p["scale"] - pits_mod.XREF_SCALE) > 0.005]
+    check(not scaled, "pits: buildings, grandstands and spans at the size the game draws them (unscaled)",
+          ", ".join(scaled[:3]))
     # measured run-off (runoff.py): no gravel trap under the pit lane or a pit building
     ro = getattr(geo, "runoff", None)
     if ro is not None and ro.active:
@@ -179,8 +188,9 @@ def check_pits_base(check, geo, sc: dict, obs: dict, manifest: dict, to_scene, w
 
 def check_banners(check, geo, P: list, spans: list) -> None:
     """Span banners (pits._banners, sponsor.py span / welcome panels): every span face a layout drives towards
-    carries one (pits.driven_faces); each banner lies within its span's footprint (between the pillars, flush on a
-    face, printed side outwards, from the span's lowest part up to the top of the face) and at least MIN_CLEARANCE
+    carries one (pits.driven_faces); each banner lies within its span's footprint (between the pillars, printed side
+    outwards) and touches the span: its back on the face plane and its edge on the face's top or bottom edge, within
+    pits.BANNER_TOUCH, wholly between them (pits.FACES, measured on the stock mesh); and at least MIN_CLEARANCE
     over every road under it; every layout that drives under a span has the welcome banner on the face it sees of
     the span nearest its start line."""
     from wfbuild import pits as pits_mod, sponsor
@@ -223,8 +233,16 @@ def check_banners(check, geo, P: list, spans: list) -> None:
         bad = []
         if abs(u) + w / 2.0 > F["half"] * s + 0.05:
             bad.append(f"ends {abs(u) + w / 2.0:.1f} m out of {F['half'] * s:.1f}")
-        if not (b["position"][2] >= z0 + F["low"] * s - 0.01 and b["position"][2] + h <= z0 + F["top"] * s + 0.01):
-            bad.append("above or below the face")
+        lo, hi = z0 + F["bottom"] * s, z0 + F["top"] * s
+        if not (b["position"][2] >= lo - 0.01 and b["position"][2] + h <= hi + 0.01):
+            bad.append(f"{b['position'][2] - z0:.2f}..{b['position'][2] + h - z0:.2f} m off the face "
+                       f"({lo - z0:.2f}..{hi - z0:.2f})")
+        elif min(abs(b["position"][2] + h - hi), abs(b["position"][2] - lo)) > pits_mod.BANNER_TOUCH:
+            bad.append("touches neither the face's top nor its bottom edge")
+        # flush: the banner's back on the face plane (Chris 2026-10-26: banners floated off the span)
+        want = (F["neg"] if face < 0 else F["pos"]) * s + face * (pits_mod.BANNER_GAP + sponsor.SPAN_T / 2.0)
+        if abs(v - want) > pits_mod.BANNER_TOUCH:
+            bad.append(f"{abs(v - want):.2f} m off the face plane")
         if float(out_dir @ Y) * face < 0.95:
             bad.append("printed side not outwards")
         if bad:
