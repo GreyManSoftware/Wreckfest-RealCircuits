@@ -10,7 +10,8 @@ in ``$defs``, string aliases (``$defs`` of ``type: string`` without ``enum``), `
 ``number``, ``integer`` and ``boolean`` properties, arrays, and maps (``additionalProperties``
 with a ``$ref``). Inline object or enum schemas are rejected: give them a ``$defs`` entry.
 The schema and rules JSON files are also copied next to each target's generated code so every
-runtime (browser bundle, API assembly, Python package) carries its own copy.
+runtime (browser bundle, API assembly, Python package) carries its own copy. The TypeScript and C#
+targets are skipped when ``src/web`` or ``src/Api`` is absent (e.g. the standalone pipeline repo).
 """
 
 from __future__ import annotations
@@ -560,17 +561,24 @@ def gen_py_init() -> str:
 
 
 def outputs() -> dict[Path, bytes]:
+    """Files to write. The Python target always; TypeScript and C# only when their app folders
+    (``src/web``, ``src/Api``) exist, so the generator also runs in a checkout without the web app."""
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     model = load_model(schema)
     files: dict[Path, bytes] = {
-        TS_DIR / "trackSpec.ts": gen_ts(model).encode(),
-        CS_DIR / "TrackSpec.g.cs": gen_cs(model).encode(),
         PY_DIR / "track_spec.py": gen_py(model).encode(),
         PY_DIR / "__init__.py": gen_py_init().encode(),
     }
+    dirs = [PY_DIR]
+    if (REPO / "src" / "web").is_dir():
+        files[TS_DIR / "trackSpec.ts"] = gen_ts(model).encode()
+        dirs.append(TS_DIR)
+    if (REPO / "src" / "Api").is_dir():
+        files[CS_DIR / "TrackSpec.g.cs"] = gen_cs(model).encode()
+        dirs.append(CS_DIR)
     for name in COPIED_FILES:
         data = (SCHEMA_DIR / name).read_bytes().replace(b"\r\n", b"\n")
-        for d in (TS_DIR, CS_DIR, PY_DIR):
+        for d in dirs:
             files[d / name] = data
     return files
 

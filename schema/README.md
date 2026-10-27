@@ -276,6 +276,8 @@ py schema/codegen/generate.py --check  # exit 1 if anything is stale
 ```
 
 A stdlib-only Python emitter. It avoids three different generator toolchains and keeps the output deterministic.
+The TypeScript and C# targets belong to the web app (a separate repo) and are written only when `src/web` or
+`src/Api` exists; in this repo only the Python target is generated.
 
 | Target | Output |
 |---|---|
@@ -294,8 +296,8 @@ committed. CI (`codegen` job) regenerates them and fails on any diff.
 | Language | Code | Schema validator |
 |---|---|---|
 | Python | `geom/src/trackgen_geom/rules.py`, `evaluate(spec, facts=None)` | `jsonschema` |
-| TypeScript | `src/web/src/rules/`, `evaluate(spec, facts?)` | `ajv` (2020) |
-| C# | `src/Api/Rules/RulesEngine.cs`, `RulesEngine.Evaluate(spec, facts)` | JsonSchema.Net 7.4 (pinned: the last MIT-only release; 8+ ship with an extra maintenance-fee EULA) |
+| TypeScript (web app) | `src/web/src/rules/`, `evaluate(spec, facts?)` | `ajv` (2020) |
+| C# (web app) | `src/Api/Rules/RulesEngine.cs`, `RulesEngine.Evaluate(spec, facts)` | JsonSchema.Net 7.4 (pinned: the last MIT-only release; 8+ ship with an extra maintenance-fee EULA) |
 
 Each evaluator accepts raw JSON or the generated types.
 

@@ -132,7 +132,7 @@ tracks:
 
 - add `mods=msvanglesey` to `server_config.cfg`;
 - add the events (`el_add=cadwellpark_race`, ...) to the rotation;
-- add the eight circuits to `Start-WreckfestServer.ps1`'s `$circuitMap`;
+- add the eight circuits to the server start script's `$circuitMap` (`Start-WreckfestServer.ps1`, not in this repo);
 - update its `$expected` counts.
 
 `.\tools\Install-TrackMod.ps1 -Zip E:\WreckfestMods\msvanglesey.zip -Bundle -Force -Server` prints these lines

@@ -274,8 +274,8 @@ def _close(actual: Any, expected: Any, path: str = "") -> None:
 
 @pytest.mark.parametrize("name", CONTRACT_CASES)
 def test_contract_fixture_matches_service(client: TestClient, name: str) -> None:
-    """``tests/contract/validate-<sample>.json`` is a real /validate response; the API's tests
-    deserialise it (tests/Api.Tests/GeometryContractTests.cs). Regenerate with GEOM_UPDATE_CONTRACT=1."""
+    """``tests/contract/validate-<sample>.json`` is a real /validate response; the web app's API
+    tests (a separate repo) deserialise it. Regenerate with GEOM_UPDATE_CONTRACT=1."""
     body = client.post("/validate", json={"spec": load(name)}).json()
     fixture = CONTRACT / f"validate-{name}.json"
     if os.environ.get("GEOM_UPDATE_CONTRACT") == "1":

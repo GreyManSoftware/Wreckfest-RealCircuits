@@ -242,4 +242,4 @@ $env:GEOM_UPDATE_CONTRACT = '1'; .\.venv\Scripts\python -m pytest tests\test_ser
 
 **Docker:** `geom/Dockerfile` builds a slim, non-root image (`python:3.12-slim`, uid 10001) that runs
 `uvicorn trackgen_geom.service:app` on port 8000. In Compose, `geom` has a 1-CPU / 512 MB limit, a healthcheck on
-`/healthz`, and only a localhost port (`127.0.0.1:8000`, for `dotnet run`).
+`/healthz`, and only a localhost port (`127.0.0.1:8000`).

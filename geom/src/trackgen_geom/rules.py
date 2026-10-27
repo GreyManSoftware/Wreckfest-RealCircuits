@@ -2,7 +2,7 @@
 
 Evaluates the declarative rules in ``track-rules.json`` against a track spec, after validating
 the spec (and optional geometry facts) against ``track-spec.schema.json``. The same semantics are
-implemented in TypeScript (``src/web/src/rules``) and C# (``src/Api/Rules``); all three run the
+implemented in TypeScript and C# by the web app (a separate repo); all three run the
 shared vectors in ``schema/test-vectors``. See ``schema/README.md`` for the rules format.
 
 The engine never computes geometry: rules marked ``evaluatedBy: geometry`` read measurements

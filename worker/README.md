@@ -74,7 +74,6 @@ docker compose --profile worker run --rm --no-deps worker smoke
 
 - **Game path:** the game root comes from `WRECKFEST_DIR` (default `D:/SteamLibrary/steamapps/common/Wreckfest`). You can set it in `.env`.
 - **CPU and memory:** compose limits the worker to 4 CPUs and 6 GB. `run-smoke.ps1` uses `--cpus 4 --memory 4g` by default; change them with `-Cpus` and `-Memory`.
-- **Dependencies:** `--no-deps` stops compose from also starting Azurite.
 
 ## Blender builder
 
@@ -394,7 +393,7 @@ Loop, one build at a time:
 
 **SIGTERM/SIGINT:** when idle the consumer exits at once. During a build it kills the running tool, makes the message visible again immediately (the next worker retries it; re-sending `running` is allowed) and exits within a few seconds. Compose gives it `stop_grace_period: 30s`.
 
-**Compose:** the service stays under the `worker` **profile**, because it needs the Wreckfest install and Chris's machine; `docker compose up` alone still starts api + geom + azurite. Start everything with `docker compose --profile worker up -d`. Limits: `cpus: 4`, `mem_limit: 6g`; the game is mounted read-only at `/wreckfest`.
+**Compose:** the service stays under the `worker` **profile**, because it needs the Wreckfest install; `docker compose up` alone starts only geom. In this repo the compose service runs one-off commands (default `info`); the queue consumer needs a storage queue and the API from the web app (a separate repo), whose compose file runs it. Limits: `cpus: 4`, `mem_limit: 6g`; the game is mounted read-only at `/wreckfest`.
 
 ### Mod layout (zip extracts as `<slug>/…`)
 
@@ -459,7 +458,7 @@ Also listed in every `build-report.json`, plus the builder's own list ([Unverifi
 ### End-to-end results (2026-10-18)
 
 - CLI, `--cpus 8`: `oval` → `gravel_oval.zip` 1.15 MB (14 files) in 30 s; `figure8_bridge` → `figure_eight.zip` 2.56 MB (20 files, two events) in 50 s. The only info notices were Wine's XDG line and one `illegal key otherway` (reverse layout).
-- Queued (`docker compose up -d azurite geom api` + worker): admin bootstrap invite → signup → login → `POST /api/tracks` (oval.json) → `POST /api/tracks/{id}/builds` → `queued` → `running` → `succeeded` in 36 s → artifact and log downloaded through the API. A SIGTERM during a figure-8 build (with `HEARTBEAT_S=10`: heartbeats at 10 s and 20 s) cancelled it and requeued the message; the restarted worker built it on attempt 2.
+- Queued (with the web app's compose stack: azurite, geom, api + worker): admin bootstrap invite → signup → login → `POST /api/tracks` (oval.json) → `POST /api/tracks/{id}/builds` → `queued` → `running` → `succeeded` in 36 s → artifact and log downloaded through the API. A SIGTERM during a figure-8 build (with `HEARTBEAT_S=10`: heartbeats at 10 s and 20 s) cancelled it and requeued the message; the restarted worker built it on attempt 2.
 - An invalid spec fails with the schema/rule reason in `errorMessage` and the log.
 
 ## Smoke test results (2026-10-18)

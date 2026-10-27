@@ -2,19 +2,10 @@
 
 Local Windows helpers (phase 11).
 
-## Start-TrackGen.ps1 / Stop-TrackGen.ps1 / New-TrackGenInvite.ps1
-
-Run the local beta stack and its Dev Tunnel; see the runbook in the root [README](../README.md).
-`TrackGen.Common.ps1` holds shared helpers. The Dev Tunnels CLI path comes from `$env:DEVTUNNEL_EXE` (default
-`devtunnel.exe`, then `devtunnel` on PATH); the tunnel ID from `-TunnelId` /
-`$env:TRACKGEN_TUNNEL_ID` (default `trackgen`). The tunnel host is started detached (via WMI) so it outlives the
-console; `Stop-TrackGen.ps1` stops it by the PID in `.local\tunnel.pid`.
-
 ## Install-TrackMod.ps1
 
 Installs a generated track mod zip (one top-level `<slug>\` folder with `data\`, `modinfo.modi`,
-`preview.jpg`) into `<GameDir>\mods\<slug>`. Download the zip from the site first (no auth support;
-`-Url` works for unauthenticated local URLs only).
+`preview.jpg`) into `<GameDir>\mods\<slug>`. `-Url` downloads it first (unauthenticated local URLs only).
 
 ```powershell
 .\tools\Install-TrackMod.ps1 -Zip .\my_oval.zip                 # install
@@ -36,7 +27,7 @@ Safety:
 - Existing folders are never overwritten without `-Force`, and `-Force`/`-Uninstall` only touch folders
   with the `.trackgen` marker (`mods\example` and hand-made mods are safe).
 - `-Server` only **prints** diff-style changes (`mods=`, `el_add=` per `.evse` in
-  `data\property\event\<slug>\`, `Start-WreckfestServer.ps1` `$circuitMap` / `$expected`). It never
+  `data\property\event\<slug>\`, `$circuitMap` / `$expected` in a server start script, `Start-WreckfestServer.ps1`, not part of this repo). It never
   writes `server_config.cfg`, `initial_server_config.cfg` or `Start-WreckfestServer.ps1`. Ask Chris
   before applying.
 

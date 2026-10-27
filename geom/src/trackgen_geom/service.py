@@ -4,8 +4,8 @@ Run with (one worker; the build runs in a small thread pool)::
 
     uvicorn trackgen_geom.service:app --host 0.0.0.0 --port 8000 --workers 1 --no-access-log
 
-Requires the ``service`` extra. The contract with the API (``src/Api/Geometry/GeometryClient.cs``) is
-documented in ``geom/README.md`` and ``src/Api/README.md``.
+Requires the ``service`` extra. The contract with the web app's API (a separate repo) is
+documented in ``geom/README.md``.
 
 Environment:
 

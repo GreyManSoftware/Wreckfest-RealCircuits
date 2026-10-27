@@ -1,41 +1,8 @@
 # Local development stack. CPU/memory limits keep the host under the 75% CPU budget.
-# Default: api + geom + azurite. Worker (Blender + Wine) only with: docker compose --profile worker up
+# Default: the geometry service. Build worker (Blender + Wine) only with the worker profile.
 name: trackgen
 
 services:
-  api:
-    build:
-      context: .
-      dockerfile: src/Api/Dockerfile
-    image: trackgen-api:dev
-    # ${...} values come from .env (gitignored; see .env.example), which Compose reads automatically if present.
-    environment:
-      # Production: Secure cookies with the __Host- prefix. The Dev Tunnel (or any local proxy) terminates TLS and sends
-      # X-Forwarded-Proto/-Host/-For, which the API trusts because this port is bound to 127.0.0.1 only.
-      ASPNETCORE_ENVIRONMENT: ${TRACKGEN_API_ENVIRONMENT:-Production}
-      # SQLite file and Data Protection key ring live under .local/data/api on E: (bind mount).
-      Database__Path: /data/trackgen.db
-      DataProtection__KeysPath: /data/keys
-      GEOM_URL: http://geom:8000
-      # Azurite's development account, reached through the compose service name (no key in this file).
-      Storage__ConnectionString: UseDevelopmentStorage=true;DevelopmentStorageProxyUri=http://azurite
-      # Shared secret for the worker's PATCH /api/internal/builds/{id}; empty disables the endpoint.
-      Worker__Secret: ${TRACKGEN_WORKER_SECRET:-}
-      # The worker connects directly; /api/internal requests with X-Forwarded-For came through the tunnel.
-      Worker__RejectProxiedInternal: "true"
-      # Optional pinned first-admin invite code; empty means a random one is printed to the log.
-      Auth__BootstrapAdminCode: ${TRACKGEN_BOOTSTRAP_ADMIN_CODE:-}
-    volumes:
-      - ./.local/data/api:/data
-    ports:
-      - "127.0.0.1:8080:8080"
-    depends_on:
-      - geom
-      - azurite
-    cpus: 1.0
-    mem_limit: 512m
-    restart: unless-stopped
-
   geom:
     build:
       context: geom
@@ -43,13 +10,11 @@ services:
       additional_contexts:
         wfbuild: worker/builder
     image: trackgen-geom:dev
-    # Internal service: the api reaches it as http://geom:8000. The localhost-only port is for running the API
-    # outside Compose (`dotnet run`, where GEOM_URL defaults to http://localhost:8000); it is never exposed beyond
-    # this machine.
+    # Geometry service on a localhost-only port (http://localhost:8000); never exposed beyond this machine.
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      # Below the API's Geometry:TimeoutSeconds (20) so a slow build returns a clear 503 rather than a client timeout.
+      # A slow build returns a clear 503 rather than a client timeout.
       GEOM_COMPUTE_TIMEOUT_S: "15"
       GEOM_MAX_CONCURRENCY: "2"
     healthcheck:
@@ -62,46 +27,23 @@ services:
     mem_limit: 512m
     restart: unless-stopped
 
-  azurite:
-    image: mcr.microsoft.com/azure-storage/azurite
-    command: azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --location /data --skipApiVersionCheck
-    ports:
-      - "127.0.0.1:10000:10000"
-      - "127.0.0.1:10001:10001"
-      - "127.0.0.1:10002:10002"
-    volumes:
-      - ./.local/data/azurite:/data
-    cpus: 0.5
-    mem_limit: 256m
-    restart: unless-stopped
-
   worker:
-    # Opt-in (needs the Wreckfest install): docker compose --profile worker up -d
+    # Opt-in (needs the Wreckfest install). One-off commands, e.g.:
+    #   docker compose --profile worker run --rm worker info
+    #   docker compose --profile worker run --rm worker builder-tests oval
+    # Builds that write files need an output mount (see worker/README.md). The queue consumer (`worker`) needs
+    # a storage queue and an API.
     profiles: ["worker"]
     build:
       context: .
       dockerfile: worker/Dockerfile
     image: trackgen-worker:dev
-    # Default command is the queue consumer. One-off commands: `run --rm --no-deps worker info|smoke|build-mod ...`
-    command: ["worker"]
-    environment:
-      # The same Azurite connection string as the api service (the worker expands it to Azurite's dev account).
-      STORAGE_CONNECTION_STRING: UseDevelopmentStorage=true;DevelopmentStorageProxyUri=http://azurite
-      API_BASE_URL: http://api:8080
-      # Must match the api's Worker__Secret (both come from TRACKGEN_WORKER_SECRET in .env).
-      WORKER_SECRET: ${TRACKGEN_WORKER_SECRET:-}
+    command: ["info"]
     volumes:
       # The Wreckfest install (bgeometry.exe, bimage.exe, stock data) is mounted read-only, never baked in.
       - type: bind
         source: ${WRECKFEST_DIR:-D:/SteamLibrary/steamapps/common/Wreckfest}
         target: /wreckfest
         read_only: true
-    depends_on:
-      - azurite
-      - api
-    # SIGTERM cancels a running build and returns its message to the queue; give it time to do so.
-    stop_grace_period: 30s
     cpus: 4.0
     mem_limit: 6g
-    restart: unless-stopped
-

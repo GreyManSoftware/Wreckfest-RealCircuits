@@ -1,7 +1,7 @@
-# AGENTS.md — Wreckfest Track Generator
+# AGENTS.md — Wreckfest Real Circuits
 
-Conventions for humans and coding agents working in this repo. The plan lives in
-`docs/track-generator-plan.md`; background research in `docs/custom-track-handover.md`.
+Conventions for humans and coding agents working in this repo. Real-circuit pipeline and data:
+`docs/real-tracks.md`; track pack and Workshop: `docs/workshop-publishing.md`.
 
 ## Hard constraints
 
@@ -21,49 +21,34 @@ Conventions for humans and coding agents working in this repo. The plan lives in
 - **Game files:** don't modify anything under `D:\SteamLibrary\…`. Game tools (`bgeometry.exe`,
   `bimage.exe`) and stock assets are **mounted at runtime, never baked into images or committed**.
   Game formats (`*.bmap`, `*.scne`, `*.bgo3`, `*.weat`, `*.tcat`, …) are gitignored.
-- **Server:** don't start/stop the Wreckfest dedicated server, and don't change voting, laps, bots or
-  existing tracks without Chris's approval. Stop it only by PID (`Stop-WreckfestServer.ps1`).
-  `AGENT-HANDOVER.md` (server runbook) stays local and is gitignored because it has host/LAN details.
 
 ## Layout
 
 | Path | What |
 |---|---|
 | `schema/` | `track-spec.schema.json` + `track-rules.json` — **single source of truth** for the track spec and option rules; `codegen/`, `test-vectors/` |
-| `src/Api/` | ASP.NET Core (.NET 10) minimal API `TrackGen.Api` (auth, tracks, jobs) |
-| `tests/Api.Tests/` | xUnit tests for the API (`WebApplicationFactory`) |
-| `src/web/` | React + TypeScript (Vite) frontend, vitest |
 | `geom/` | Python package `trackgen_geom` (geometry core) + FastAPI service `trackgen_geom.service` |
-| `worker/` | Linux build worker (Blender 4.2 LTS + Toolbox Mz + Wine64) — placeholder |
-| `infra/` | Terraform for Azure Container Apps — placeholder |
-| `tools/` | Local PowerShell helpers (`Install-TrackMod.ps1` later) — placeholder |
-| `docs/` | Plan and research |
+| `worker/` | Linux build worker (Blender 4.2 LTS + Toolbox Mz + Wine64): builder, pipeline, Dockerfile |
+| `tools/` | Real-track importer and data (`real_tracks/`, `real_tracks_data/`), bundles, `wf_modlist`, Install/Build/Publish scripts |
+| `docs/` | Real circuits and Workshop publishing |
 | `.local/` | Scratch, research, caches (gitignored) |
-| `Start-/Stop-WreckfestServer.ps1`, `rotation.txt` | Existing server scripts |
 
 ## Schema and generated code
 
-JSON Schema in `schema/` is the single source of truth. C#, TypeScript and Python types are generated
-from it; **generated types must not be hand-edited** — change the schema and regenerate. Option rules
-are data (`schema/track-rules.json`), evaluated by small engines in each language
-(`geom/src/trackgen_geom/rules.py`, `src/web/src/rules/`, `src/Api/Rules/`) and covered by shared test
-vectors (`schema/test-vectors/`) run in all three test suites. Details: `schema/README.md`.
+JSON Schema in `schema/` is the single source of truth. Python types are generated from it (and C# and
+TypeScript ones for downstream apps, when their target folders `src/Api` and `src/web` exist);
+**generated types must not be hand-edited** — change the schema and regenerate. Option rules are data
+(`schema/track-rules.json`), evaluated by `geom/src/trackgen_geom/rules.py` and covered by the shared
+test vectors (`schema/test-vectors/`), which other language engines can run too. Details: `schema/README.md`.
 
 ```powershell
-py schema/codegen/generate.py          # regenerate src/web/src/generated, src/Api/Generated, geom/.../generated
+py schema/codegen/generate.py          # regenerate geom/.../generated (and src/web, src/Api when present)
 py schema/codegen/generate.py --check  # CI fails if generated files are stale
 ```
 
 ## Build and test
 
 ```powershell
-# .NET API
-dotnet build TrackGen.slnx
-dotnet test TrackGen.slnx
-
-# Web
-cd src\web; npm ci; npm run build; npx vitest run; npm run lint
-
 # Geometry (venv under geom\.venv)
 cd geom
 py -m venv .venv
@@ -73,7 +58,10 @@ py -m venv .venv
 # Generated code (stdlib-only; run after any schema change)
 py schema\codegen\generate.py
 
-# Local stack (api, geom, azurite); worker only with --profile worker
+# Builder tests (worker image, game install mounted read-only)
+.\worker\builder\run-builder-tests.ps1 -Specs oval
+
+# Local stack (geom service); worker only with --profile worker
 docker compose config
 docker compose up --build
 ```
@@ -89,4 +77,4 @@ Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>
 Copilot-Session: <session id>
 ```
 
-The GitHub remote `GreyManSoftware/WreckFest-TrackGen` is **private** and must stay private.
+The GitHub remote `GreyManSoftware/Wreckfest-RealCircuits` is **public**. Treat every commit as published: no secrets, personal data, LAN or tunnel URLs, game files, or third-party logos without permission. Run gitleaks (pinned Docker image) over new history before pushing.

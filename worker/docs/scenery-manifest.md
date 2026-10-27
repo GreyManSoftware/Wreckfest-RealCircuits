@@ -3,7 +3,7 @@
 The builder plans all trackside dressing and scenery in pure Python (`worker/builder/wfbuild/dressing.py`, numpy
 only, no `bpy`) and writes the plan as `scenery.json` beside the scenes. The Blender builder turns every placement
 into a `#xref ob/<asset>.scne` subscene in the base scene. The pipeline copies it beside the zip
-(`<out>/scenery.json`). The web editor's 3D preview (`src/web/src/view3d/`) draws the same plan: geom's
+(`<out>/scenery.json`). The web editor's 3D preview (in the separate web app) draws the same plan: geom's
 `POST /scenery` runs this planner on the unsaved spec (`wfbuild` is installed into geom from
 `worker/builder/pyproject.toml`), so keep `dressing.py` free of `bpy` and of files outside the package.
 
