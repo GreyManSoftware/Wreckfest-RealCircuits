@@ -17,8 +17,26 @@ AGENT-HANDOVER.md
 *.weli
 *.modi
 *.tcat
+# Extracted or converted game textures (stock assets stay in the game install)
+*.dds
+*.tga
 # Allow small test fixtures later
 !tests/fixtures/**
+
+# Built mods, Workshop uploads and the server config (may hold passwords, admin Steam IDs)
+*.zip
+*.vdf
+server_config*.cfg
+config-backups/
+
+# Raw survey downloads (licensed data; only small derived files are committed)
+*.laz
+*.las
+*.npz
+*.tif
+*.tiff
+*.osm
+*.osm.pbf
 
 # Secrets and local data
 .env
@@ -29,6 +47,10 @@ AGENT-HANDOVER.md
 *.db-wal
 *.sqlite
 *.sqlite3
+*.pem
+*.key
+*.pfx
+*.p12
 
 # Terraform
 *.tfstate
