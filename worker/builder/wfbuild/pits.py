@@ -57,16 +57,20 @@ SPANS = {"bridge": (BRIDGE_ASSET, BRIDGE_INNER, BRIDGE_LOW), "gantry": (GANTRY_A
 PART_CLEAR = 4.0 + 3.7     # preferred: every pillar, stair and base 4 m beyond the verge (shoulder, or kerb + green strip)
 LEG_CLEAR = 3.7 + 0.5      # required of the pillars / posts of a real (approved) span: off the road and its verge
 LEG_MIN = 0.5              # a real span is replaced by the gantry only where its pillars would stand on a road
-SPAN_SCALE_MAX = 1.8
+SPAN_SCALE_MAX = 1.0       # = XREF_SCALE: the game doesn't scale subscenes (below), so spans stay at their own size
 NUDGE_M = 6.0              # a span may move this far across the road to get a pillar off it
-# span faces for banners (sponsor.py span / welcome panels), unscaled: the usable half-length along the span (between
-# the pillars / posts), the y of the -Y and +Y facing surfaces, the lowest part, and the banner's lower and highest
-# edge. Footbridge: side walls at y +-1.88 m from 6.04 to 9.03 m, pillars x +-11..13 (y +-2); arch: the stock
-# banner's -Y face at y 0.73, the frame's +Y face at 1.09, the top beam from 7.42 m.
-FACES = {BRIDGE_ASSET: {"half": 10.5, "neg": -1.88, "pos": 1.88, "low": BRIDGE_LOW, "bottom": 6.05, "top": 9.0},
+# span faces for banners (sponsor.py span / welcome panels), unscaled, measured on the stock meshes: the usable
+# half-length along the span, the y of the -Y and +Y facing surfaces the banner's back lies on, the lowest part, and
+# the face's lower and upper edge. Footbridge (prop_bridge03_green): each side wall is a panel recessed at y +-1.84 m
+# in a frame at +-1.88 m (rails from 5.98 to 6.06 and 8.95 to 9.03 m, end posts to x +-11.75 m); the banner lies on
+# the frame, across the whole panel and its end posts. Arch: the stock banner's -Y face at y 0.73 (x -9.8..8.7,
+# 5.32 to 7.88 m), the frame's +Y face at 1.09, the top beam from 7.42 m.
+FACES = {BRIDGE_ASSET: {"half": 11.75, "neg": -1.88, "pos": 1.88, "low": BRIDGE_LOW, "bottom": 6.06, "top": 8.95},
          GANTRY_ASSET: {"half": 8.5, "neg": 0.73, "pos": 1.09, "low": GANTRY_LOW, "bottom": 5.4, "top": 7.4}}
-BANNER_GAP = 0.03          # between the span's face and the banner
-BANNER_MIN_H = 1.2         # three sponsors side by side when each panel is still this tall, else two
+BANNER_GAP = 0.005         # between the span's face and the banner's back: flush (Chris 2026-10-26: they floated)
+BANNER_TOUCH = 0.02        # check_pits: a banner's back at most this off its span's face
+BANNER_MIN_H = 1.35        # three sponsors side by side when each panel is still this tall, else two (1.2 before
+                           # Chris asked for 10-15 % bigger sponsor banners, 2026-10-26)
 
 
 def is_span(asset: str) -> bool:
@@ -131,9 +135,19 @@ PROPS = {
     "small": [("prop_commentatorbuilding_forest09", 6.9, 6.3, 5.6, "-y")],
     # not prop_start_grandstand3g: its front row of ad boards is two strips of adverts 13 mm apart over 38 m (and the
     # wood boards 14 mm behind), which flicker against each other (Chris 2026-10-26: Brands' start grandstand)
-    "grandstand": [("prop_start_grandstand1", 25.0, 7.8, 8.1, "-y")],
+    # the low derby stand (4.3 m) for low real grandstands, as the stock props can't be scaled (XREF_SCALE)
+    "grandstand": [("prop_start_grandstand1", 25.0, 7.8, 8.1, "-y"),
+                   ("prop_derby_grandstand01", 32.5, 5.75, 4.3, "-y")],
 }
-SCALE_RANGE = (0.55, 1.4)
+# The game draws #xref subscenes at their own size: the scale our scenes carry (the subscene's scale field, written
+# as stock bases write it) is not applied in game. Measured 2026-10-26 on Chris's screenshots and reports: Navarra's
+# footbridge (scale 1.8) showed its deck ~6 m up and its pillars at the road edge, as unscaled; the span banners
+# (our own mesh, laid out for the scaled span) floated 6.06 * (scale - 1) above the side wall and 1.88 * (scale - 1)
+# in front of it (Donington 1.72: 4.4 m; Brands 1.24-1.28: 1.5-1.7 m; Oulton 1.44: 2.7 m, 1.16: 1 m, unremarked);
+# Brands' real grandstands laid out at 0.55 stood at full size, overlapping, their ad boards flickering against each
+# other's. So every pit building, grandstand, bridge and gantry is placed at XREF_SCALE.
+XREF_SCALE = 1.0
+SCALE_RANGE = (XREF_SCALE, XREF_SCALE)
 TILE_GAP = 1.03           # building and grandstand tiles: 3 % of their length apart
 PADDOCK_ASSETS = ["vehicle_t2_cargotruck01", "vehicle_t2_crewbus01", "prop_start_tent8", "prop_trailer2",
                   "prop_hightent_03", "vehicle_t2_cargotruck01", "prop_start_tent4", "vehicle_t2_crewbus01"]
@@ -427,12 +441,12 @@ class Pits:
             add(*tile)
         # paddock: trucks, tents and crew buses on the real paddock
         rng = planner.rng
+        placed: list = []   # the placed props' footprints, grown 10 %, across every paddock area
         for a, poly in self.paddocks:
             n = 0
             c, L, D, ax = min_area_rect(poly)
             ay = np.array([-ax[1], ax[0]])
             cand = self._cover(poly, PADDOCK_SPACING)
-            placed: list[tuple[np.ndarray, float]] = []
             for q in cand[rng.permutation(len(cand))]:
                 if n >= PADDOCK_CAP or not point_in_poly(q[None, :], poly)[0]:
                     continue
@@ -441,10 +455,12 @@ class Pits:
                 q = q + rng.uniform(-2, 2, 2)
                 if float(planner.field.dist(q)[0]) < planner.edge_min + rr or self._on_pits(q, rr * 1.45 + 1.0):
                     continue
-                if any(np.hypot(*(q - q2)) < (rr + r2) * 1.05 for q2, r2 in placed):  # no shared footprints
-                    continue
-                placed.append((q, rr))
                 yaw = yaw_to(ay) if rng.random() < 0.8 else yaw_to(ax)
+                # no shared footprints or faces (Navarra: a cargo truck's side on a tent's, the radius test passed)
+                rq = footprint.ccw(footprint.rect(asset, q[0], q[1], yaw, 1.1, envs.asset_info(asset)))
+                if any(footprint.area(footprint.clip(list(rq), o)) > 0.01 for o in placed):
+                    continue
+                placed.append(rq)
                 add(asset, "pitPaddock", q, yaw)
                 planner.sc.zones.append(Zone("paddock", float(q[0]), float(q[1]), 9.0))
                 n += 1
@@ -470,8 +486,8 @@ class Pits:
             chord = max(float(np.hypot(*(p1 - p0))), 1e-9)
             yield (p0 + p1) / 2.0, (p1 - p0) / chord, max(chord - gap, 0.1) / length
 
-    def _on_pits(self, q: np.ndarray, r: float, lanes_only: bool = False) -> bool:
-        for lane in self.lanes:
+    def _on_pits(self, q: np.ndarray, r: float, lanes_only: bool = False, lanes: bool = True) -> bool:
+        for lane in self.lanes if lanes else []:
             if lane.b1 >= lane.b0 and np.hypot(*(lane.p[lane.b0:lane.b1 + 1] - q).T).min() < lane.w / 2 + r:
                 return True
         if lanes_only:
@@ -584,9 +600,9 @@ class Pits:
 
     def _span(self, planner, gnt: dict, r, i: int, need: dict, add) -> None:
         """A bridge, footbridge or gantry across the road (every kind: the real spans are approved, Chris 2026-10-26):
-        the stock footbridge, scaled (deck at least MIN_CLEARANCE over the road) and nudged up to NUDGE_M across the
-        road so that, in order of preference, every pillar, stair and base stands PART_CLEAR beyond every road and
-        verge edge; or its pillars at least LEG_CLEAR (off the verge, the clearest parts; reported); or at least
+        the stock footbridge at its own size (XREF_SCALE; deck at least MIN_CLEARANCE over the road) nudged up to
+        NUDGE_M across the road so that, in order of preference, every pillar, stair and base stands PART_CLEAR
+        beyond every road and verge edge; or its pillars at least LEG_CLEAR (off the verge, the clearest parts; reported); or at least
         LEG_MIN (off the road; reported). Never a pillar, stair or base on a road or the pit lane, never a pillar in
         a pit building (stairs may run into one, as a real footbridge lands on it), and the deck never over a second
         road (Cadwell's Woodland footbridge would reach the start straight, whose bridge stays removed). Only where
@@ -600,44 +616,57 @@ class Pits:
         yaw = yaw_to(t)
         dist = planner.field.dist
         choice = None
-        for k in ("bridge", "gantry"):
-            asset, leg, low = SPANS[k]
-            cands = []
-            for sh in sorted(np.arange(-NUDGE_M, NUDGE_M + 1e-6, 0.5), key=lambda v: (abs(v), v)):
-                centre = base + nl * sh
-                for s0 in np.arange(1.0, SPAN_SCALE_MAX + 1e-6, 0.04):
-                    legs = span_parts(asset, centre, yaw, float(s0), legs_only=True)
-                    z = float(min(g.terrain(np.column_stack([legs, np.zeros(len(legs))])).min(), road_top))
-                    s = max(float(s0), (MIN_CLEARANCE + road_top - z) / low)
-                    legs = span_parts(asset, centre, yaw, s, legs_only=True)
-                    dl = float(dist(legs).min())
-                    parts = span_parts(asset, centre, yaw, s)
-                    dp = float(dist(parts).min())
-                    # never a pillar, stair or base on a road or the pit lane; pillars never in a pit building (stairs
-                    # may run into one: a real footbridge often lands on the pit building, Donington)
-                    if (min(dl, dp) < LEG_MIN or any(self._on_pits(q, 0.5) for q in legs)
-                            or any(self._on_pits(q, 0.5, lanes_only=True) for q in parts[::2])
-                            or self._spans_other_road(p, centre, yaw, (leg + 2.0) * s)):
-                        continue
-                    full = dp >= PART_CLEAR and not any(self._on_pits(q, 0.5) for q in parts[::4])
-                    tier = 0 if full else (1 if dl >= LEG_CLEAR else 2)
-                    cands.append((tier, sh, s, z, dl, dp, centre))
-                    if full:
-                        break  # a bigger scale at this nudge gains nothing
-            if cands:
-                best_tier = min(c[0] for c in cands)
-                pool = [c for c in cands if c[0] == best_tier]
-                # every part clear: the smallest, least moved; else within 1 m of the clearest parts (pillars off the
-                # verge) or pillars (on the verge), the smallest, least moved
-                if best_tier:
-                    m = 5 if best_tier == 1 else 4
-                    top = max(c[m] for c in pool)
-                    pool = [c for c in pool if c[m] >= min(top - 1.0, PART_CLEAR if m == 5 else LEG_CLEAR)]
-                choice = (k, asset, low, *min(pool, key=lambda c: (c[2] + 0.1 * abs(c[1]),)))
-                break  # a real span stays the footbridge whenever its pillars can stand off the roads
+        why_not: dict[str, int] = {}
+        # a second pass only where none fits: pillars and stairs may stand on the pit lane (never on a race road or
+        # in a pit building; reported). Unscaled, the 22 m footbridge can't span both the track and the pit lane
+        # (Donington's footbridge before the line, approved in game with its pillars there)
+        for lane_ok in (False, True):
+            for k in ("bridge", "gantry"):
+                asset, leg, low = SPANS[k]
+                cands = []
+                for sh in sorted(np.arange(-NUDGE_M, NUDGE_M + 1e-6, 0.5), key=lambda v: (abs(v), v)):
+                    centre = base + nl * sh
+                    for s0 in np.arange(1.0, SPAN_SCALE_MAX + 1e-6, 0.04):
+                        legs = span_parts(asset, centre, yaw, float(s0), legs_only=True)
+                        z = float(min(g.terrain(np.column_stack([legs, np.zeros(len(legs))])).min(), road_top))
+                        s = max(float(s0), (MIN_CLEARANCE + road_top - z) / low)
+                        legs = span_parts(asset, centre, yaw, s, legs_only=True)
+                        dl = float(dist(legs).min())
+                        parts = span_parts(asset, centre, yaw, s)
+                        dp = float(dist(parts).min())
+                        # never a pillar, stair or base on a road or (first pass) the pit lane; pillars never in a pit
+                        # building (stairs may run into one: a real footbridge often lands on the pit building)
+                        on_pits = any(self._on_pits(q, 0.5, lanes=not lane_ok) for q in legs)
+                        stairs_lane = not lane_ok and any(self._on_pits(q, 0.5, lanes_only=True) for q in parts[::2])
+                        why = ("the deck too low (the game draws it unscaled)" if s > SPAN_SCALE_MAX + 1e-6 else
+                               "a pillar, stair or base on a road" if min(dl, dp) < LEG_MIN else
+                               "a pillar on the pits" if on_pits else "stairs on the pit lane" if stairs_lane else
+                               "the deck over another road" if self._spans_other_road(p, centre, yaw, (leg + 2.0) * s)
+                               else None)
+                        if why:
+                            why_not[why] = why_not.get(why, 0) + 1
+                            continue
+                        full = dp >= PART_CLEAR and not any(self._on_pits(q, 0.5) for q in parts[::4])
+                        tier = 3 if lane_ok else 0 if full else (1 if dl >= LEG_CLEAR else 2)
+                        cands.append((tier, sh, s, z, dl, dp, centre))
+                        if full:
+                            break  # a bigger scale at this nudge gains nothing
+                if cands:
+                    best_tier = min(c[0] for c in cands)
+                    pool = [c for c in cands if c[0] == best_tier]
+                    # every part clear: the smallest, least moved; else within 1 m of the clearest parts (pillars off
+                    # the verge) or pillars (on the verge), the smallest, least moved
+                    if best_tier in (1, 2):
+                        m = 5 if best_tier == 1 else 4
+                        top = max(c[m] for c in pool)
+                        pool = [c for c in pool if c[m] >= min(top - 1.0, PART_CLEAR if m == 5 else LEG_CLEAR)]
+                    choice = (k, asset, low, *min(pool, key=lambda c: (c[2] + 0.1 * abs(c[1]),)))
+                    break  # a real span stays the footbridge whenever its pillars can stand off the roads
+            if choice is not None:
+                break
         if choice is None:
-            self.report["warnings"].append(f"{gnt['kind']} {gnt.get('name', '')}: every pillar position is on a road, "
-                                           "left out")
+            self.report["warnings"].append(f"{gnt['kind']} {gnt.get('name', '')}: no position fits, left out ("
+                                           + ", ".join(f"{w}: {n}" for w, n in why_not.items()) + ")")
             return
         k, asset, low, tier, sh, s, z, dl, dp, centre = choice
         P = planner.sc.placements
@@ -645,7 +674,8 @@ class Pits:
         P[-1].z = z
         name = f"{gnt['kind']} {gnt.get('name', '')}".strip()
         if tier > 0:  # approved real spans stay; report what doesn't meet the preferred clearance
-            why = ("its stairs run into a pit building" if dp >= PART_CLEAR else
+            why = ("its pillars or stairs on the pit lane" if tier == 3 else
+                   "its stairs run into a pit building" if dp >= PART_CLEAR else
                    f"parts {dp:.1f} m from a road edge (preferred {PART_CLEAR:.1f})")
             self.report["warnings"].append(
                 f"{name}: {why}, pillars {dl:.1f} m" + (f" (below {LEG_CLEAR:.1f}: on the verge)" if tier == 2 else "")
@@ -677,8 +707,10 @@ class Pits:
         the face of the span nearest each layout's start line along its lap carries "Welcome to <track>"
         (``sponsor.welcome``), every other driven face two or three sponsors side by side (three when each panel is
         still BANNER_MIN_H tall), rotating through ``sponsor.span_rotation`` across the circuit's faces in span order
-        from a start that depends on the track's name. Each panel hangs flush on the face between the pillars, its
-        lower edge FACES ``bottom`` (above the span's lowest part), no higher than ``top``."""
+        from a start that depends on the track's name. Each panel hangs flush on the face (its back BANNER_GAP off the
+        FACES plane), across the face's usable length, its top on the face's ``top`` edge, no lower than ``bottom``.
+        The layout assumes the span drawn at its own size (XREF_SCALE): banners laid out for a scaled span floated
+        off the unscaled one in game."""
         from . import sponsor  # noqa: PLC0415 - sponsor imports envs only, but keep pits light
 
         spans = getattr(self, "_spans", [])
@@ -720,7 +752,7 @@ class Pits:
                 continue
             plane = (F["neg"] if f < 0 else F["pos"]) * s + f * (BANNER_GAP + sponsor.SPAN_T / 2.0)
             yaw = span["yaw"] if f < 0 else span["yaw"] + math.pi   # the printed face (local -Y) outwards
-            bottom = span["z"] + F["bottom"] * s
+            bottom = span["z"] + F["top"] * s - h   # pinned: the banner's top on the face's top edge
             for asset, xo in panels:
                 add(asset, "bridges", span["centre"] + X * xo + Y * plane, yaw, h)
                 P[-1].z = bottom
@@ -730,7 +762,7 @@ class Pits:
                                    "welcome": (n, f) in welcome, "panels": [a for a, _x in panels],
                                    "heightM": round(h, 2), "widthM": round(len(panels) * h * (
                                        sponsor.WELCOME_ASPECT if (n, f) in welcome else sponsor.SPAN_ASPECT), 2),
-                                   "clearanceM": round(rep["clearanceM"] + (F["bottom"] - F["low"]) * s, 2)})
+                                   "clearanceM": round(rep["clearanceM"] + (F["top"] - F["low"]) * s - h, 2)})
 
     def _start_lights(self, planner, gnt: dict, r, i: int, add) -> None:
         """The start lights: a stock cantilever (pole and an arm 7.2 m up reaching 10.5 m) on the pit wall, the arm

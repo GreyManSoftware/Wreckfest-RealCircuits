@@ -44,11 +44,13 @@ FENCE = {"w": 3.84, "h": 1.0, "z0": 0.08, "t": 0.05}                # panel widt
 BILLBOARD = {"w": 7.0, "h": 3.5, "z0": 2.0, "t": 0.12, "post": 0.22, "sink": 0.6, "depth": 0.8}
 MINI = {"w": 3.5, "h": 1.75, "z0": 1.0, "t": 0.1, "post": 0.16, "sink": 0.5, "depth": 0.6}  # the small banner board
 CREDIT = {"w": 1.8, "h": 0.45, "z0": 0.55, "t": 0.06, "post": 0.08, "sink": 0.4, "depth": 0.4}  # the credit plaque
-TEX = {"fence": (1024, 512), "board": (1024, 1024), "credit": (512, 256),  # front art in the top half
+TEX = {"fence": (1024, 512), "board": (1024, 1024), "credit": (512, 256),  # front art: the top half (banners: 320 rows)
        "span": (2048, 512), "welcome": (4096, 512)}
 POSTED = {"billboard": BILLBOARD, "minibillboard": MINI, "credit": CREDIT}       # panels on two posts
-SPAN_ASPECT = 8.0        # a span banner panel: width : height (its texture's front half, 2048 x 256)
-WELCOME_ASPECT = 16.0    # the welcome banner (4096 x 256): as wide as two span panels
+BANNER_FRONT = 320       # span / welcome banners: the rows of their 512-row sheet the front art fills (the rest: back)
+SPAN_ASPECT = 6.4        # a span banner panel: width : height (its texture's front, 2048 x 320; 8 : 1 before Chris
+                         # asked for bigger banners in the same width, 2026-10-26)
+WELCOME_ASPECT = 12.8    # the welcome banner (4096 x 320): as wide as two span panels
 SPAN_T = 0.06            # banner thickness
 BANNERS = {"span": SPAN_ASPECT, "welcome": WELCOME_ASPECT}
 KINDS = ("fence", "billboard", "minibillboard", "span")
@@ -969,8 +971,49 @@ def _style_wide(img, sp, cw, face, fence):
         y += m.height + g
 
 
+def _style_logo(img, sp, cw, face, fence):
+    """A supplied full-art logo on the board's own ``background`` (Chris's approved new-sponsors preview,
+    2026-10-26): without a ``url`` the logo centred as large as fits the whole face (TEAMYAG, Trackstormers: the
+    art carries everything); with one, on a wide panel (span banner, fence panel) the logo at the left, 76 % of
+    the height, and the URL right-aligned, and on a board the logo centred in the upper part and the URL under
+    it (SeriouslyLotus). ``url`` colour: ``url``, else ``text``."""
+    from PIL import Image
+
+    W, H = img.size
+    url = sp.get("url")
+    lg = _logo(sp["logo"]) if sp.get("logo") else None
+    if lg is not None:
+        bb = lg.getchannel("A").getbbox()
+        lg = lg.crop(bb) if bb else lg
+
+    def put(box):
+        if lg is None:
+            return
+        x0, y0, w, h = box
+        s = min(w / lg.width, h / lg.height)
+        im = lg.resize((max(1, int(lg.width * s)), max(1, int(lg.height * s))), Image.LANCZOS)
+        img.paste(im, (int(x0 + (w - im.width) / 2), int(y0 + (h - im.height) / 2)), im)
+
+    colour = cw.get("url", cw.get("text", (0, 0, 0)))
+    if not url:
+        put((0.0, 0.0, W, H))
+    elif W / H >= 3.0:
+        m = _fit(url, "sans", W * 0.5, H * 0.22)
+        _paste(img, m, W * 0.97 - m.width, (H - m.height) / 2, colour)
+        lw = W * 0.94 - m.width - H * 0.3
+        hh = H * 0.76
+        if lg is not None:  # left-aligned: the box as wide as the logo at that height
+            lw = min(lw, hh * lg.width / lg.height)
+        put((W * 0.03, (H - hh) / 2, lw, hh))
+    else:
+        put((W * 0.25, H * 0.06, W * 0.5, H * 0.7))
+        m = _fit(url, "sans", W * 0.9, H * 0.13)
+        _paste(img, m, (W - m.width) / 2, H * 0.93 - m.height, colour)
+
+
 STYLES = {"slant": _style_slant, "stripes": _style_stripes, "badge": _style_badge, "split": _style_split,
-          "wordmark": _style_wordmark, "logoband": _style_logoband, "banner": _style_banner, "wide": _style_wide}
+          "wordmark": _style_wordmark, "logoband": _style_logoband, "banner": _style_banner, "wide": _style_wide,
+          "logo": _style_logo}
 
 
 def render_front(sp: dict, design: dict, tex: str, size: tuple[int, int]):
@@ -1078,7 +1121,7 @@ def write_textures(root: str, slug: str, credit_style: str | None = None, assets
     if wc and "sponsor_welcome" in names:
         W, H = TEX["welcome"]
         sheet = Image.new("RGB", (W, H), _rgb(wc["colourway"].get("back", (40, 44, 56))))
-        sheet.paste(render_welcome(wc, track_name or slug, (W, H // 2)), (0, 0))
+        sheet.paste(render_welcome(wc, track_name or slug, (W, BANNER_FRONT)), (0, 0))
         rel = texture_rel(slug, "sponsor_welcome")
         write_tga(os.path.join(root, *rel.split("/")) + ".tga", np.asarray(sheet, dtype=np.float64)[::-1])
         out["sponsor_welcome"] = rel
@@ -1094,7 +1137,7 @@ def write_textures(root: str, slug: str, credit_style: str | None = None, assets
         tex = tex_kind(kind)
         W, H = TEX[tex]
         sheet = Image.new("RGB", (W, H), _rgb(design["colourway"].get("back", (70, 72, 76))))
-        front = render_front(sp, design, tex, (W, H // 2))
+        front = render_front(sp, design, tex, (W, BANNER_FRONT if tex == "span" else H // 2))
         if line and tex == "board":
             credit_strip(front, design["colourway"], line)
         sheet.paste(front, (0, 0))
@@ -1153,6 +1196,8 @@ def _box(m: Mesh, centre, ax, ay, w: float, d: float, z0: float, z1: float, mat:
 
 FRONT_UV = (0.0, 0.5, 1.0, 1.0)     # TGA rows run bottom-up: the top half of the sheet is v 0.5..1
 BACK_UV = (0.02, 0.02, 0.98, 0.45)
+BANNER_UV = (0.0, 1.0 - BANNER_FRONT / 512.0, 1.0, 1.0)   # span / welcome: the top BANNER_FRONT rows
+BANNER_BACK_UV = (0.02, 0.02, 0.98, (1.0 - BANNER_FRONT / 512.0) * 0.9)
 
 
 def build_mesh(placements) -> Mesh | None:
@@ -1169,7 +1214,7 @@ def build_mesh(placements) -> Mesh | None:
         z = float(p.z)
         if kind in BANNERS:  # a span banner: the panel itself, z its lower edge, scale its height
             h = float(p.scale)
-            _box(m, (p.x, p.y), ax, ay, BANNERS[kind] * h, SPAN_T, z, z + h, mat, FRONT_UV, BACK_UV)
+            _box(m, (p.x, p.y), ax, ay, BANNERS[kind] * h, SPAN_T, z, z + h, mat, BANNER_UV, BANNER_BACK_UV)
         elif kind == "fence":
             F = FENCE
             _box(m, (p.x, p.y), ax, ay, F["w"], F["t"], z + F["z0"], z + F["z0"] + F["h"], mat, FRONT_UV, BACK_UV)
