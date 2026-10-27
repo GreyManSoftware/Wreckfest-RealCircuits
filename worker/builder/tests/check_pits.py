@@ -74,14 +74,9 @@ def check_pits_base(check, geo, sc: dict, obs: dict, manifest: dict, to_scene, w
         from wfbuild import pits as PITS  # noqa: PLC0415
         if PITS.OPEN_LANES:
             check(not lane.closures(), f"pits: {lane.id} open at both ends (no barrier across the lane or a junction)")
-            cps = [c for c in geo.model["checkpoints"] if c.get("routeIndex", 0) == 0] if hasattr(geo, "model") else []
-            raw = getattr(lane, "d", None) or {}
-            a, b = raw.get("entrySM"), raw.get("exitSM")
-            if cps and a is not None and b is not None:
-                L = geo.main.length
-                span = (b - a) % L
-                ins = [c for c in cps if 10.0 < (c["s"] - a) % L < span - 10.0]
-                check(span <= 30.0 or bool(ins), f"pits: {lane.id} a checkpoint on the bypassed stretch (no pit short cut)")
+            # the checkpoint on the pit-bypassed stretch: check_scene.check_shortcut_checkpoints, on each layout's
+            # built checkpoints (this check read the model's main checkpoints, which imported layouts don't use,
+            # and never ran: Lane has no raw .d)
         elif lane.mode == "closed":
             cl = lane.closures()
             check(len(cl) == 2, f"pits: {lane.id} closed at both ends (barriers across the lane where the wall ends)")

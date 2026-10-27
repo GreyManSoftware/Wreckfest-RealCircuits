@@ -401,24 +401,55 @@ class LayoutBuilder:
         return line_s, (back_s - 10.0) % main.length
 
     # ------------------------------------------------------------------- imported multi-layout tracks
-    def lap_checkpoints(self, layout: Layout, r: Route, first_s: float) -> None:
+    def lap_checkpoints(self, layout: Layout, r: Route, first_s: float, d: dict | None = None) -> None:
         """Checkpoints of an imported track's layout along its own closed route: the first one past the pole,
-        then evenly spaced (about as far apart as the main route's), the start/finish line last. The first
-        and the one nearest half way are split points."""
+        then evenly spaced (about as far apart as the main route's), the start/finish line last; plus one inside
+        every stretch of the lap a shortcut skips (``shortcut_spans`` of the layout ``d``: an untaken branch or
+        link road, the main road past a coned-off branch, the open pit lane), so cutting through the cones
+        misses a checkpoint (Chris 2026-10-26: Oulton Trackday's bus stop). The first and the one nearest half
+        way are split points."""
         main_cps = [c for c in self.model["checkpoints"] if c["route"] == self.geo.main.id]
         spacing = self.geo.main.length / max(len(main_cps), 1)
         L = r.length
         n = max(3, int(round((L - first_s) / spacing)))
-        pos = [first_s + k * (L - first_s - 40.0) / n for k in range(n)] + [L]
+        pos = [first_s + k * (L - first_s - 40.0) / n for k in range(n)]
+        pos = [self._on_built_road(r, s) for s in pos] + [L]  # the start/finish line stays where it is
+        spans = shortcut_spans(self.model, d, self._pit_lanes(), L) if d is not None else []
+        for sp in spans:
+            a, skip = sp["fromLap"], sp["skipM"]
+            if _span_has(pos, a, skip, L):
+                continue
+            want = (a + skip / 2.0) % L
+            got = self._on_built_road(r, want, step=2.0, reach=max(skip / 2.0 - SHORTCUT_CP_MARGIN_M - 1.0, 0.0))
+            if not _span_has([got], a, skip, L) or got <= pos[0] + 1e-6:
+                self.warnings.append(f"shortcut {sp['via']}: no checkpoint fits inside lap {a:.0f}+{skip:.0f} m")
+                continue
+            # move an evenly spaced one nearby rather than crowd it, unless another shortcut needs that one
+            near = [k for k in range(1, len(pos) - 1) if abs(pos[k] - got) < 30.0
+                    and not any(_span_has([pos[k]], o["fromLap"], o["skipM"], L) for o in spans if o is not sp)]
+            if near:
+                pos[near[0]] = got
+            else:
+                pos.insert(-1, got)
+            pos[1:-1] = sorted(pos[1:-1])
+            sp["checkpointLap"] = round(got, 2)
+        if spans:
+            layout.info["shortcuts"] = spans
+        n = len(pos) - 1
         mid = min(range(1, n), key=lambda k: abs(pos[k] - L / 2.0)) if n > 2 else None
         names = []
         for k, s in enumerate(pos):
-            if k < len(pos) - 1:  # the start/finish line stays where it is
-                s = self._on_built_road(r, s)
             name = f"#checkpoint{k + 1:02d}" + ("_split" if k in (0, mid) else "")
             layout.meshes.append(self._checkpoint_mesh(name, r, r.index_at(s % L), 1))
             names.append({"name": name, "route": r.id, "s": round(s % L, 2), "lapPos": round(s, 2)})
         layout.info["checkpoints"] = names
+
+    def _pit_lanes(self) -> list[dict]:
+        """The imported track's pit lanes that cars can drive through (pits.OPEN_LANES: no closures)."""
+        from . import pits as PITS  # noqa: PLC0415
+
+        lanes = ((self.geo.imported or {}).get("pits") or {}).get("pitLanes", [])
+        return [x for x in lanes if PITS.OPEN_LANES or x.get("mode", "closed") != "closed"]
 
     def _on_built_road(self, r: Route, s: float, step: float = 4.0, reach: float = 40.0) -> float:
         """``s``, or the nearest s within ``reach`` (in ``step`` steps) whose point of the layout's route lies on
@@ -571,7 +602,7 @@ class LayoutBuilder:
             i_line = r.index_at(line_s)
             lay.info.update({"title": d["name"], "lapLengthM": round(r.length, 1), "lineS": round(line_s, 3)})
             self.ai_meshes(lay, i_line, 1)
-            self.lap_checkpoints(lay, r, first_s)
+            self.lap_checkpoints(lay, r, first_s, d)
             lay.empties.append(Empty(f"#xref {self.slug}_base.scne", (0.0, 0.0, 0.0), 0.0, "vis = true|col = true",
                                      display="PLAIN_AXES", size=5.0, xdir=f"data/track/{self.slug}"))
             lay.empties += self.junction_cones(r, lay)
@@ -603,6 +634,110 @@ class LayoutBuilder:
                 lay.info.setdefault("warnings", []).extend(self.warnings)
                 self.warnings = []
         return layouts
+
+
+SHORTCUT_MIN_SKIP_M = 30.0  # a shortcut may skip at most this much of the lap without passing a checkpoint
+SHORTCUT_SLACK = 1.1  # another road counts as a shortcut when it's at most this much longer than what it skips
+SHORTCUT_CP_MARGIN_M = 10.0  # the checkpoint on a skipped stretch stands at least this far inside it
+
+
+def _span_has(pos: list[float], a: float, skip: float, L: float) -> bool:
+    """Whether a lap position of ``pos`` (L: the start/finish line) lies inside the lap stretch from ``a``
+    ``skip`` metres on, SHORTCUT_CP_MARGIN_M clear of its ends."""
+    return any(SHORTCUT_CP_MARGIN_M < (p - a) % L < skip - SHORTCUT_CP_MARGIN_M for p in pos)
+
+
+def shortcut_spans(model: dict, d: dict, pit_lanes: list[dict], lap_len: float | None = None) -> list[dict]:
+    """Every stretch of an imported layout's lap that another road lets a car skip. The road network is the main
+    loop, the branches (joined to it) and the open pit lanes (``entrySM`` to ``exitSM``). Roads the layout
+    doesn't drive (an untaken branch or link road, the main road past the layout's own branch, the pit lane),
+    alone or chained, that join its lap at lap positions a and b, at most SHORTCUT_SLACK times as long as the
+    lap from a to b, skip it when that is more than SHORTCUT_MIN_SKIP_M. Returns [{"fromLap", "toLap", "skipM",
+    "pathM", "via"}], lap positions from the layout's timing line (scaled to ``lap_len``, its built route)."""
+    routes = {r["id"]: r for r in model["routes"]}
+    Lm = float(routes["main"]["lengthM"])
+    secs = d["sections"]
+    lap = sum(float(x["toS"]) - float(x["fromS"]) for x in secs)
+    k_lap = (lap_len or lap) / lap
+    nodes: list[float] = []  # main s of every junction and section end
+
+    def node(s: float) -> int:
+        s %= Lm
+        for i, v in enumerate(nodes):
+            if min(abs(v - s), Lm - abs(v - s)) < 0.5:
+                return i
+        nodes.append(s)
+        return len(nodes) - 1
+
+    other = []  # (node, node, length, label) of the roads off the main loop
+    for rid, r in routes.items():
+        sj, ej = r.get("startJoin"), r.get("endJoin")
+        if rid == "main" or not sj or not ej or sj.get("route") != "main" or ej.get("route") != "main":
+            continue
+        other.append((node(float(sj["s"])), node(float(ej["s"])), float(r["lengthM"]), rid))
+    for x in pit_lanes:
+        a, b = x.get("entrySM"), x.get("exitSM")
+        if a is not None and b is not None:
+            other.append((node(float(a)), node(float(b)), (float(b) - float(a)) % Lm, f"pit lane {x.get('id', '')}".strip()))
+    for x in secs:
+        if x["route"] == "main":
+            node(float(x["fromS"]))
+            node(float(x["toS"]))
+    driven = {x["route"] for x in secs}
+    edges: dict[int, list[tuple[int, float, str]]] = {}
+
+    def edge(a: int, b: int, length: float, label: str) -> None:
+        edges.setdefault(a, []).append((b, length, label))
+        edges.setdefault(b, []).append((a, length, label))
+
+    def on_lap(s: float) -> bool:
+        return any(float(x["fromS"]) - 1e-6 <= s <= float(x["toS"]) + 1e-6 for x in secs if x["route"] == "main")
+
+    order = sorted(range(len(nodes)), key=lambda i: nodes[i])
+    for i, j in zip(order, order[1:] + order[:1]):  # the main loop between neighbouring nodes
+        a, b = nodes[i], nodes[j]
+        length = (b - a) % Lm
+        if length > 1e-6 and not on_lap((a + length / 2.0) % Lm):
+            edge(i, j, length, f"main {a:.0f}-{b:.0f}")
+    for a, b, length, label in other:
+        if label not in driven:
+            edge(a, b, length, label)
+    lap_pos: dict[int, list[float]] = {}  # lap positions of the nodes the lap passes
+    off = 0.0
+    for x in secs:
+        f, t = float(x["fromS"]), float(x["toS"])
+        if x["route"] == "main":
+            for i, v in enumerate(nodes):
+                if f - 1e-6 <= v <= t + 1e-6:
+                    lap_pos.setdefault(i, []).append(off + v - f)
+        off += t - f
+    lap_pos = {i: sorted({round(p % lap, 3) for p in ps}) for i, ps in lap_pos.items()}
+    out: dict[tuple[float, float], dict] = {}
+    for u in lap_pos:  # shortest off-lap paths from each lap node to the others
+        best: dict[int, tuple[float, list[str]]] = {u: (0.0, [])}
+        todo = [u]
+        while todo:
+            todo.sort(key=lambda q: best[q][0])
+            q = todo.pop(0)
+            if q != u and q in lap_pos:
+                continue  # back on the lap: a chain through it is two shortcuts, each checked
+            for v, length, label in edges.get(q, []):
+                dv = best[q][0] + length
+                if v not in best or dv < best[v][0] - 1e-9:
+                    best[v] = (dv, best[q][1] + [label])
+                    todo.append(v)
+        for v, (dist, via) in best.items():
+            if v == u or v not in lap_pos:
+                continue
+            for pu in lap_pos[u]:
+                for pv in lap_pos[v]:
+                    skip = (pv - pu) % lap
+                    if skip * k_lap > SHORTCUT_MIN_SKIP_M and dist <= SHORTCUT_SLACK * skip:
+                        key = (round(pu * k_lap, 1), round(skip * k_lap, 1))
+                        if key not in out or dist < out[key]["pathM"]:
+                            out[key] = {"fromLap": round(pu * k_lap, 2), "toLap": round(pv * k_lap % (lap * k_lap), 2),
+                                        "skipM": round(skip * k_lap, 2), "pathM": round(dist, 1), "via": " + ".join(via)}
+    return sorted(out.values(), key=lambda x: (x["fromLap"], x["skipM"]))
 
 
 def composite_route(model: dict, d: dict) -> Route:

@@ -28,7 +28,7 @@ sys.path.insert(0, HERE)  # roadside_cover
 from wfbuild import config as C
 from wfbuild import dressing as D
 from wfbuild import envs, sponsor
-from wfbuild.layout import composite_route
+from wfbuild.layout import _span_has, composite_route, shortcut_spans
 
 WF = os.environ.get("WRECKFEST_DIR", "/wreckfest")
 failures: list[str] = []
@@ -1093,7 +1093,14 @@ def check_base(out: str, slug: str, model: dict, spec: dict, manifest: dict) -> 
             for gy in range(int(min(ys) // 4), int(max(ys) // 4) + 1):
                 tgrid[gx, gy].append(t)
     overlaps = 0
+
+    def area2d(f) -> float:
+        p = V[list(f)][:, :2]
+        return 0.5 * abs(float(np.sum(p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1])))
+
     for fi, f in enumerate(F):
+        if area2d(f) < 0.01:  # a sliver's centre lies on its own edge, in its neighbour by float noise (Oulton
+            continue          # 2026-10-27, read as an overlap after a 19 m placement shift)
         c = V[list(f)].mean(0)
         for t in tgrid.get((int(c[0] // 4), int(c[1] // 4)), []):
             if t[0] == fi:
@@ -1101,7 +1108,7 @@ def check_base(out: str, slug: str, model: dict, spec: dict, manifest: dict) -> 
             a, b, d = t[1], t[2], t[3]
             m = np.array([[b[0] - a[0], d[0] - a[0]], [b[1] - a[1], d[1] - a[1]]])
             det = np.linalg.det(m)
-            if abs(det) < 1e-9:
+            if abs(det) < 0.02:  # a sliver (collinear corners, area < 0.01 m2) covers nothing
                 continue
             u, w = np.linalg.solve(m, c[:2] - a[:2])
             if u > 1e-4 and w > 1e-4 and u + w < 1 - 1e-4:
@@ -1250,6 +1257,32 @@ def check_layout_cones(name: str, obs: dict, model: dict, manifest: dict, lay_de
           f"{len(cones)} cones" + (f"; {', '.join(bad[:5])}" if bad else ""))
 
 
+def check_shortcut_checkpoints(name: str, obs: dict, cps: list[str], model: dict, spec: dict, manifest: dict,
+                               lay_def: dict) -> None:
+    """No shortcut skips more than layout.SHORTCUT_MIN_SKIP_M of an imported layout's lap without passing a
+    checkpoint (Chris 2026-10-26: cutting Oulton Trackday's bus stop through the cones went unpunished): for every
+    other road joining the lap (an untaken branch or link road, the main road past the layout's branch, the open
+    pit lane; layout.shortcut_spans), a built checkpoint plane, placed by its origin on the layout's lap, stands
+    inside the stretch it skips. The finish line counts for a stretch over it."""
+    from wfbuild import pits as PITS  # noqa: PLC0415
+
+    lanes = [x for x in ((spec["sketch"].get("imported") or {}).get("pits") or {}).get("pitLanes", [])
+             if PITS.OPEN_LANES or x.get("mode", "closed") != "closed"]
+    lr = composite_route(model, lay_def)
+    L = float(lr.s[-1] + np.hypot(*(lr.p[0, :2] - lr.p[-1, :2])))
+    pts = to_scene(lr.p[:, :2], manifest)
+    pos = []
+    for n in cps:
+        o = np.array(obs[n].matrix_world.translation[:2])
+        pos.append(float(lr.s[int(np.argmin(np.hypot(*(pts - o).T)))]))
+    pos[-1] = L  # the finish line: the lap's end
+    spans = shortcut_spans(model, lay_def, lanes, L)
+    bad = [f"{sp['via']} skips lap {sp['fromLap']:.0f}+{sp['skipM']:.0f} m" for sp in spans
+           if not _span_has(pos, sp["fromLap"], sp["skipM"], L)]
+    check(not bad, f"{name}: a checkpoint on every stretch a shortcut skips (branches, link roads, pit lane)",
+          "; ".join(bad[:4]) or f"{len(spans)} shortcuts")
+
+
 def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manifest: dict) -> None:
     name = lay["name"]
     bpy.ops.wm.open_mainfile(filepath=os.path.join(out, lay["file"]))
@@ -1344,6 +1377,8 @@ def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manife
     pole = max(float(q["s"]) for q in grid["slots"])
     check(cps[0].startswith("#checkpoint01") and (first["lapPos"] > 0 if rev else pole < first["lapPos"] < pole + 40.0),
           f"{name}: checkpoint 01 lies just after the grid", f"lap position {first['lapPos']} m, pole at {pole:.1f} m")
+    if lay_def is not None:
+        check_shortcut_checkpoints(name, obs, cps, model, spec, manifest, lay_def)
     # start points
     n = grid["size"]
     sp = [f"#startpoint{k:02d}" for k in range(1, n + 1)]
