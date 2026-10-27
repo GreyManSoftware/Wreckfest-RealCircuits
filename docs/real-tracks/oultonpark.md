@@ -29,6 +29,25 @@ trackday layout cones the straight at both ends, the others the chicane, Island 
 re-measured for the new routes (`tools/real_tracks/widths/oultonpark.json`). The Hislop's sections below describe
 the state before this change.
 
+## The climb from Brittens to Hilltop (2026-10-26, issue 17)
+
+Chris reported a small real hump after Brittens, before the Hilltop crest (main lap s about 2,290 m), which our
+smoothing seemed to remove. The evidence shows no hump beyond what the sample already has:
+
+- **The EA 2021 LIDAR** (1 m ground from the point cloud, a plane across the inner 70 % of the road every 2 m)
+  matches our heights within 2.5 cm from s 1,850 to 2,450, and the grade within 0.2 %.
+- **Short-scale shape:** take away a 10 m smoothing from both, and our sample and the LIDAR show the same shape. That
+  is a 6 cm dip at s 2,165, then two 6-7 cm rises. The first rise, at s 2,195-2,225, is where the grade falls from
+  8.2 % to 4.5 %: the steep kick out of Brittens going light over the brow. The second is the crest at s 2,285-2,305.
+  Nothing shorter or taller shows. The 2 m sampling would catch a hump of 5 cm or more.
+- **The geometry core and the builder** keep these heights as they are (no further vertical smoothing).
+- **The AiM heights** are whole metres, held for several points and lagging, and the outline has no point between
+  s 2,233 and 2,395, so they can't show a hump.
+
+So the sample is unchanged. The likeliest spot is the brow at s 2,195-2,225, which is in the game. If the real hump is
+elsewhere, or newer than the 2021 flight (resurfacing), Chris can mark it on
+`.local\renders\oulton-hilltop-profile.png`: height, grade and short-scale bumps, LIDAR against the sample.
+
 ## Layouts and sources
 
 The current official layouts are exactly three: MSV's circuit-layouts page (oultonpark.co.uk/about/circuit-layouts)

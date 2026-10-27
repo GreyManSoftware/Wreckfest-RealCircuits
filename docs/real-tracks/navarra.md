@@ -4,6 +4,14 @@ Main Track, Medium and Short. Build, sources and layouts: `docs/real-tracks.md`,
 `tools/real_tracks/navarra.json`, sample `geom/tests/samples/navarra.json`, raw data and report in
 `.local\realtracks\navarra\`.
 
+## Lap length against AiM (2026-10-26, issue 20)
+
+AiM's "Los Arcos" track (3,850 m) is the pre-2024 lap. Its official length was 3.933 km until the 2024 extension,
+and our Main Track (4,287 m against MSV's 4,313 m) is the 2024 lap. From the T10-T11 approach AiM cuts straight
+across to the old T11, where the extension (Turns 11-14) now runs, then takes the old road to Turn 15. The 2024
+LIDAR shows the extension under construction and the old arc still there. Nothing in our lap is wrong. Details:
+`docs/real-tracks.md`, "AiM outlines".
+
 ## Audit 2026-10-24
 
 Plots (curvature, height, 10/50 m grade, vertical curvature, camber, straight ripple and wobble against distance,
