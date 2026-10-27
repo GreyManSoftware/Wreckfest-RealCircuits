@@ -196,19 +196,51 @@ def min_area_rect(poly: np.ndarray) -> tuple[np.ndarray, float, float, np.ndarra
     return c, float(lu), float(lv), ax
 
 
+def _arc(line: np.ndarray) -> np.ndarray:
+    return np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(line, axis=0).T))])
+
+
+def _chord_walk(line: np.ndarray, step: float) -> list[float]:
+    """Arc positions along the line from its start, each point ``step`` (straight-line distance) from the last."""
+    s = _arc(line)
+    out, k = [0.0], 0
+    p = line[0]
+    while True:
+        # the first vertex at least ``step`` from p, then the point on the segment before it at exactly ``step``
+        while k + 1 < len(line) and np.hypot(*(line[k + 1] - p)) < step - 1e-6:  # mm short: a trimmed end
+            k += 1
+        if k + 1 >= len(line):
+            return out
+        a, d = line[k] - p, line[k + 1] - line[k]
+        A, B, Cc = float(d @ d), 2.0 * float(a @ d), float(a @ a) - step * step
+        u = (-B + math.sqrt(max(B * B - 4 * A * Cc, 0.0))) / (2 * A) if A > 0 else 0.0
+        u = min(max(u, 0.0), 1.0)
+        t = float(s[k] + u * (s[k + 1] - s[k]))
+        if t <= out[-1] + 1e-9:
+            return out
+        out.append(t)
+        p = line[k] + d * u
+
+
+def _cut(line: np.ndarray, a: float, b: float) -> np.ndarray:
+    """The same polyline from arc position a to b (not resampled: that would shorten it on the bends)."""
+    s = _arc(line)
+    t = np.concatenate([[a], s[(s > a + 1e-6) & (s < b - 1e-6)], [b]])
+    return np.column_stack([np.interp(t, s, line[:, 0]), np.interp(t, s, line[:, 1])])
+
+
 def _abutting(line: np.ndarray) -> np.ndarray:
-    """The pit wall line trimmed evenly at both ends to a whole number of WALL_LEN + WALL_GAP slots, so the
-    unscaled elements (the game draws #xref subscenes at their own size) abut along all of it: no stretched
-    elements, no gaps, and the collision wall ends where the last element does."""
-    seg = np.hypot(*np.diff(line, axis=0).T)
-    s = np.concatenate([[0.0], np.cumsum(seg)])
+    """The pit wall line trimmed evenly at both ends to a whole number of WALL_LEN + WALL_GAP chords, so the
+    unscaled elements (the game draws #xref subscenes at their own size) abut end to end along all of it, round
+    its bends too: no stretched elements, no gaps, and the collision wall ends where the last element does."""
     pitch = WALL_LEN + WALL_GAP
-    n = int(math.floor(s[-1] / pitch + 1e-9))
-    if n < 1:
+    walk = _chord_walk(line, pitch)
+    if len(walk) < 2:
         return line
-    a = (s[-1] - n * pitch) / 2.0
-    t = np.concatenate([[a], s[(s > a) & (s < s[-1] - a)], [s[-1] - a]])
-    return _resample(np.column_stack([np.interp(t, s, line[:, 0]), np.interp(t, s, line[:, 1])]), 1.0)
+    a = (float(_arc(line)[-1]) - walk[-1]) / 2.0
+    line = _cut(line, a, float(_arc(line)[-1]))
+    walk = _chord_walk(line, pitch)
+    return _cut(line, 0.0, walk[-1])
 
 
 def yaw_to(d) -> float:
@@ -471,16 +503,15 @@ class Pits:
 
     @staticmethod
     def _row(line: np.ndarray, length: float, gap: float):
-        """Elements ``length`` long end to end along the line, never overlapping: equal slots at least ``length +
-        gap`` long, each element unscaled (the game ignores #xref scale) on its slot's chord. On a line trimmed by
-        ``_abutting`` (the pit wall) every slot is exactly ``length + gap``, so the elements abut ``gap`` apart.
-        Yields (centre, unit direction)."""
-        seg = np.hypot(*np.diff(line, axis=0).T)
-        s = np.concatenate([[0.0], np.cumsum(seg)])
-        L = float(s[-1])
-        n = max(1, int(math.floor(L / (length + gap) + 0.02)))  # a trimmed line a few mm short on a curve
-        for k in range(n):
-            a, b = k * L / n, (k + 1) * L / n
+        """Elements ``length`` long end to end along the line, ``gap`` apart, never overlapping: each element
+        unscaled (the game ignores #xref scale) on a chord ``length + gap`` long, chords end to end along the line
+        (round its bends too). On a line trimmed by ``_abutting`` (the pit wall) the last chord ends at the line's
+        end; a line shorter than one chord gets one element on it. Yields (centre, unit direction)."""
+        s = _arc(line)
+        walk = _chord_walk(line, length + gap)
+        if len(walk) < 2:
+            walk = [0.0, float(s[-1])]
+        for a, b in zip(walk, walk[1:]):
             p0 = np.array([np.interp(a, s, line[:, 0]), np.interp(a, s, line[:, 1])])
             p1 = np.array([np.interp(b, s, line[:, 0]), np.interp(b, s, line[:, 1])])
             chord = max(float(np.hypot(*(p1 - p0))), 1e-9)

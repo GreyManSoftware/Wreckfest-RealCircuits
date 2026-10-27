@@ -71,13 +71,18 @@ def check_pits_base(check, geo, sc: dict, obs: dict, manifest: dict, to_scene, w
             dd = np.array([np.hypot(*(row - q).T).min() for q in lane.wall[::2]])
             check(float(dd.max()) <= WALL_STEP_MAX / 2 + 0.6, f"pits: {lane.id} concrete row continuous along the pit wall",
                   f"worst {dd.max():.2f} m from the nearest element")
-            # unscaled elements (the game ignores #xref scale) abut: each one's neighbour WALL_LEN + WALL_GAP away
-            mine = row[np.array([np.hypot(*(lane.wall - q).T).min() < 1.5 for q in row])]
-            if len(mine) > 1:
-                nn = np.array([np.sort(np.hypot(*(mine - q).T))[1] for q in mine])
-                check(float(nn.min()) >= pits_mod.WALL_LEN - 0.01 and float(nn.max()) <= pits_mod.WALL_LEN + 0.1,
-                      f"pits: {lane.id} pit wall elements abut, unscaled ({pits_mod.WALL_GAP * 100:.0f} cm apart)",
-                      f"neighbours {nn.min():.3f}-{nn.max():.3f} m apart (elements {pits_mod.WALL_LEN} m)")
+            # unscaled elements (the game ignores #xref scale) abut: consecutive ones WALL_LEN + WALL_GAP apart on a
+            # straight, their centre lines end to end (no overlap along them) where the wall bends by d
+            el = [p for p in P if p["category"] == "pitWall"
+                  and np.hypot(*(lane.wall - np.array(p["position"][:2])).T).min() < 1.5]
+            bad = []
+            for a, b in zip(el, el[1:]):
+                dist = math.dist(a["position"][:2], b["position"][:2])
+                turn = abs(math.remainder(b["yaw"] - a["yaw"], 2 * math.pi))
+                if not (pits_mod.WALL_LEN * math.cos(turn / 2) - 0.01 <= dist <= pits_mod.WALL_LEN + pits_mod.WALL_GAP + 0.02):
+                    bad.append(f"{dist:.3f} m at {math.degrees(turn):.0f} deg")
+            check(not bad, f"pits: {lane.id} pit wall elements abut, unscaled ({pits_mod.WALL_GAP * 100:.0f} cm apart "
+                  f"on the straight)", f"{len(bad)} of {max(len(el) - 1, 0)} pairs: {bad[:3]}")
         from wfbuild import pits as PITS  # noqa: PLC0415
         if PITS.OPEN_LANES:
             check(not lane.closures(), f"pits: {lane.id} open at both ends (no barrier across the lane or a junction)")
