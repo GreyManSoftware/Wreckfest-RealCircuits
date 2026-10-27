@@ -4,7 +4,7 @@
 > generated track; the `.tcat` files gain generated cameras) and the missing Oulton Park chicane are fixed, all
 > eight per-circuit zips are rebuilt, and the bundle is rebuilt and reinstalled from them (steps 1 and 2).
 
-One public Workshop item, **"MSV + Anglesey Tracks"** (folder and slug `msvanglesey`), holds all eight real
+One public Workshop item, **"Flatshiftcars Track Pack 1: UK & Navarra"** (folder and slug `msvanglesey`), holds all eight real
 circuits: Cadwell Park, Brands Hatch, Oulton Park, Snetterton, Donington Park, Bedford Autodrome, Circuito de
 Navarra and Anglesey (24 layouts). Chris publishes it himself with BagEdit's **Mod Publish**, which runs the game's
 `tools\workshop\Uploader.exe`. Never publish from a script and never automatically (AGENTS.md).
@@ -20,7 +20,7 @@ Navarra and Anglesey (24 layouts). Chris publishes it himself with BagEdit's **M
 Every member's `data\` tree unchanged, plus its own root files:
 
 - `modinfo.modi`, in the format BagEdit's Mod Publish writes (lz4 bag `idom`):
-  - Title: "MSV + Anglesey Tracks" (Workshop limit 128 bytes).
+  - Title: "Flatshiftcars Track Pack 1: UK & Navarra" (Workshop limit 128 bytes).
   - Preview file: `preview.jpg`.
   - Description: Steam BBCode listing every circuit and layout with its lap length as built, how to enable it,
     that servers and players need it, and the credits (limit 8,000 bytes; about 2,100 now).
@@ -68,7 +68,7 @@ The PASS/FAIL lines are in `.local\bundles\msvanglesey-checks.log`.
 
    ```powershell
    .\tools\Install-TrackMod.ps1 -Zip E:\WreckfestMods\msvanglesey.zip -Bundle -Force
-   .\tools\Install-TrackMod.ps1 -ListMods      # MSV + Anglesey Tracks: yes; the eight single-circuit mods: no
+   .\tools\Install-TrackMod.ps1 -ListMods      # Flatshiftcars Track Pack 1: yes; the eight single-circuit mods: no
    ```
 
    This creates `D:\SteamLibrary\steamapps\common\Wreckfest\mods\msvanglesey`. Optionally start the game once and
@@ -77,7 +77,7 @@ The PASS/FAIL lines are in `.local\bundles\msvanglesey-checks.log`.
 3. **Open any file in the bundle**, e.g. `mods\msvanglesey\data\property\event\brandshatch\brandshatch_indy.evse`.
 4. **Right-click it → Mod Publish.** It reads the existing `mods\msvanglesey\modinfo.modi`.
 5. **Check the fields:**
-   - Title: MSV + Anglesey Tracks.
+   - Title: Flatshiftcars Track Pack 1: UK & Navarra.
    - Preview: `preview.jpg`.
    - Description and Latest Change Note: as above.
    - Visibility: Public.

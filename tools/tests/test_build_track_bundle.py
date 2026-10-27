@@ -26,14 +26,14 @@ CFG = {"slug": "test_pack", "title": "Test Pack", "credits": ["© OpenStreetMap 
 
 
 def test_modinfo_matches_bagedit_format():
-    data = b.modinfo_bytes("MSV + Anglesey Tracks", "Desc © ä\n[b]x[/b]", "First release.", b.VISIBILITY["public"], 3_456_789_012)
+    data = b.modinfo_bytes("Flatshiftcars Track Pack 1: UK & Navarra", "Desc © ä\n[b]x[/b]", "First release.", b.VISIBILITY["public"], 3_456_789_012)
     bag = wf_modlist.bag_decode(data)
     assert (bag.fmt, bag.tag, bag.version) == (4, b"idom", 0)  # lz4, like every Workshop item's modinfo.modi
     m = b.modinfo_read(data)
-    assert m == {"title": "MSV + Anglesey Tracks", "preview": "preview.jpg", "description": "Desc © ä\n[b]x[/b]",
+    assert m == {"title": "Flatshiftcars Track Pack 1: UK & Navarra", "preview": "preview.jpg", "description": "Desc © ä\n[b]x[/b]",
                  "changeNote": "First release.", "visibility": 0, "tagBits": 8, "publishedId": 3_456_789_012,
                  "trailingBytes": 0}
-    assert wf_modlist.modinfo_name(data) == "MSV + Anglesey Tracks"
+    assert wf_modlist.modinfo_name(data) == "Flatshiftcars Track Pack 1: UK & Navarra"
 
 
 @pytest.mark.skipif(not os.path.isdir(WORKSHOP), reason="no Workshop items on this machine")

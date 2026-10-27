@@ -3,7 +3,7 @@
 Sketch a Wreckfest race circuit in the browser, pick game-supported options, and get a buildable mod zip.
 
 It also builds real circuits from open survey data: the line from OpenStreetMap, heights, camber and widths from
-public LIDAR. The first release is the Greyman Software Track Pack 1 on the
+public LIDAR. The first release is Flatshiftcars Track Pack 1: UK & Navarra on the
 [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3826192302).
 
 - Real circuits: [docs/real-tracks.md](docs/real-tracks.md)
