@@ -47,6 +47,55 @@ class DistanceField:
             near[j0:j1, i0:i1][m] = k
         self.d = d
         self.near = near
+        self._paved(geo, xs, ys)
+
+    def _paved(self, geo, xs: np.ndarray, ys: np.ndarray, reach: float = 8.0) -> None:
+        """Junction mouths, paved gores and U-turn aprons are road as well, although no built route sample covers
+        them: inside each such polygon the field is minus the distance to the nearest ground the road mesh doesn't
+        cover. With only the route samples stamped, the maps took a merged junction for the verge: the road blend
+        map's worn edge (grassy patched tarmac) across the paving and in a diagonal stripe along the main road's
+        edge through the middle of the merged road (Oulton Park's Trackday rejoin, Chris 2026-10-26)."""
+        polys = geo.__dict__.get("stitch_polys")
+        if polys is None:
+            geo.build_road()
+            polys = geo.__dict__.get("stitch_polys", [])
+        if not polys:
+            return
+        from .geometry import TriIndex
+        road = TriIndex.of(geo.build_road())
+        for poly in polys:
+            lo, hi = poly[:, :2].min(0) - reach, poly[:, :2].max(0) + reach
+            i0, i1 = max(0, int((lo[0] - self.x0) / self.px)), min(self.nx, int((hi[0] - self.x0) / self.px) + 2)
+            j0, j1 = max(0, int((lo[1] - self.y0) / self.px)), min(self.ny, int((hi[1] - self.y0) / self.px) + 2)
+            if i0 >= i1 or j0 >= j1:
+                continue
+            gx, gy = np.meshgrid(xs[i0:i1], ys[j0:j1])
+            pts = np.stack([gx.ravel(), gy.ravel()], axis=1)
+            inside = np.zeros(len(pts), dtype=bool)
+            for (x1, y1), (x2, y2) in zip(poly[:, :2], np.roll(poly[:, :2], -1, axis=0)):
+                dy = (y2 - y1) if y2 != y1 else 1e-12
+                inside ^= ((y1 > pts[:, 1]) != (y2 > pts[:, 1])) & (pts[:, 0] < (x2 - x1) * (pts[:, 1] - y1) / dy + x1)
+            if not inside.any():
+                continue
+            cov = np.array([road.covered(p) for p in pts], dtype=bool)
+            free = pts[~cov]
+            # the polygon's pixels and every road pixel round it (a narrow mouth or gore can fall between centres)
+            inside |= cov
+            if len(free):
+                q = pts[inside]
+                dd = np.hypot(q[:, None, 0] - free[None, :, 0], q[:, None, 1] - free[None, :, 1]).min(1)
+                dd = -np.minimum(np.maximum(dd - self.px / 2.0, 0.0), reach)
+            else:
+                dd = np.full(int(inside.sum()), -reach)
+            win = self.d[j0:j1, i0:i1].reshape(-1)  # rows run along y (a copy: the slice isn't contiguous)
+            win[inside] = np.minimum(win[inside], dd.astype(np.float32))
+            # and the ground beside the paving is that far from a road edge (not only from the built samples')
+            out = ~inside
+            if out.any() and inside.any():
+                q, on = pts[out], pts[inside]
+                do = np.hypot(q[:, None, 0] - on[None, :, 0], q[:, None, 1] - on[None, :, 1]).min(1)
+                win[out] = np.minimum(win[out], np.maximum(do - self.px / 2.0, 0.0).astype(np.float32))
+            self.d[j0:j1, i0:i1] = win.reshape(j1 - j0, i1 - i0)
 
     def _ij(self, xy: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         fx = np.clip((xy[:, 0] - self.x0) / self.px, 0, self.nx - 1.001)

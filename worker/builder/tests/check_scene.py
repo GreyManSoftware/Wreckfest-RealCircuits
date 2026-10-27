@@ -519,16 +519,25 @@ def check_roadside(obs: dict, model: dict, spec: dict, manifest: dict, out: str 
     check(not holes, "base: road edge, kerb, green strip and verge continuous along every edge (no bare terrain "
           f"beside the road over {roadside_cover.MAX_RUN_M} m)", f"{len(holes)} holes: {holes[:4]}")
     # --- junctions (imported): no grass or bare-ground sliver between a branch and the road it leaves, where the
-    # edges are under GORE_PAVE_M apart (Oulton Park's Hislop's split, Chris 2026-10-25). Known: a 4 m sliver where
-    # two mouths share one stretch of edge (Oulton's Fosters merge beside the Hislop's links) is tolerated.
+    # edges are under GORE_PAVE_M apart (Oulton Park's Hislop's split, Chris 2026-10-25; the sliver between two
+    # mouths on one stretch of edge, Oulton's Fosters rejoin beside the Trackday split, is zipped shut since 10-26)
     if geo.imported:
         sl = geo.junction_slivers()
-        per = {}
-        for s in sl:
-            per[s.split(" (cut ")[0].split("@")[0] + s.split(" (cut ")[1].split(",")[0]] = per.get(
-                s.split(" (cut ")[0].split("@")[0] + s.split(" (cut ")[1].split(",")[0], 0) + 1
-        check(all(n <= 2 for n in per.values()), f"base: every junction's narrow gore (under {C.GORE_PAVE_M:.0f} m) is "
-              "paved: no grass or bare-ground sliver across the tarmac", f"{len(sl)} sliver samples: {sl[:4]}")
+        check(not sl, f"base: every junction's narrow gore (under {C.GORE_PAVE_M:.0f} m) is paved: no grass or "
+              "bare-ground sliver across the tarmac", f"{len(sl)} sliver samples: {sl[:4]}")
+    # --- junctions: the paving of every mouth, gore and apron as a driver sees it (Chris 2026-10-26: a hump and
+    # missing terrain at Anglesey's National, grass in the road and gaps at Oulton Park's Trackday rejoin, a gap
+    # in the terrain at Donington's National turn)
+    jf = geo.junction_faults()
+    check(not jf["steps"], f"junctions: the paving follows the roads' own surfaces (within {C.JUNCTION_STEP_M:.2f} m): "
+          "no hump, dip or step where a branch meets its road", f"{len(jf['steps'])} points: {jf['steps'][:4]}")
+    check(not jf["holes"], "junctions: no bare ground enclosed by road (no hole or sliver in the tarmac)",
+          f"{len(jf['holes'])} points: {jf['holes'][:4]}")
+    check(not jf["gaps"], f"junctions: verge or ground flush along the paving's outline (no more than "
+          f"{C.JUNCTION_STEP_M:.2f} m below its edge): no gap in the terrain beside a mouth",
+          f"{len(jf['gaps'])} points: {jf['gaps'][:4]}")
+    check(not jf["grass"], "junctions: no grass on the paving (no verge or decal over it; the maps take it for road: "
+          "no worn grassy edge or clutter on the tarmac)", f"{len(jf['grass'])} faults: {jf['grass'][:4]}")
     # --- ground: no trench or hole beside a road edge (junction gores, close parallel sections)
     dips = [d for d in geo.ground_dips() if d["depthM"] > 0.1]
     check(len(dips) <= 2, f"base: ground beside the road edges no more than {C.GROUND_DIP_MAX + 0.1:.2f} m below them "

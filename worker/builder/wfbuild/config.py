@@ -65,6 +65,12 @@ WALL_CUSTOM_DATA = "vis = false | col = true"
 OTHER_ROUTE_S = 60.0          # same-route samples further than this (along s) count as another road
 MOUTH_CLEAR = 0.5             # an alt-route cross-section must be this far outside the road it leaves
 GORE_PAVE_M = 3.0             # imported forks: the gore between a branch and its road is paved until this wide
+MOUTH_RAMP_M = 100.0          # a branch ramps onto the surface of the road it joins over this per metre of mismatch...
+MOUTH_RAMP_MIN_M = 8.0        # ...but at least this...
+MOUTH_RAMP_MAX_M = 40.0       # ...and at most this
+MOUTH_MATCH_REACH_M = 4.0     # the cut's edges are matched in full within MOUTH_CLEAR of that road, fading over this
+JUNCTION_STEP_M = 0.08        # check: junction paving within this of the roads' own surfaces, ground beside it
+WEDGE_ZIP_DEG = 35.0          # junctions: a wedge of ground between road edges meeting at under this is paved shut
 TERRAIN_CELL = 4.0
 TERRAIN_TILE_CELLS = 32       # 128 m terrain tiles
 TERRAIN_SINK = 0.15           # terrain under the road sits this far below it (no poke-through on a 4 m grid)...
