@@ -266,6 +266,20 @@ def map_panel(jpg: bytes):
     return im.crop((x0, y0, x1, y1))
 
 
+def on_tile(m, tile_bg: tuple[int, int, int]):
+    """The map crop on the tile colour: its own dark card background (the median of its border) is replaced, the
+    outline kept, blended by brightness above that background (Chris 2026-10-27: no darker box behind each map)."""
+    import numpy as np
+    from PIL import Image
+    a = np.asarray(m.convert("RGB")).astype(float)
+    lum = a.mean(axis=2)
+    border = np.concatenate([lum[0], lum[-1], lum[:, 0], lum[:, -1]])
+    bg = float(np.median(border))
+    alpha = np.clip((lum - bg) / max(255.0 - bg, 1.0), 0.0, 1.0)[..., None]
+    out = a * alpha + np.array(tile_bg, dtype=float) * (1.0 - alpha)
+    return Image.fromarray(out.round().astype(np.uint8))
+
+
 def make_preview(title: str, subtitle: str, tiles: list[tuple[str, bytes | None]], limit: int) -> bytes:
     """1280 x 720 (16:9) collage: title band, then the members' maps in a grid with their names."""
     from PIL import Image, ImageDraw
@@ -292,7 +306,7 @@ def make_preview(title: str, subtitle: str, tiles: list[tuple[str, bytes | None]
             box_w, box_h = tw - 16, th - name_h - 16
             s = min(box_w / m.width, box_h / m.height)
             m = m.resize((max(1, int(m.width * s)), max(1, int(m.height * s))), Image.LANCZOS)
-            im.paste(m, (x0 + (tw - m.width) // 2, y0 + 8 + (box_h - m.height) // 2))
+            im.paste(on_tile(m, tile_bg), (x0 + (tw - m.width) // 2, y0 + 8 + (box_h - m.height) // 2))
         tl = d.textlength(name, font=nf)
         f = nf if tl <= tw - 12 else _font(max(14, int(24 * (tw - 12) / tl)))
         tl = d.textlength(name, font=f)
