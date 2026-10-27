@@ -217,7 +217,7 @@ The recipe is unchanged; the sample was re-imported for the shared importer chan
 | Elevation | 11.1-29.8 m ODN (18.8 m range), the climb to Rocket +8.1 %, Peel (28.8 m) down to the Corkscrew (18.6 m): the 10 m Corkscrew drop at up to −8.2 % (Coastal's link −9.7 %). Crests ≥ 650 m (Coastal ≥ 254 m), no steps; fit RMS 0.013 m. | OK |
 | Camber | The Banking 5.7° into the right-hander (its name), Target −1.6° into the left, p95 3.9°. | OK |
 | Lap lengths | Re-imported 2026-10-24 with audit A's smoothed registration and the branch-join changes: International 3,286.8 vs 3,380 m (−2.8 %), Coastal 2,463.4 (−1.2 %), National 1,898.9 (−1.7 %), Club 1,272.4 (−1.1 %). OSM `width` 12 m on three ways and the registered line agree with the DTM; the International's extra gap (the Tom Pryce Straight-Hairpin-Bus Stop part) has no source to check against. | Unchanged (within 3 %) |
-| Start/finish | International/Coastal: OSM "Start/Finish" node; National: ACU 2012 + map flag; Club: map flag 22 m after the Club Hairpin joins. No better source found for the Club line. | Unchanged, Club estimated |
+| Start/finish | International: OSM "Start/Finish" node; Coastal (2026-10-26): 26 m further down the straight, AiM's Coastal-vs-International offset (Chris's `Anglesey.ztracks`); National: ACU 2012 + map flag; Club: map flag 22 m after the Club Hairpin joins. No better source found for the Club line. | Unchanged, Club estimated |
 | Environment | Sea plane below 0 m ODN to the W/S (no-data cells of the Welsh DTM), coastal rocks on the shore, crowds at the Corkscrew, Rocket, Banking. | OK |
 
 ## Width (2026-10-24)

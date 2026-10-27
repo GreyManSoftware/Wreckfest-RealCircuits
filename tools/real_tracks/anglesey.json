@@ -28,7 +28,8 @@
       ],
       "layoutSource": "Wikipedia and racingcircuits.info Coastal Circuit map: the International with the Corkscrew link from Seamans to the Bus Stop in place of the Tom Pryce Straight and Hairpin; 2.494 km.",
       "directionSource": "racingcircuits.info Coastal map: arrows as on the International (clockwise).",
-      "startFinishSource": "racingcircuits.info Coastal map: the chequered flag at the same place as the International's, so the Coastal shares its line and grid (BRSCC 2021 briefing notes: one start procedure for both).",
+      "startFinish": { "alongWay": 892471227, "fraction": 0.62, "note": "On the start straight 26 m past the International line (main s 26), 18 m before the Club Hairpin joins it." },
+      "startFinishSource": "AiM RaceStudio track database (Chris's Anglesey.ztracks, decoded 2026-10-26): the 'AngleseyCoas' start/finish lies 26 m further down the start straight than the 'Anglesey INT' one (53.1884431, -4.4957873 vs 53.1884023, -4.4961637), so the Coastal line sits 26 m past the International's (Chris 2026-10-26: the Coastal start/finish is further down the straight). AiM's INT point is 16 m past OSM's 'Start/Finish' node, so the offset is taken, not AiM's absolute position. Earlier: racingcircuits.info Coastal map, the chequered flag by the International's.",
       "measuredLapLengthM": 2472,
       "publishedLapLengthM": 2494
     },
