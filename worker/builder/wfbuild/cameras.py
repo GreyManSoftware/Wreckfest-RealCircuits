@@ -18,7 +18,15 @@ road and past the run-off, ``HEIGHT_M`` above the terrain, looking at the front 
 splits the lap into ranges of the compiled main route's sectors (one per ~SPACING_M) and puts a rotating camera
 beside the road near each range's middle. A spot is used only when it is off every road, on dry land inside the
 terrain, clear of every prop (and of the bridge and jump no-go zones), and sees its target over the terrain and
-past the tall props; otherwise the next one is tried, ending with a higher fallback. Everything is in TrackModel
+past the tall props; otherwise the next one is tried, ending with a higher fallback.
+
+On hills a trackside camera stands above every car it follows: a rotating camera tracks the cars over its whole
+range, and 5 m above the ground at the range's middle left it up to 7 m below the cars further along at Brands
+Hatch and Cadwell (8 of Brands' 24 and 10 of Cadwell's 22 cameras below a car somewhere, looking up at the road;
+none on the flat circuits, which looked right; Chris, 2026-10-26). So its eye is also ABOVE_CARS_M above the
+highest car of its range, at most SIDE_MAX_HEIGHT_M above its ground (stock: up to ~15 m), and among the spots
+tried it takes the first that sees the cars over the whole range (``SIDE_RANGE_SAMPLES`` sector centres), else
+the one that sees the most. Everything is in TrackModel
 coordinates (the builder moves it with the rest of the layout).
 """
 from __future__ import annotations
@@ -43,6 +51,9 @@ SPACING_M = 160.0                    # trackside cameras: one per this much of t
 SIDE_HEIGHT_M = 5.0                  # trackside cameras above the terrain
 SIDE_BEYOND_M = (10.0, 14.0, 7.0, 20.0, 28.0)
 SIDE_SHIFT = (0.0, 0.15, -0.15, 0.3, -0.3)        # along the range, as a share of its length
+ABOVE_CARS_M = 3.0                   # trackside cameras: above the highest car (road + TARGET_LIFT_M) of the range
+SIDE_MAX_HEIGHT_M = 15.0             # and at most this far above their ground (stock trackside cameras: 2-15 m)
+SIDE_RANGE_SAMPLES = 12              # sector centres of a range checked for a clear view
 
 
 def _grid(lay) -> list:
@@ -130,7 +141,8 @@ class _Site:
             return False
         return not self.props.blocks(eye, target)
 
-    def eye(self, q: np.ndarray, beyond: float, height: float, min_z: float, target: np.ndarray) -> np.ndarray | None:
+    def eye(self, q: np.ndarray, beyond: float, height: float, min_z: float, target: np.ndarray,
+            max_height: float = np.inf) -> np.ndarray | None:
         x0, x1, y0, y1 = self.geo.extent
         if not (x0 + 20 <= q[0] <= x1 - 20 and y0 + 20 <= q[1] <= y1 - 20):
             return None
@@ -140,7 +152,10 @@ class _Site:
             return None
         if self.planner.in_nogo(q, 1.0, True)[0]:  # bridges and jumps (the grid zone only keeps props out)
             return None
-        z = max(float(self.terrain(q)[0]) + height, min_z)
+        ground = float(self.terrain(q)[0])
+        z = max(ground + height, min_z)
+        if z - ground > max_height:  # in a dip far below the road: a mast this tall isn't a trackside camera
+            return None
         e = np.array([q[0], q[1], z])
         return e if self.props.clear(q, z) and self.sees(e, target) else None
 
@@ -194,15 +209,19 @@ def ranges(n: int, centres: np.ndarray, spacing: float = SPACING_M) -> list[tupl
 
 def trackside_cameras(geo, lay, field, planner, placements) -> list[tuple[np.ndarray, np.ndarray, tuple[int, int], str]]:
     """(eye, target, (first, last sector), note) per range of the lap (``ranges``), TrackModel coordinates: a
-    camera SIDE_HEIGHT_M above the terrain, SIDE_BEYOND_M beyond the road edge on either side near the range's
-    middle, looking at the road there."""
+    camera SIDE_HEIGHT_M above the terrain and ABOVE_CARS_M above every car of the range, SIDE_BEYOND_M beyond
+    the road edge on either side near the range's middle, looking at the road there; the first spot that sees
+    the whole range, else the one that sees most of it."""
     cen = sector_centres(lay)
     n = len(cen)
     site = _Site(geo, field, planner, placements)
     out = []
     for a, b in ranges(n, cen):
         lo, hi = min(a, n - 1), min(b, n - 1)
-        found = None
+        cars = cen[np.unique(np.linspace(lo, hi, SIDE_RANGE_SAMPLES).round().astype(int))].copy()
+        cars[:, 2] += TARGET_LIFT_M
+        min_z = float(cars[:, 2].max()) + ABOVE_CARS_M
+        found, best = None, (-1, None)
         for shift in SIDE_SHIFT:
             k = int(round(lo + (hi - lo) * (0.5 + shift)))
             k = min(max(k, 0), n - 1)
@@ -215,20 +234,28 @@ def trackside_cameras(geo, lay, field, planner, placements) -> list[tuple[np.nda
             for beyond in SIDE_BEYOND_M:
                 for side in (1.0, -1.0):
                     q = c[:2] + nl * side * (site.hw(c) + beyond)
-                    e = site.eye(q, beyond, SIDE_HEIGHT_M, c[2] + 1.5, target)
-                    if e is not None:
-                        found = (e, target, (a, b), f"sector {k}, {beyond:.0f} m beyond the edge")
+                    e = site.eye(q, beyond, SIDE_HEIGHT_M, min_z, target, SIDE_MAX_HEIGHT_M)
+                    if e is None:
+                        continue
+                    seen = sum(site.sees(e, car) for car in cars)
+                    cand = (e, target, (a, b), f"sector {k}, {beyond:.0f} m beyond the edge, sees {seen}/{len(cars)}")
+                    if seen == len(cars):
+                        found = cand
                         break
+                    if seen > best[0]:
+                        best = (seen, cand)
                 if found:
                     break
             if found:
                 break
+        if found is None:
+            found = best[1]
         if found is None:  # above the road at the range's middle
             k = (lo + hi) // 2
             c = cen[k]
             target = cen[min(k + 3, n - 1)].copy()
             target[2] += TARGET_LIFT_M
-            eye = np.array([c[0], c[1], max(float(site.terrain(c[:2])[0]), c[2]) + FALLBACK_HEIGHT_M])
+            eye = np.array([c[0], c[1], max(max(float(site.terrain(c[:2])[0]), c[2]) + FALLBACK_HEIGHT_M, min_z)])
             found = (eye, target, (a, b), "fallback above the road")
         out.append(found)
     return out
