@@ -179,6 +179,57 @@ Every recipe (2026-10-19, after Cadwell Park drove backwards):
   LIDAR signal or a track guide, never proprietary imagery. The build's `manifest.json` lists every kerbed corner
   with its source (`kerbs`).
 
+## AiM outlines (2026-10-26)
+
+Chris's AiM dash software (RaceStudio) has a track database with an outline of each circuit. It comes as a
+`.ztracks` file: a zip of `.tkk` files of tagged chunks. Each outline has a point every 20-25 m (lat, lon, height in
+whole metres) and its start/finish point. These outlines are an independent check of our routes.
+
+```powershell
+py tools\real_tracks_data\aim_outline.py <slug> <file.ztracks>... --track "<AiM name>" <layout id|none> ["note"]
+```
+
+- **Data:** the tool writes `tools/real_tracks/aim/<slug>.json` (derived data). It holds the outline points, the
+  layout each outline traces (`null` for a layout we don't build, which needs a note) and the committed sample's
+  frame. The importer refreshes that frame whenever it writes the committed sample.
+- **Check:** `geom/tests/test_import_real_track.py` fails a layout that strays from its outline, and `--verify`
+  reports the same figures per layout (`aim`). The outline is first shifted onto the lap as well as it fits, by at
+  most 6 m. After that, the lap must stay within 12 m of the outline, and the outline's points within 12 m of the
+  lap.
+- **Accuracy:** the outlines are coarse. Their straight chords cut corners, the drawn line is the racing line in
+  places (Brands Hatch's Paddock Hill: AiM is off the tarmac where our LIDAR-measured line is on it), and the
+  WGS84 to grid step is a few metres out. So the check catches a wrong road, tens of metres off, not a 5 m error.
+  Where the two disagree by a few metres, the LIDAR-measured tarmac middle is the better line.
+- **Heights:** the AiM heights are whole metres, held for several points and lagging, so they're useless for
+  elevation detail.
+
+Built laps against the outlines after the shift:
+
+| Circuit | AiM outline → layout | Shift | Mean / max (m) | Notes |
+|---|---|---|---|---|
+| Anglesey | Anglesey INT → International; AngleseyCoas → Coastal | 1.7; 1.4 m | 2.3 / 6.8; 3.0 / 6.1 | AiM's start/finish is 16 m and 41 m further on |
+| Bedford Autodrome | Bedford GT → GT | 1.5 m | 2.2 / 6.8 | **was 78 m off at Turn 7** (fixed, see "Bedford Autodrome") |
+| Brands Hatch | Brands GP → GP; Brands Indy → Indy | 2.0; 3.8 m | 2.3 / 9.9; 2.9 / 8.1 | worst at Paddock Hill, where AiM is outside the tarmac |
+| Cadwell Park | Cadwell → Full | 4.5 m | 1.4 / 4.1 | |
+| Donington Park | DoningtonGP → GP; DoningtonNAT → National | 1.8; 2.1 m | 3.1 / 8.4; 2.5 / 8.3 | |
+| Oulton Park | Oulton Park → International Trackday | 3.6 m | 2.0 / 5.7 | AiM drives Hislop's chicane: our International takes the straight (Chris, 2026-10-25). AiM's start/finish is 38 m further on |
+| Snetterton | SnettertonV1 → 300; SnettertonV2 → 200 | 2.8; 2.8 m | 2.5 / 8.1; 2.0 / 7.3 | |
+| Circuito de Navarra | Los Arcos → none | | | the pre-2024 lap (below) |
+
+Layouts without an outline (Anglesey National and Club, Bedford SW, West and SEN, Cadwell Club and Woodlands,
+Oulton Island and Fosters, Snetterton 100, Navarra Medium and Short) share the main lap's road, which the main
+outline checks. Their own links come from OSM, and in England their widths and middles are measured from the LIDAR.
+
+**Navarra's lap length (item 20).** Our Main Track is 4,287 m against MSV's 4,313 m for the 2024 layout. AiM's
+"Los Arcos" track is 3,850 m, and the 3.93 km figure is the official length before the 2024 extension. The AiM outline is the
+**pre-2024 lap**: it follows ours to Turn 10, then cuts straight across from the T10-T11 approach to the old T11
+(AiM points 128-142), where the 2024 extension (Turns 11-14) runs. From there to Turn 15 it takes the old road
+west of the new one. The 2024 LIDAR shows the extension under construction and the old arc still there. So nothing
+in our lap is wrong: the difference is the extension. Elsewhere the outline matches within its accuracy. At
+Turn 8 it is up to 22 m wide, but on the 2024 LIDAR our line sits on the track inside the kerb (both edges
+measured, confidence 1.0), and AiM's line runs over the asphalt run-off beyond. AiM's start/finish is 270 m
+further on than ours (the timing agent's area).
+
 ## Chicanes (2026-10-24)
 
 Chris drove Oulton Park and missed the "bus stop" chicane on the big straight. It was in OSM, the recipe and the
@@ -810,7 +861,7 @@ corner over an airfield service road (OSM 449592525, paved between the mapped gr
 | Start/finish | inner (pit) straight before T1, OSM node 305063847, 159 m before the pit lane merges (racingcircuits.info flag, mapped by an affine fit of the West loop) | shares the GT line | shares the GT line | own: the south straight where the South pit lane rejoins, after the small west loop (racingcircuits.info SEN flag) |
 
 **Length gaps.** The OSM routes follow the maps corner for corner (the GT has exactly MSV's 10 left and 8 right
-corners) on the mapped tarmac; Turn 7 takes OSM 1558089016, not the West Circuit way's old bow across the grass (2026-10-26, from the AiM outline and the LIDAR: `real-tracks/bedfordautodrome.md`). The SW, built from the same ways, is 1.9 % over MSV's figure, so OSM isn't
+corners) on the mapped tarmac; Turn 7 takes OSM 1558089016, not the West Circuit way's old bow across the grass (2026-10-26, from the AiM outline and the LIDAR: `real-tracks/bedfordautodrome.md`). The SW, built from the same ways, is 2.6 % over MSV's figure, so OSM isn't
 uniformly short: MSV rounds to 0.1 mi (±80 m), and its West figure (3.0 km) looks like an older layout's
 (racingcircuits.info: 2.98–3.14 km before 2015; lapmeta 2.89 km). The recipe allows 4 % (GT) and 7 % (West) with
 `lapLengthNote`s.
