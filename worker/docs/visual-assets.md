@@ -32,7 +32,7 @@ A blend material mixes three albedos through an RGB blend map on **UV2**. Stock 
 
 - **Name tags.** The material name carries surface, clutter group and shader tags, e.g. `fields13_near#blend#gravel#fields13`. The clutter group is `data/scene/surface/<name>.suse`.
 - **UV channel and tiling per albedo.** Each albedo picks UV1 or UV2 and a tiling scale; sandpit03 uses UV2 × 300. Toolbox writes the scale from a Mapping node's Scale. It writes UV2 when the image's UVMap node names a map containing "2".
-- **Verified (2026-10-18).** A 12-slot material from a node group named with `#`, plus #xtree, #horizon, a ghost material and a scaled `#xref`, went through Toolbox and bgeometry with no errors. The rebuilt `.scne` holds the same slots, UV channels and scales as the stock files.
+- **Verified (2026-10-18).** A 12-slot material from a node group named with `#`, plus #xtree, #horizon, a ghost material and a scaled `#xref`, went through Toolbox and bgeometry with no errors. The rebuilt `.scne` holds the same slots, UV channels and scales as the stock files. (The game then ignores the `#xref`'s scale: see "Real pits" below.)
 
 ### Clutter
 
@@ -172,9 +172,24 @@ span, workbench renders from both sides). Used by `wfbuild/pits.py` for the real
 | `prop_bridge02` / `02b` / `02c` / `02d`, `prop_bridge03b` / `03c` | 22-33 m / 55 m | (not used) | 02*: stairs to the ground at ±7.5-8 m (short span); 03b: pillars at ±8 m |
 | `forest13_pitbuilding_01..05` | 3-10 × 7-19 × 4-10 | (not used) | small wooden huts |
 
-Scaled uniformly (Wreckfest scales `#xref` subscenes; only uniform scales are used): the garages and buildings by
-the real height (0.55-1.4), the footbridge so its inner pillars stand outside the road, its walls and any pit lane
-and its deck stays at least 5 m over the road.
+**Wreckfest does not scale `#xref` subscenes** (corrected 2026-10-27; this section used to say it did). Toolbox
+writes the empty's scale into the `.scne` and bgeometry accepts it, but the game draws every subscene at its own
+size. Evidence from 2026-10-26: Navarra's footbridge, written at scale 1.8, stood unscaled in game; the span banners
+(our own mesh, laid out for the scaled span) floated 6.06 × (scale − 1) m above its side walls; Brands' grandstands
+written at 0.55 stood at full size, overlapping, their ad boards flickering against each other's. So:
+
+- every stock prop is placed at scale 1 and planned (clearances, footprints, sight lines) at its true size: pit
+  buildings, grandstands and spans are tiled or chosen at their own size (`pits.py`), the pit wall line is trimmed
+  to a whole number of 3.74 m slots so its unscaled `prop_barrier8` elements abut 4 cm apart, the start lights'
+  arm reaches 10.5 m at 7.2 m whatever the pole's distance, shore rocks and gorse are drawn at their stock size,
+  and a measured tree gets the stock tree nearest its height (within 25 %) instead of a scaled one;
+- the only exceptions are `dressing.XREF_SCALE_JITTER`, a little random variety where a slightly different size
+  breaks nothing: trees (±25 %), bushes (±15 %), saplings (±30 %) and ground props (rocks, bales; ±15 %). The game
+  ignores it too; their clearances use the true size (`Planner.try_place`);
+- our own meshes (road, terrain, walls, kerbs, sponsor boards and span banners) are written with their real size
+  in the vertices; the objects carry no scale.
+
+`check_scene.py` fails any `#xref` placement off scale 1 beyond that list (`try_place` refuses one too).
 
 ### Trackside
 

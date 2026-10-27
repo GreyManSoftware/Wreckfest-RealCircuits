@@ -196,6 +196,21 @@ def min_area_rect(poly: np.ndarray) -> tuple[np.ndarray, float, float, np.ndarra
     return c, float(lu), float(lv), ax
 
 
+def _abutting(line: np.ndarray) -> np.ndarray:
+    """The pit wall line trimmed evenly at both ends to a whole number of WALL_LEN + WALL_GAP slots, so the
+    unscaled elements (the game draws #xref subscenes at their own size) abut along all of it: no stretched
+    elements, no gaps, and the collision wall ends where the last element does."""
+    seg = np.hypot(*np.diff(line, axis=0).T)
+    s = np.concatenate([[0.0], np.cumsum(seg)])
+    pitch = WALL_LEN + WALL_GAP
+    n = int(math.floor(s[-1] / pitch + 1e-9))
+    if n < 1:
+        return line
+    a = (s[-1] - n * pitch) / 2.0
+    t = np.concatenate([[a], s[(s > a) & (s < s[-1] - a)], [s[-1] - a]])
+    return _resample(np.column_stack([np.interp(t, s, line[:, 0]), np.interp(t, s, line[:, 1])]), 1.0)
+
+
 def yaw_to(d) -> float:
     return math.atan2(-float(d[0]), float(d[1]))
 
@@ -209,7 +224,7 @@ class Lane:
         self.p = _resample(_pts(d["centreline"]), LANE_CELL)
         self.t, self.nl = _normals(self.p)
         w = d.get("wall") or {}
-        self.wall = _resample(_pts(w["points"]), 1.0) if w.get("points") else None
+        self.wall = _abutting(_resample(_pts(w["points"]), 1.0)) if w.get("points") else None
         self.wall_s = tuple(w.get("sM", (0.0, 0.0)))
         m = geo.main
         # every lane sample's nearest main sample, signed lateral offset and s
@@ -414,10 +429,10 @@ class Pits:
         for lane in self.lanes:
             lines = ([lane.wall] if lane.wall is not None else []) + lane.closures()
             for line in lines:
-                for q, t, s in self._row(line, WALL_LEN, WALL_GAP):
+                for q, t in self._row(line, WALL_LEN, WALL_GAP):
                     # the element's mesh runs from x = -1.83 to 1.87 m: centre that span on the slot
-                    off = sum(footprint.EXTENTS[WALL_ASSET][:2]) / 2.0 * s
-                    add(WALL_ASSET, "pitWall", q - t * off, math.atan2(-t[0], t[1]) + math.pi / 2, s)
+                    off = sum(footprint.EXTENTS[WALL_ASSET][:2]) / 2.0
+                    add(WALL_ASSET, "pitWall", q - t * off, math.atan2(-t[0], t[1]) + math.pi / 2)
             poly = lane.polygon()
             for q in self._cover(poly, 8.0) if len(poly) else []:
                 planner.sc.zones.append(Zone("paved", float(q[0]), float(q[1]), 6.0))
@@ -456,19 +471,20 @@ class Pits:
 
     @staticmethod
     def _row(line: np.ndarray, length: float, gap: float):
-        """Elements ``length`` long end to end along the line, ``gap`` apart, never overlapping: equal slots, each
-        element on its slot's chord and scaled up (uniformly, at most 1 + 1/n) to fill it less the gap. Yields
-        (centre, unit direction, scale)."""
+        """Elements ``length`` long end to end along the line, never overlapping: equal slots at least ``length +
+        gap`` long, each element unscaled (the game ignores #xref scale) on its slot's chord. On a line trimmed by
+        ``_abutting`` (the pit wall) every slot is exactly ``length + gap``, so the elements abut ``gap`` apart.
+        Yields (centre, unit direction)."""
         seg = np.hypot(*np.diff(line, axis=0).T)
         s = np.concatenate([[0.0], np.cumsum(seg)])
         L = float(s[-1])
-        n = max(1, int(math.floor(L / (length + gap))))
+        n = max(1, int(math.floor(L / (length + gap) + 0.02)))  # a trimmed line a few mm short on a curve
         for k in range(n):
             a, b = k * L / n, (k + 1) * L / n
             p0 = np.array([np.interp(a, s, line[:, 0]), np.interp(a, s, line[:, 1])])
             p1 = np.array([np.interp(b, s, line[:, 0]), np.interp(b, s, line[:, 1])])
             chord = max(float(np.hypot(*(p1 - p0))), 1e-9)
-            yield (p0 + p1) / 2.0, (p1 - p0) / chord, max(chord - gap, 0.1) / length
+            yield (p0 + p1) / 2.0, (p1 - p0) / chord
 
     def _on_pits(self, q: np.ndarray, r: float, lanes_only: bool = False) -> bool:
         for lane in self.lanes:
@@ -752,18 +768,24 @@ class Pits:
             side = 1
             pole = p[:2] + nl * side * (hw + C.WALL_OFFSET)
         reach = float(np.hypot(*(pole - p[:2])))
-        s = max(1.0, (reach + 3.0) / LIGHTS_ARM)
         z = float(g.terrain(np.array([[pole[0], pole[1], 0.0]]))[0])
         road_top = float(max(r.left[i, 2], r.right[i, 2], p[2]))
-        s = max(s, (MIN_CLEARANCE + road_top - z) / LIGHTS_LOW)
+        # unscaled: the game draws #xref subscenes at their own size, so the arm reaches LIGHTS_ARM at LIGHTS_LOW
+        # whatever scale we write (it was scaled up to 1.46 to reach 3 m past the centre line)
+        clear = LIGHTS_LOW + z - road_top
+        problems = ["the pole on a road"] if float(planner.field.dist(pole)[0]) < 0.3 else []
+        if reach - LIGHTS_ARM > hw - 1.0:
+            problems.append(f"the arm ends {reach - LIGHTS_ARM:.1f} m from the centre line, not over the road")
+        if clear < MIN_CLEARANCE:
+            problems.append(f"the arm {clear:.1f} m over the road (under {MIN_CLEARANCE:.0f})")
         over = -nl * side                       # the arm (local +X) points across the track
-        add(LIGHTS_ASSET, "gantry", pole, math.atan2(over[1], over[0]), s)
+        add(LIGHTS_ASSET, "gantry", pole, math.atan2(over[1], over[0]))
         planner.sc.placements[-1].z = z
         self.report["gantries"].append({"kind": "startLights", "name": gnt.get("name", ""), "sM": round(float(r.s[i]), 1),
-                                        "asset": LIGHTS_ASSET, "scale": round(s, 3),
-                                        "clearanceM": round(LIGHTS_LOW * s + z - road_top, 2),
-                                        "poleFromCentreM": round(reach, 1), "armReachM": round(LIGHTS_ARM * s, 1),
-                                        "problems": ["the pole on a road"] if float(planner.field.dist(pole)[0]) < 0.3 else []})
+                                        "asset": LIGHTS_ASSET, "scale": 1.0, "clearanceM": round(clear, 2),
+                                        "poleFromCentreM": round(reach, 1), "armReachM": LIGHTS_ARM,
+                                        "armShortOfCentreM": round(max(reach - LIGHTS_ARM, 0.0), 1),
+                                        "problems": problems})
         self._fixed_z = getattr(self, "_fixed_z", [])
         self._fixed_z.append((planner.sc.placements[-1], z))
 

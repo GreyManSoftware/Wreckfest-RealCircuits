@@ -71,6 +71,13 @@ def check_pits_base(check, geo, sc: dict, obs: dict, manifest: dict, to_scene, w
             dd = np.array([np.hypot(*(row - q).T).min() for q in lane.wall[::2]])
             check(float(dd.max()) <= WALL_STEP_MAX / 2 + 0.6, f"pits: {lane.id} concrete row continuous along the pit wall",
                   f"worst {dd.max():.2f} m from the nearest element")
+            # unscaled elements (the game ignores #xref scale) abut: each one's neighbour WALL_LEN + WALL_GAP away
+            mine = row[np.array([np.hypot(*(lane.wall - q).T).min() < 1.5 for q in row])]
+            if len(mine) > 1:
+                nn = np.array([np.sort(np.hypot(*(mine - q).T))[1] for q in mine])
+                check(float(nn.min()) >= pits_mod.WALL_LEN - 0.01 and float(nn.max()) <= pits_mod.WALL_LEN + 0.1,
+                      f"pits: {lane.id} pit wall elements abut, unscaled ({pits_mod.WALL_GAP * 100:.0f} cm apart)",
+                      f"neighbours {nn.min():.3f}-{nn.max():.3f} m apart (elements {pits_mod.WALL_LEN} m)")
         from wfbuild import pits as PITS  # noqa: PLC0415
         if PITS.OPEN_LANES:
             check(not lane.closures(), f"pits: {lane.id} open at both ends (no barrier across the lane or a junction)")

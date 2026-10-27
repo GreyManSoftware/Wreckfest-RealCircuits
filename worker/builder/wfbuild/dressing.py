@@ -34,6 +34,16 @@ RUNOFF_EXEMPT = ("gantry", "flags", "staff", "grandstand", "barriers", "shore", 
 
 FORMAT = "trackgen-scenery/1"
 
+# The game draws #xref subscenes at their own size: the scale a placement carries is written to the scene (as stock
+# bases write it) but not applied in game (2026-10-26: Navarra's footbridge at 1.8 stood unscaled, the span banners
+# laid out for it floated 6.06 * (scale - 1) m above its side walls, Brands' grandstands at 0.55 overlapped at full
+# size). So every stock prop is placed at scale 1 and planned at its true size, except the categories here, whose
+# scale is only a little random variety (at most this far from 1) where a slightly different size breaks nothing:
+# foliage and loose rocks and bales, kept clear of the road at their true size (try_place). Sponsor boards are our
+# own mesh, built at their size (``scale`` is a banner's height there), not #xref. check_scene enforces this list;
+# worker/docs/visual-assets.md explains it.
+XREF_SCALE_JITTER = {"trees": 0.25, "bushes": 0.15, "saplings": 0.3, "groundProps": 0.15}
+
 # ---- braking boards (stock gameplay_distanceboard{150,100,50}: breakable 2 x 1 m panels, numbers on local +X)
 BRAKE_BOARDS = (150, 100, 50)    # metres before the turn-in, furthest first; a zone gets all three or none
 BRAKE_MAX_RADIUS = 80.0          # a heavy-braking corner's apex radius is at most this...
@@ -502,11 +512,13 @@ class Planner:
         if asset not in self.allowed:
             raise ValueError(f"{asset} is not allowed in {self.env_name}")
         info = envs.asset_info(asset)
-        rr = float(info["r"] if r is None else r) * scale
+        if abs(scale - 1.0) > XREF_SCALE_JITTER.get(category, 0.0) + 1e-9:
+            raise ValueError(f"{asset} ({category}) at scale {scale:.2f}: the game draws #xref props unscaled")
+        rr = float(info["r"] if r is None else r)  # the true size: the game ignores the scale (XREF_SCALE_JITTER)
         # Long, thin assets laid along the road (fences, grandstands) only reach towards it by half their depth.
         edge_r = rr
         if "width" in info and info.get("face") != "x":
-            edge_r = float(info.get("depth", 1.0)) / 2.0 * scale
+            edge_r = float(info.get("depth", 1.0)) / 2.0
         if not self.inside(x, y, margin + rr):
             return False
         if float(self.field.dist([x, y])[0]) - edge_r < min_edge:
@@ -596,12 +608,12 @@ class Planner:
         i0 = 0  # the start/finish line is at s = 0 (layout.py)
         p, t = r.p[i0, :2], r.tangent[i0]
         hw = r.w[i0] / 2.0
-        scale = max(1.0, (hw + C.WALL_OFFSET + 1.5) / 16.0)
-        legs = np.array([p + r.nl[i0] * 16.35 * scale, p - r.nl[i0] * 16.35 * scale])
-        if gantry and (self.field.dist(legs) > 1.5).all():
+        legs = np.array([p + r.nl[i0] * 16.35, p - r.nl[i0] * 16.35])
+        # unscaled (the game draws #xref props at their own size): only where its legs stand beyond the barrier
+        if gantry and hw + C.WALL_OFFSET + 1.5 <= 16.0 and (self.field.dist(legs) > 1.5).all():
             # spans the road (the only asset allowed on it); exempt from the road clearance
             self.sc.placements.append(Placement("prop_start_startlights1", "gantry", float(p[0]), float(p[1]), 0.0,
-                                                yaw_to(t), scale))
+                                                yaw_to(t)))
         room = []
         for side in (1, -1):
             q, _, _ = self.side_point(r, i0, side, 60.0)
@@ -1422,12 +1434,15 @@ class Planner:
             H = np.array([t[2] for t in self.real_trees])
             d = self.field.dist(P)
             ins = self.woods.at(P) > 0.45 if self.woods is not None else np.zeros(len(P), dtype=bool)
+            # the stock tree nearest each measured height (the game ignores a scale, so a tree can't be scaled to
+            # it): any within 25 % of it, else the nearest
+            th = np.array([float(envs.asset_info(a)["h"]) for a in trees])
             for (x, y), h, dd, w in zip(P, H, d, ins):
                 if w:
                     continue
-                a = self.pick(trees)
-                sc = float(np.clip(h / max(envs.asset_info(a)["h"], 1.0), 0.45, 1.3))
-                cand.append((float(dd), float(x), float(y), a, sc))
+                off = np.abs(np.log(th / max(float(h), 1.0)))
+                near = [a for a, o in zip(trees, off) if o <= max(math.log(1.25), float(off.min()) + 1e-9)]
+                cand.append((float(dd), float(x), float(y), self.pick(near), 1.0))
         cand.sort(key=lambda c: c[0])
         n = 0
         for dd, x, y, a, sc in cand:
@@ -1593,10 +1608,9 @@ class Planner:
                 break
             if self.rng.random() < 0.5:
                 continue
-            a = self.pick(sh["rocks"])
-            s = float(self.rng.uniform(0.8, 2.2))
+            a = self.pick(sh["rocks"])  # unscaled (XREF_SCALE_JITTER): the game draws them at their own size
             if self.try_place(a, "shore", cand[k, 0], cand[k, 1], float(self.rng.uniform(0, 2 * math.pi)),
-                              self.edge_min + 10.0, r=envs.asset_info(a)["r"] * 0.6, scale=s, margin=0.0):
+                              self.edge_min + 10.0, r=envs.asset_info(a)["r"] * 0.6, margin=0.0):
                 nr += 1
         # cliffs: where the ground falls steeply into the sea, facing the water
         nc = 0
@@ -1623,7 +1637,7 @@ class Planner:
         self.sc.info["shore"] = {"rocks": nr, "cliffs": nc}
 
     def gorse(self) -> None:
-        """Low gorse clumps (stock bushes, scaled down) scattered in the open grass (environments.json "gorse")."""
+        """Gorse clumps (stock bushes, unscaled) scattered in the open grass (environments.json "gorse")."""
         g = self.e.get("gorse")
         if not g:
             return
@@ -1631,7 +1645,6 @@ class Planner:
         d = self.field.dist(centres)
         centres = centres[(d > self.edge_min + 10.0) & (d < float(g.get("maxRoadM", 300.0)))]
         n = 0
-        lo, hi = (float(v) for v in g.get("scale", (0.5, 0.8)))
         for c in centres[self.rng.permutation(len(centres))[:int(g.get("clusters", 60))]]:
             k = int(self.rng.integers(*[int(v) for v in g.get("perCluster", (3, 8))]))
             ang = self.rng.uniform(0, 2 * math.pi, k)
@@ -1639,10 +1652,9 @@ class Planner:
             for q in c + np.stack([np.cos(ang) * rad, np.sin(ang) * rad], axis=1):
                 if n >= int(g.get("cap", 400)):
                     break
-                a = self.pick(g["assets"])
-                s = float(self.rng.uniform(lo, hi))
+                a = self.pick(g["assets"])  # at their own size (3-4 m): the game ignores a scale (XREF_SCALE_JITTER)
                 if self.try_place(a, "bushes", q[0], q[1], float(self.rng.uniform(0, 2 * math.pi)), self.edge_min + 8.0,
-                                  r=envs.asset_info(a)["r"] * s * 0.7, scale=s, margin=0.0):
+                                  r=envs.asset_info(a)["r"] * 0.7, margin=0.0):
                     n += 1
         self.sc.info["gorse"] = n
 

@@ -428,7 +428,7 @@
    "treeDensity": 0.0,
    "foliage": {"treeCap": 120, "minTreeM": 30.0, "bushCap": 0, "edgeBelt": 0, "groundPropCap": 90},
    "gorse": {"assets": ["foliage_bush15", "foliage_bush16", "bush_deciduous1", "bush_deciduous7"], "clusters": 70,
-             "perCluster": [3, 9], "radiusM": 9.0, "cap": 420, "scale": [0.45, 0.75], "maxRoadM": 320.0},
+             "perCluster": [3, 9], "radiusM": 9.0, "cap": 420, "maxRoadM": 320.0},
    "shore": {"rocks": ["prop_rock_large3", "prop_rock_large4", "prop_rock_large5", "prop_rock_large2", "prop_rock_pile_01"],
              "cliffs": ["prop_cliff1", "prop_cliff2", "prop_cliff3"], "rockCap": 260, "cliffCap": 26, "band": [-1.0, 3.5]},
    "stoneWalls": {"assets": ["prop_stone_wall_01", "prop_stone_wall_02"], "minRoadM": 45.0, "cap": 700, "keep": 0.6},
