@@ -169,26 +169,70 @@ class LayoutBuilder:
             mesh.face((l0, r0, r1, l1), mat, [(0, k), (1, k), (1, k + 1), (0, k + 1)])
         return mesh
 
+    def chord_error(self, r: Route, a: int, b: int) -> tuple[float, float]:
+        """How well one AI sector from sample ``a`` to ``b`` (route order, wrapping on a closed route) stands for
+        the road: the largest distance between a safe or race edge's chord (the straight sector edge) and that
+        edge's intended position at the samples between, and the turn of the sector lines (degrees). The game
+        constrains its racing line at the sector lines only, so a coarse sector round a tight corner or through a
+        chicane lets the line (and the AI's corner speed) take a short cut the road doesn't have."""
+        n = r.n
+        m = (b - a) % n if r.closed else b - a
+        lines = {kind: (self._line(r, a % n, kind), self._line(r, b % n, kind)) for kind in ("safe", "race")}
+        worst = 0.0
+        for t in range(1, m):
+            i = (a + t) % n
+            for kind, (la, lb) in lines.items():
+                q = self._line(r, i, kind)
+                for side in (0, 1):
+                    p0, p1, x = la[side][:2], lb[side][:2], q[side][:2]
+                    d = p1 - p0
+                    L2 = float(d @ d)
+                    f = 0.0 if L2 < 1e-12 else min(1.0, max(0.0, float((x - p0) @ d) / L2))
+                    worst = max(worst, float(np.hypot(*(x - p0 - d * f))))
+        na, nb = r.nl[a % n], r.nl[b % n]
+        turn = math.degrees(abs(math.atan2(na[0] * nb[1] - na[1] * nb[0], float(na @ nb))))
+        return worst, turn
+
+    def _sector_ok(self, r: Route, a: int, b: int) -> bool:
+        err, turn = self.chord_error(r, a, b)
+        return err <= C.AI_CHORD_TOL and turn <= C.AI_SECTOR_MAX_TURN
+
+    def _adaptive(self, r: Route, stops: list[int], step, rev: bool = False) -> list[int]:
+        """Sector line offsets from 0 to ``stops[-1]`` (ascending), through every one of ``stops``: each
+        sector as long as AI_SECTOR_SAMPLES allows while it follows the road (_sector_ok), down to
+        AI_SECTOR_MIN_SAMPLES in tight corners; no line within 3 samples before a stop (a junction line).
+        ``step(k)`` maps an offset to the route sample; ``rev``: offsets run against the route's sample order."""
+        def ok(k: int, k2: int) -> bool:
+            a, b = step(k), step(k2)
+            return self._sector_ok(r, *((b, a) if rev else (a, b)))
+
+        out = [0]
+        for stop in stops:
+            k = out[-1]
+            while k < stop:
+                hi = min(stop, k + C.AI_SECTOR_SAMPLES)
+                nxt = hi
+                while nxt - k > C.AI_SECTOR_MIN_SAMPLES and not ok(k, nxt):
+                    nxt -= 1
+                if nxt != stop and stop - nxt < 3:
+                    # don't leave a sliver before the stop: end there if it's close, else leave room
+                    nxt = stop if stop - k <= C.AI_SECTOR_SAMPLES + 2 else stop - 3
+                out.append(nxt)
+                k = nxt
+        return out
+
     def main_sequence(self, i0: int, direction: int, extra: int = 0) -> list[int]:
-        """Main-route sample indices of the AI sector lines, in driving order from sample ``i0``; the strip runs
-        AI_END_OVERLAP past the line (plus ``extra`` samples, see ai_meshes)."""
+        """Main-route sample indices of the AI sector lines, in driving order from sample ``i0`` (adaptive spacing,
+        _adaptive, through the junction lines); the strip runs AI_END_OVERLAP past the line (plus ``extra``
+        samples, see ai_meshes)."""
         r = self.main
         n = r.n
         ov = round(C.AI_END_OVERLAP / 2.0) + extra
-        forced = {((j - i0) * direction) % n for j in self.joins}
-        ks = set(range(0, n, C.AI_SECTOR_SAMPLES)) | forced | {0}
-        out = []
-        for k in sorted(ks):
-            if k not in forced and k != 0 and any(abs(k - f) < 3 for f in forced):
-                continue
-            if n - k < 3 and k != 0:
-                continue
-            out.append(k)
-        out.append(n + ov)
-        return [(i0 + direction * k) % n for k in out]
+        forced = sorted({((j - i0) * direction) % n for j in self.joins} - {0})
+        ks = self._adaptive(r, forced + [n + ov], lambda k: (i0 + direction * k) % n, direction < 0)
+        return [(i0 + direction * k) % n for k in ks]
 
     def alt_sequence(self, r: Route) -> list[int]:
-        ks = {0, r.n - 1}
         lo, hi = 0, r.n - 1
         for cut in self.geo.cuts:
             if cut.route is r and cut.kind == "mouth":
@@ -196,12 +240,10 @@ class LayoutBuilder:
                     lo = max(lo, cut.sample)
                 else:
                     hi = min(hi, cut.sample)
-        ks |= {lo, hi}
-        ks |= set(range(lo, hi, C.AI_SECTOR_SAMPLES))
-        ks = sorted(ks)
-        out = [k for k in ks if k in (0, r.n - 1, lo, hi) or (k - lo >= 3 and hi - k >= 3)]
-        out = [k for i, k in enumerate(out) if i == 0 or k - out[i - 1] >= 2 or k == r.n - 1]
-        return out
+        # lines between the junction mouths only (adaptive, as the main route); none where the branch still runs
+        # alongside the main road
+        ks = sorted({0, r.n - 1} | {lo + k for k in self._adaptive(r, [hi - lo], lambda k: lo + k)})
+        return [k for i, k in enumerate(ks) if i == 0 or k - ks[i - 1] >= 2 or k == r.n - 1]
 
     def _dline(self, r: Route, i: int, kind: str, direction: int) -> tuple[np.ndarray, np.ndarray]:
         """A sector line as (driver's left, driver's right) for the given driving direction."""
@@ -248,6 +290,9 @@ class LayoutBuilder:
                                              custom_route if kind == "route" else "", mats[kind]))
         layout.info["mainSectors"] = len(seq) - 1
         layout.info["mainSectorSamples"] = seq
+        fits = [self.chord_error(self.main, *((a, b) if direction > 0 else (b, a))) for a, b in itertools.pairwise(seq)]
+        layout.info["aiChordErrM"] = round(max(e for e, _ in fits), 3)
+        layout.info["aiMaxTurnDeg"] = round(max(t for _, t in fits), 1)
         layout.info["otherway"] = otherway
         line_s = float(self.main.s[i_line])
         for r in self.alts:

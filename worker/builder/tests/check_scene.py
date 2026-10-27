@@ -10,6 +10,7 @@ non-zero on any failure.
 """
 from __future__ import annotations
 
+import itertools
 import json
 import math
 import os
@@ -1283,19 +1284,47 @@ def check_layout(out: str, lay: dict, slug: str, model: dict, spec: dict, manife
         rm = next(rt for rt in model["routes"] if rt["aiIndex"] == 0)
         zs = to_scene(np.array([[q["x"], q["y"], q["z"]] for q in rm["samples"]]), manifest)
         le, ri = to_scene(np.array(rm["leftEdge"]), manifest), to_scene(np.array(rm["rightEdge"]), manifest)
-    worst = 0.0
     n = len(zs)
-    for v in world_verts(c):
-        # nearest sample, ignoring the other level at a bridge (the strip passes over or under it)
+
+    def across_road(v):
+        """The road's left and right edge across point v (interpolated between the nearest two samples, ignoring
+        the other level at a bridge) and v's fraction t from the right edge (0) to the left (1)."""
         k = int(np.argmin(np.hypot(*(zs[:, :2] - v[:2]).T) + 100.0 * (np.abs(zs[:, 2] - v[2]) > 3.0)))
         j = min(((k - 1) % n, (k + 1) % n), key=lambda q: float(np.hypot(*(zs[q, :2] - v[:2]))))
         seg = zs[j, :2] - zs[k, :2]
         f = float(np.clip(np.dot(v[:2] - zs[k, :2], seg) / max(float(np.dot(seg, seg)), 1e-9), 0.0, 1.0))
         L, R = le[k] + (le[j] - le[k]) * f, ri[k] + (ri[j] - ri[k]) * f
         across = (L - R)[:2]
-        t = float(np.dot(v[:2] - R[:2], across) / max(float(np.dot(across, across)), 1e-9))
+        return L, R, float(np.dot(v[:2] - R[:2], across) / max(float(np.dot(across, across)), 1e-9))
+
+    worst = 0.0
+    for v in world_verts(c):
+        L, R, t = across_road(v)
         worst = max(worst, abs(float(v[2]) - (R[2] + t * (L[2] - R[2]))))
     check(worst < 0.05, f"{name}: #ai_race_main lies on the (cambered) road surface", f"max |dz| {worst:.3f} m")
+    # The game fits its racing line (and the AI's corner speeds) inside the race strip, constrained at the sector
+    # lines only: between two lines the strip's edges are straight chords. Sectors short enough round tight
+    # corners and through chicanes keep those chords on the road, as stock sectors do (stock: mostly under 30
+    # deg per sector); 16 m sectors cut up to 3-5 m across the inside of the hairpins (2026-10-26, AI overshooting).
+    clear = {"race": C.AI_RACE_INSET - C.AI_CHORD_TOL - 0.15, "safe": C.AI_SAFE_INSET - C.AI_CHORD_TOL - 0.15}
+    cut, turns = {}, []
+    for kind, ob in (("race", c), ("safe", s)):
+        lines = [(np.array(a), np.array(b)) for a, b in strip_lines(ob)]
+        worst_in = np.inf
+        for (a0, b0), (a1, b1) in itertools.pairwise(lines):
+            for p, q in ((a0, a1), (b0, b1)):
+                for f in np.linspace(0.0, 1.0, max(2, int(np.hypot(*(q - p)[:2])) + 1)):
+                    L, R, t = across_road(p + (q - p) * f)
+                    worst_in = min(worst_in, min(t, 1.0 - t) * float(np.hypot(*(L - R)[:2])))
+            if kind == "race":
+                d0, d1 = (b0 - a0)[:2], (b1 - a1)[:2]
+                turns.append(abs(math.degrees(math.atan2(d0[0] * d1[1] - d0[1] * d1[0], float(d0 @ d1)))))
+        cut[kind] = worst_in
+    check(all(cut[k] >= clear[k] for k in cut),
+          f"{name}: AI race and safe strips stay on the road between sector lines (chords round corners)",
+          ", ".join(f"{k} edge {cut[k]:.2f} m inside the road edge (need {clear[k]:.2f})" for k in cut))
+    check(max(turns) <= 40.0, f"{name}: AI sectors turn at most 40 deg each (stock: mostly under 30)",
+          f"max {max(turns):.1f} deg, {sum(t > 30.0 for t in turns)} over 30")
     main_lines = set(strip_lines(r))
     if multi:
         alts = [o for o in obs if re.match(r"^#ai_(route|safe|race)_alt\d+$", o)]
